@@ -1,4 +1,13 @@
-# Gangtise OpenAPI Python SDK — Implementation Plan
+# Gangtise OpenAPI Python SDK — Implementation Plan (v2)
+
+> **v2 changes (2026-05-27, post-Codex review):**
+> - Rebuilt fundamental / ai / vault / alternative / reference manifests against `gangtise-openapi-cli/src/cli.ts` and `commandBodies.ts` (kwargs and body field names were wrong in v1).
+> - Pagination registry: `ai.security-clue.list`=500, `ai.hot-topic`=20, `vault.wechat-chatroom.list`=**no pagination**. Paginated total dropped from "expected 19" to 18.
+> - Fixed Task 17 `Quote` signature bug (`_day_kline` kwargs now all optional; public methods get explicit signatures, not `**kwargs`).
+> - Inserted new Task 7.5: create `tests/conftest.py` between foundation and transport tasks.
+> - Wired the title cache into `_download` (list endpoints populate, download endpoints consume) instead of leaving it standalone.
+> - Split Task 16 (insight 19) into 16a (lists), 16b (downloads). Split Task 19 (AI 14) into 19a (sync metadata), 19b (async polled). Split Task 26 (async 9 mirrors) into one task per domain (26a–26i).
+> - Added explicit return-type annotations on `__exit__`/`__aexit__` and method signatures shown inline so mypy strict passes.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -943,12 +952,37 @@ def test_lookup_unknown_raises():
         lookup("does.not.exist")
 
 
-def test_pagination_endpoints_have_max_page_size():
-    paginated_keys = [k for k, ep in ENDPOINTS.items() if ep.pagination is not None]
-    assert "insight.opinion.list" in paginated_keys
-    for key in paginated_keys:
-        assert ENDPOINTS[key].pagination is not None
-        assert ENDPOINTS[key].pagination.max_page_size > 0
+def test_pagination_registry_matches_ts_source():
+    # Translated 1:1 from gangtise-openapi-cli/src/core/endpoints.ts.
+    # max_page_size differs per endpoint — do NOT assume "all 50".
+    expected: dict[str, int] = {
+        "insight.opinion.list": 50,
+        "insight.summary.list": 50,
+        "insight.roadshow.list": 50,
+        "insight.site-visit.list": 50,
+        "insight.strategy.list": 50,
+        "insight.forum.list": 50,
+        "insight.research.list": 50,
+        "insight.foreign-report.list": 50,
+        "insight.announcement.list": 50,
+        "insight.announcement-hk.list": 50,
+        "insight.foreign-opinion.list": 50,
+        "insight.independent-opinion.list": 50,
+        "ai.security-clue.list": 500,
+        "ai.hot-topic": 20,
+        "vault.drive.list": 50,
+        "vault.record.list": 50,
+        "vault.my-conference.list": 50,
+        "vault.wechat-message.list": 50,
+        # NOTE: vault.wechat-chatroom.list is NOT paginated in TS (size default 20, but no pagination block).
+        # NOTE: vault.stock-pool.list and vault.stock-pool.stocks are NOT paginated.
+    }
+    actual = {
+        k: ep.pagination.max_page_size
+        for k, ep in ENDPOINTS.items() if ep.pagination is not None
+    }
+    assert actual == expected
+    assert ENDPOINTS["vault.wechat-chatroom.list"].pagination is None
 
 
 def test_download_endpoints_have_kind_download():
@@ -1091,7 +1125,32 @@ def lookup(key: str) -> EndpointDef:
         raise KeyError(f"Unknown endpoint key: {key}") from exc
 ```
 
-The full 73-entry dictionary is produced by translating `endpoints.ts`. The translation is mechanical — write each entry, do not paraphrase descriptions. Pagination flags appear on these TS entries: `insight.opinion.list`, `insight.summary.list`, `insight.roadshow.list`, `insight.site-visit.list`, `insight.strategy.list`, `insight.forum.list`, `insight.research.list`, `insight.foreign-report.list`, `insight.announcement.list`, `insight.announcement-hk.list`, `insight.foreign-opinion.list`, `insight.independent-opinion.list`, `ai.security-clue.list`, `vault.drive.list`, `vault.record.list`, `vault.my-conference.list`, `vault.wechat-message.list`, `vault.wechat-chatroom.list` (all `maxPageSize: 50`). Confirm by `grep -n pagination` on `endpoints.ts`.
+The full 73-entry dictionary is produced by translating `endpoints.ts`. The translation is mechanical — write each entry, do not paraphrase descriptions.
+
+**Pagination registry (18 endpoints, `max_page_size` differs):**
+
+| Endpoint | `max_page_size` |
+|---|---|
+| `insight.opinion.list` | 50 |
+| `insight.summary.list` | 50 |
+| `insight.roadshow.list` | 50 |
+| `insight.site-visit.list` | 50 |
+| `insight.strategy.list` | 50 |
+| `insight.forum.list` | 50 |
+| `insight.research.list` | 50 |
+| `insight.foreign-report.list` | 50 |
+| `insight.announcement.list` | 50 |
+| `insight.announcement-hk.list` | 50 |
+| `insight.foreign-opinion.list` | 50 |
+| `insight.independent-opinion.list` | 50 |
+| `ai.security-clue.list` | **500** |
+| `ai.hot-topic` | **20** |
+| `vault.drive.list` | 50 |
+| `vault.record.list` | 50 |
+| `vault.my-conference.list` | 50 |
+| `vault.wechat-message.list` | 50 |
+
+Endpoints **without** pagination (re-confirm by `grep -n pagination /Users/martin/Documents/claude_workspace/gangtise-openapi-cli/src/core/endpoints.ts`): `vault.wechat-chatroom.list`, `vault.stock-pool.list`, `vault.stock-pool.stocks`, `reference.securities-search`, `auth.login`, every `*.download`, every other endpoint listed but not above.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1304,6 +1363,87 @@ Expected: 3 passed.
 ```bash
 git add src/gangtise_openapi/_lookup tests/unit/test_lookup.py
 git commit -m "feat(lookup): bundle 8 local lookup datasets from TS source"
+```
+
+---
+
+### Task 7.5: Test fixtures (`tests/conftest.py`)
+
+**Files:**
+- Create: `tests/__init__.py` (empty)
+- Create: `tests/unit/__init__.py` (empty)
+- Create: `tests/conftest.py`
+
+This task must land **before** Task 8 because the transport tests reference these fixtures. The fixtures must not import any module that doesn't exist yet — at this point `_client.py` is not built, so the conftest only exposes `Config` and a minimal token-cache seed helper.
+
+- [ ] **Step 1: Write `tests/__init__.py` and `tests/unit/__init__.py`** (empty files)
+
+```
+```
+
+- [ ] **Step 2: Write `tests/conftest.py`**
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from gangtise_openapi._config import Config
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """anyio uses this fixture to pick a backend; default to asyncio."""
+    return "asyncio"
+
+
+@pytest.fixture
+def config(tmp_path: Path) -> Config:
+    """A Config pointing at a fake host with isolated cache paths.
+
+    The token_cache_path is NOT pre-seeded; tests that want to skip the login
+    round-trip should use `seeded_config` instead.
+    """
+    return Config(
+        base_url="https://api.test",
+        access_key="ak",
+        secret_key="sk",
+        token=None,
+        token_cache_path=tmp_path / "token.json",
+        title_cache_path=tmp_path / "title.json",
+        timeout_ms=5000,
+        page_concurrency=3,
+    )
+
+
+@pytest.fixture
+def seeded_config(config: Config) -> Config:
+    """A Config whose on-disk token cache already holds a valid token."""
+    config.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    config.token_cache_path.write_text(
+        json.dumps({
+            "accessToken": "seeded-tok",
+            "expiresIn": 3600,
+            "time": 0,
+            "expiresAt": 9999999999,
+        })
+    )
+    return config
+```
+
+- [ ] **Step 3: Verify pytest can collect with the new conftest**
+
+Run: `uv run pytest --collect-only tests/unit -q`
+Expected: existing unit tests are collected, no import errors. (No new tests added in this task.)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/__init__.py tests/unit/__init__.py tests/conftest.py
+git commit -m "test: scaffold shared conftest with config + seeded_config fixtures"
 ```
 
 ---
@@ -2589,7 +2729,12 @@ class GangtiseClient:
         self._http = build_sync_client(self._config)
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> None:
         self.close()
 
     def _http_client(self) -> httpx.Client:
@@ -3207,6 +3352,18 @@ _SCHEMA_SECURITIES_SEARCH = [
 ]
 
 
+def _as_list(value: Any) -> list[Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in body.items() if v is not None}
+
+
 class Reference:
     """`gangtise.reference.*` — reference data lookups."""
 
@@ -3217,17 +3374,30 @@ class Reference:
         self,
         *,
         keyword: str,
+        category: Any = None,
+        top: int = 10,
         raw: bool = False,
-    ):
-        body = {"keyword": keyword}
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        # TS body shape (cli.ts:503):
+        #   { keyword, category: maybeArray(category) | undefined, top: int }
+        body = _strip_none({
+            "keyword": keyword,
+            "category": _as_list(category),
+            "top": top,
+        })
         result = self._client._call("reference.securities-search", body=body)
-        rows = result if isinstance(result, list) else result.get("list", [])
         if raw:
-            return rows
+            return result
+        if isinstance(result, list):
+            rows: list[Any] = result
+        elif isinstance(result, dict):
+            rows = result.get("list", [])
+        else:
+            rows = []
         return to_dataframe(rows, schema=_SCHEMA_SECURITIES_SEARCH)
 ```
 
-(If `reference.securities-search` returns a top-level dict with extra metadata, preserve the same wrapper shape; if the response is a plain list, the `isinstance` branch above handles it. Validate against the TS `cli.ts` call to `client.call("reference.securities-search", { keyword: ... })`.)
+Note the `category` choices the TS CLI enforces are `stock/dr/index/fund` — we don't enforce them at the Python level (the server validates), but document them in the docstring during implementation.
 
 - [ ] **Step 5: Update `src/gangtise_openapi/_facade.py:_DOMAIN_FACTORIES`**
 
@@ -3395,7 +3565,7 @@ git commit -m "feat(domains): auth + lookup + reference wrappers"
 
 ---
 
-### Task 16: Insight domain (19 endpoints)
+### Task 16a: Insight — list endpoints (13)
 
 **Files:**
 - Create: `src/gangtise_openapi/domains/insight.py`
@@ -3403,44 +3573,51 @@ git commit -m "feat(domains): auth + lookup + reference wrappers"
 - Modify: `src/gangtise_openapi/_facade.py` (add `insight` to `_DOMAIN_FACTORIES`)
 - Modify: `src/gangtise_openapi/domains/__init__.py` (re-export `Insight`)
 
-**Endpoint manifest** (translate from `gangtise-openapi-cli/src/cli.ts` lines ~135-290).
+**Endpoint manifest** (verified against `gangtise-openapi-cli/src/cli.ts:138-283`).
 
-For every endpoint below: the Python wrapper accepts the kwargs in the **Kwargs** column (snake_case), maps them to body fields in the **Body** column (camelCase exactly as TS sends), invokes `self._client._call(<endpoint_key>, body=body)`, and returns either a DataFrame (for list endpoints) or a download result (download endpoints go via `_download` once Task 21 lands; until then return raw dict).
+For every endpoint below: the Python wrapper accepts the kwargs in the **Kwargs** column (snake_case), maps them to body fields in the **Body** column (camelCase exactly as TS sends), invokes `self._client._call(<endpoint_key>, body=body)`, and returns a DataFrame.
 
-| Endpoint key | Method | Kwargs (Python) | Body fields (TS) | Returns |
-|---|---|---|---|---|
-| `insight.opinion.list` | POST | `from_=0, size=None, start_time=None, end_time=None, keyword=None, rank_type=1, research_area=None, chief=None, security=None, broker=None, industry=None, concept=None, llm_tag=None, source=None` | `from, size, startTime, endTime, keyword, rankType, researchAreaList, chiefList, securityList, brokerList, industryList, conceptList, llmTagList, sourceList` | DataFrame |
-| `insight.summary.list` | POST | `from_, size, start_time, end_time, keyword, search_type=1, rank_type=1, source=None, research_area=None, security=None, institution=None, category=None, market=None, participant_role=None` | `from, size, startTime, endTime, keyword, searchType, rankType, sourceList, researchAreaList, securityList, institutionList, categoryList, marketList, participantRoleList` | DataFrame |
-| `insight.summary.download` | GET | `summary_id, file_type=None, output=None` | query: `summaryId, fileType` | download (Path) |
-| `insight.roadshow.list` | POST | (same as `schedule` shape — see TS `addScheduleList`) `from_, size, start_time, end_time, keyword, research_area, institution, security, category, market, participant_role, broker_type, object_, permission` | same camelCase + `List` suffix as above | DataFrame |
-| `insight.site-visit.list` | POST | same as roadshow | same | DataFrame |
-| `insight.strategy.list` | POST | same as roadshow | same | DataFrame |
-| `insight.forum.list` | POST | same as roadshow | same | DataFrame |
-| `insight.research.list` | POST | `from_, size, start_time, end_time, keyword, search_type=1, rank_type=1, broker=None, security=None, industry=None, category=None, llm_tag=None, rating=None, rating_change=None, min_pages=None, max_pages=None, source=None` | `from, size, startTime, endTime, keyword, searchType, rankType, brokerList, securityList, industryList, categoryList, llmTagList, ratingList, ratingChangeList, minPages, maxPages, sourceList` | DataFrame |
-| `insight.research.download` | GET | `report_id, output=None` | query: `reportId` | download (Path) |
-| `insight.foreign-report.list` | POST | `from_, size, start_time, end_time, keyword, search_type=1, rank_type=1, security=None, region=None, category=None, industry=None, broker=None, llm_tag=None, rating=None, rating_change=None, min_pages=None, max_pages=None` | same camelCase | DataFrame |
-| `insight.foreign-report.download` | GET | `report_id, output=None` | query: `reportId` | download |
-| `insight.announcement.list` | POST | `from_, size, start_time, end_time, keyword, search_type=1, rank_type=1, security=None, announcement_type=None, category=None` | `from, size, startTime (13-digit timestamp), endTime (13-digit timestamp), keyword, searchType, rankType, securityList, announcementTypeList, categoryList` | DataFrame |
-| `insight.announcement.download` | GET | `announcement_id, output=None` | query: `announcementId` | download |
-| `insight.announcement-hk.list` | POST | (same as `announcement.list`) | same | DataFrame |
-| `insight.announcement-hk.download` | GET | `announcement_id, output=None` | query: `announcementId` | download |
-| `insight.foreign-opinion.list` | POST | `from_, size, start_time, end_time, rank_type=1, security, region, industry, broker, rating, rating_change` | same camelCase | DataFrame |
-| `insight.independent-opinion.list` | POST | `from_, size, start_time, end_time, rank_type=1, security, industry, rating, rating_change` | same camelCase | DataFrame |
-| `insight.independent-opinion.download` | GET | `opinion_id, output=None` | query: `opinionId` | download |
+Common params (all 13 endpoints accept these in the body): `from` (int), `size` (int|None), `startTime` (str), `endTime` (str), `keyword` (str). The Python kwargs map to `from_`, `size`, `start_time`, `end_time`, `keyword`.
 
-**Body translation rules (universal):**
-- `--from <n>` (TS) → `from_` (Python kwarg, trailing underscore to dodge keyword clash) → `from` (body field).
+| Endpoint key | TS cli.ts | Extra kwargs (Python) | Extra body fields (TS) |
+|---|---|---|---|
+| `insight.opinion.list` | 138-146 | `rank_type=1, research_area=None, chief=None, security=None, broker=None, industry=None, concept=None, llm_tag=None, source=None` | `rankType, researchAreaList, chiefList, securityList, brokerList, industryList, conceptList, llmTagList, sourceList` |
+| `insight.summary.list` | 148-156 | `search_type=1, rank_type=1, source=None, research_area=None, security=None, institution=None, category=None, market=None, participant_role=None` | `searchType, rankType, sourceList, researchAreaList, securityList, institutionList, categoryList, marketList, participantRoleList` |
+| `insight.roadshow.list` | 168-177 | `research_area=None, institution=None, security=None, category=None, market=None, participant_role=None, broker_type=None, object_=None, permission=None` | `researchAreaList, institutionList, securityList, categoryList, marketList, participantRoleList, brokerTypeList, objectList, permission` |
+| `insight.site-visit.list` | 168-178 | same as roadshow | same |
+| `insight.strategy.list` | 168-179 | same as roadshow | same |
+| `insight.forum.list` | 168-180 | same as roadshow | same |
+| `insight.research.list` | 182-192 | `search_type=1, rank_type=1, broker=None, security=None, industry=None, category=None, llm_tag=None, rating=None, rating_change=None, min_pages=None, max_pages=None, source=None` | `searchType, rankType, brokerList, securityList, industryList, categoryList, llmTagList, ratingList, ratingChangeList, **minReportPages**, **maxReportPages**, sourceList` |
+| `insight.foreign-report.list` | 202-212 | `search_type=1, rank_type=1, security=None, region=None, category=None, industry=None, broker=None, llm_tag=None, rating=None, rating_change=None, min_pages=None, max_pages=None` | `searchType, rankType, securityList, regionList, categoryList, industryList, brokerList, llmTagList, ratingList, ratingChangeList, **minReportPages**, **maxReportPages** |
+| `insight.announcement.list` | 222-230 | `search_type=1, rank_type=1, security=None, announcement_type=None, category=None` | `searchType, rankType, securityList, announcementTypeList, categoryList`. Note: `startTime`/`endTime` are **13-digit Unix ms timestamps** (TS uses `parseTimestamp13`). The wrapper accepts `int` (ms) or `str` (ISO date-time, with our own parsing to ms). |
+| `insight.announcement-hk.list` | 240-250 | same as announcement.list | same (but `startTime`/`endTime` are plain strings, NOT 13-digit timestamps) |
+| `insight.foreign-opinion.list` | 260-271 | `rank_type=1, security=None, region=None, industry=None, broker=None, rating=None, rating_change=None` | `rankType, securityList, regionList, industryList, brokerList, ratingList, ratingChangeList` |
+| `insight.independent-opinion.list` | 273-283 | `rank_type=1, security=None, industry=None, rating=None, rating_change=None` | `rankType, securityList, industryList, ratingList, ratingChangeList` |
+
+**Key corrections vs v1:**
+- `minReportPages` / `maxReportPages` (not `minPages` / `maxPages`) for research + foreign-report.
+- Schedule endpoints (`roadshow/site-visit/strategy/forum`) send `permission` as a number list, not wrapped via `_as_list`. TS uses `options.permission.length ? options.permission : undefined`.
+- `insight.announcement.list` `startTime`/`endTime` are **milliseconds** in TS.
+- `insight.independent-opinion.list` does NOT take `region` or `broker` (those are for `foreign-opinion`).
+
+**Body translation rules (universal — used by every domain task):**
+- `--from <n>` (TS) → `from_` (Python kwarg, trailing underscore avoids the `from` keyword) → `from` (body field).
 - `--xxx-yyy` (TS) → `xxx_yyy` (Python kwarg) → `xxxYyy` (body field).
-- List-typed CLI options (TS `collectList`/`collectNumberList`) accept either a single value or a list at the Python boundary; the wrapper normalizes to a list before sending, body field uses the `…List` suffix where TS does. The helper:
-  ```python
-  def _as_list(value: Any) -> list[Any] | None:
-      if value is None:
-          return None
-      if isinstance(value, (list, tuple)):
-          return list(value)
-      return [value]
-  ```
-- Strip `None` values from the final body so the server sees only the fields the user actually set.
+- List-typed CLI options (TS `collectList`/`collectNumberList`) accept either a single value or a list at the Python boundary; the wrapper normalizes to a list before sending. Body field uses the `…List` suffix only where TS does — never invent one.
+- Strip `None` values from the final body so the server sees only the fields the user actually set. The standard helpers (used in every domain wrapper):
+
+```python
+def _as_list(value: Any) -> list[Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in body.items() if v is not None}
+```
 
 - [ ] **Step 1: Write the wrapper for one list endpoint (full code)**
 
@@ -3526,41 +3703,34 @@ class Insight:
         return to_dataframe(rows, schema=_OPINION_SCHEMA)
 ```
 
-- [ ] **Step 2: Add the remaining 18 wrappers**
+- [ ] **Step 2: Add the remaining 12 list wrappers**
 
-For every endpoint in the manifest above, copy the `opinion_list` template, substituting:
-- The Python method name (replace `-` with `_` and dot-paths with `_`: `insight.research.list` → `research_list`, `insight.research.download` → `research_download`).
-- The kwarg signature (per **Kwargs** column).
-- The body dict (per **Body fields** column). For 13-digit timestamps (announcement list endpoints in TS use `parseTimestamp13`), accept Python `int` (milliseconds since epoch) or ISO 8601 string and pass through verbatim.
+For each remaining row in the manifest, copy the `opinion_list` template, substituting:
+- The Python method name (replace `-` with `_` and dot-paths with `_`: `insight.research.list` → `research_list`).
+- The kwarg signature (common params + the **Extra kwargs** column).
+- The body dict (common fields + the **Extra body fields** column).
 - The endpoint key.
-- The schema constant (define one per list endpoint; column lists derived from observed payloads — when in doubt, leave `schema=None` to let pandas surface all columns).
+- The schema constant — define one per list endpoint. When the row shape is unstable across responses, set `schema=None` and let pandas infer all columns (the test pinning happens at the smoke layer, not here).
 
-For each `*.download` endpoint, the wrapper signature is:
-
-```python
-    def research_download(
-        self,
-        *,
-        report_id: str,
-        output: str | Path | None = None,
-    ) -> Path:
-        return _download_via_client(
-            self._client,
-            endpoint_key="insight.research.download",
-            query={"reportId": report_id},
-            output=output,
-            fallback_name=f"research-{report_id}",
-        )
-```
-
-`_download_via_client` does not exist yet — Task 21 creates it. Until then, leave the download wrappers as:
+**13-digit-timestamp special case** (`insight.announcement.list` only): wrapper signature accepts `start_time: int | str | None` and `end_time: int | str | None`. If the input is a string, convert with:
 
 ```python
-    def research_download(self, *, report_id: str, output: str | Path | None = None) -> dict[str, Any]:
-        raise NotImplementedError("download support lands in Task 21")
+import datetime as dt
+
+def _to_unix_ms(value: int | str | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    parsed = dt.datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return int(parsed.timestamp() * 1000)
 ```
 
-and skip the corresponding smoke tests with `pytest.mark.skip(reason="download support: Task 21")`.
+(Place this helper near `_as_list` at the top of `insight.py`.)
+
+Download wrappers are NOT in this task — they live in Task 16b. Do not put `*_download` methods on `Insight` yet.
 
 - [ ] **Step 3: Add `Insight` to `domains/__init__.py`**
 
@@ -3637,7 +3807,7 @@ Add a similar test (success + 1-row mock response) for every `*.list` endpoint. 
 - [ ] **Step 6: Run tests**
 
 Run: `uv run pytest tests/endpoints/test_insight.py -v`
-Expected: 17 passed (19 endpoints minus 2 deferred download tests).
+Expected: 13 passed (one per list endpoint).
 
 - [ ] **Step 7: Commit**
 
@@ -3646,7 +3816,175 @@ git add src/gangtise_openapi/domains/insight.py \
         src/gangtise_openapi/domains/__init__.py \
         src/gangtise_openapi/_facade.py \
         tests/endpoints/test_insight.py
-git commit -m "feat(insight): wrap 19 endpoints with DataFrame return"
+git commit -m "feat(insight): wrap 13 list endpoints with DataFrame return"
+```
+
+---
+
+### Task 16b: Insight — download endpoints (6)
+
+**Files:**
+- Modify: `src/gangtise_openapi/domains/insight.py` (add 6 `*_download` methods)
+- Modify: `tests/endpoints/test_insight.py` (add download smoke tests)
+
+This task **must land after Task 22** (which creates `_download.download_to_path`). Mark it `blocks: 22` if the executor honors task dependencies; otherwise run them in this order: 16a → 22 → 16b.
+
+**Download manifest** (verified against `cli.ts:157-290`).
+
+| Endpoint key | Python method | Required kwargs | Optional kwargs | Query fields sent | Resolves title via |
+|---|---|---|---|---|---|
+| `insight.summary.download` | `summary_download` | `summary_id: str` | `file_type: int = None, output=None` | `summaryId, fileType` | `insight.summary.list` keyed by `summaryId` |
+| `insight.research.download` | `research_download` | `report_id: str` | `file_type: int = 1, output=None` | `reportId, fileType` | `insight.research.list` keyed by `reportId` |
+| `insight.foreign-report.download` | `foreign_report_download` | `report_id: str` | `file_type: int = 1, output=None` | `reportId, fileType` | `insight.foreign-report.list` keyed by `reportId` |
+| `insight.announcement.download` | `announcement_download` | `announcement_id: str` | `file_type: int = 1, output=None` | `announcementId, fileType` | `insight.announcement.list` keyed by `announcementId` |
+| `insight.announcement-hk.download` | `announcement_hk_download` | `announcement_id: str` | `output=None` | `announcementId` (no fileType) | `insight.announcement-hk.list` keyed by `announcementId` |
+| `insight.independent-opinion.download` | `independent_opinion_download` | `independent_opinion_id: str, file_type: int` (both required) | `output=None` | `independentOpinionId, fileType` | (no title resolution in TS source) |
+
+- [ ] **Step 1: Add 6 download methods to `Insight`**
+
+```python
+from pathlib import Path
+
+from gangtise_openapi._download import download_to_path
+
+
+class Insight:
+    # ... existing list wrappers from Task 16a ...
+
+    def summary_download(
+        self,
+        *,
+        summary_id: str,
+        file_type: int | None = None,
+        output: str | Path | None = None,
+    ) -> Path:
+        query: dict[str, str | int] = {"summaryId": summary_id}
+        if file_type is not None:
+            query["fileType"] = file_type
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.summary.download",
+            query=query,
+            output=output,
+            fallback_name=f"summary-{summary_id}",
+            title_lookup=("insight.summary.list", "summaryId", summary_id),
+        )
+
+    def research_download(
+        self,
+        *,
+        report_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.research.download",
+            query={"reportId": report_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"research-{report_id}",
+            title_lookup=("insight.research.list", "reportId", report_id),
+        )
+
+    def foreign_report_download(
+        self,
+        *,
+        report_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.foreign-report.download",
+            query={"reportId": report_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"foreign-report-{report_id}",
+            title_lookup=("insight.foreign-report.list", "reportId", report_id),
+        )
+
+    def announcement_download(
+        self,
+        *,
+        announcement_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.announcement.download",
+            query={"announcementId": announcement_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"announcement-{announcement_id}",
+            title_lookup=("insight.announcement.list", "announcementId", announcement_id),
+        )
+
+    def announcement_hk_download(
+        self,
+        *,
+        announcement_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.announcement-hk.download",
+            query={"announcementId": announcement_id},
+            output=output,
+            fallback_name=f"announcement-hk-{announcement_id}",
+            title_lookup=("insight.announcement-hk.list", "announcementId", announcement_id),
+        )
+
+    def independent_opinion_download(
+        self,
+        *,
+        independent_opinion_id: str,
+        file_type: int,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.independent-opinion.download",
+            query={
+                "independentOpinionId": independent_opinion_id,
+                "fileType": file_type,
+            },
+            output=output,
+            fallback_name=f"independent-opinion-{independent_opinion_id}",
+            title_lookup=None,
+        )
+```
+
+`title_lookup=(list_endpoint_key, id_field, id_value)` is the new parameter Task 22 adds to `download_to_path` (see §Task 22 below). `None` means skip title resolution.
+
+- [ ] **Step 2: Add 6 download smoke tests**
+
+For each download endpoint, add a test mocking the download response with `Content-Disposition: attachment; filename="..."` and assert the file lands at the expected path. Use the `seeded_config` fixture from Task 7.5.
+
+Example:
+
+```python
+def test_summary_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"summary",
+                headers={"content-disposition": 'attachment; filename="s.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).summary_download(
+                summary_id="s1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"summary"
+```
+
+- [ ] **Step 3: Run + commit**
+
+Run: `uv run pytest tests/endpoints/test_insight.py -v` → all 13 list + 6 download tests pass.
+
+```bash
+git add src/gangtise_openapi/domains/insight.py tests/endpoints/test_insight.py
+git commit -m "feat(insight): add 6 *_download wrappers with title-cache lookup"
 ```
 
 ---
@@ -3732,11 +4070,11 @@ class Quote:
         endpoint_key: str,
         *,
         security: Any,
-        start_date: str | dt.date | None,
-        end_date: str | dt.date | None,
-        limit: int | None,
-        field: Any,
-        raw: bool,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         days_per_shard = SHARD_DAYS[endpoint_key]
         if needs_limit_injection(security=security, explicit_limit=limit):
@@ -3789,17 +4127,69 @@ class Quote:
             return result_payload
         return to_dataframe(rows, schema=_DAY_KLINE_SCHEMA)
 
-    def day_kline(self, **kwargs: Any):
-        return self._day_kline("quote.day-kline", **kwargs)
+    def day_kline(
+        self,
+        *,
+        security: Any,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        return self._day_kline(
+            "quote.day-kline",
+            security=security, start_date=start_date, end_date=end_date,
+            limit=limit, field=field, raw=raw,
+        )
 
-    def day_kline_hk(self, **kwargs: Any):
-        return self._day_kline("quote.day-kline-hk", **kwargs)
+    def day_kline_hk(
+        self,
+        *,
+        security: Any,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        return self._day_kline(
+            "quote.day-kline-hk",
+            security=security, start_date=start_date, end_date=end_date,
+            limit=limit, field=field, raw=raw,
+        )
 
-    def day_kline_us(self, **kwargs: Any):
-        return self._day_kline("quote.day-kline-us", **kwargs)
+    def day_kline_us(
+        self,
+        *,
+        security: Any,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        return self._day_kline(
+            "quote.day-kline-us",
+            security=security, start_date=start_date, end_date=end_date,
+            limit=limit, field=field, raw=raw,
+        )
 
-    def index_day_kline(self, **kwargs: Any):
-        return self._day_kline("quote.index-day-kline", **kwargs)
+    def index_day_kline(
+        self,
+        *,
+        security: Any,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        return self._day_kline(
+            "quote.index-day-kline",
+            security=security, start_date=start_date, end_date=end_date,
+            limit=limit, field=field, raw=raw,
+        )
 
     def minute_kline(
         self,
@@ -3969,11 +4359,11 @@ git commit -m "feat(quote): 6 wrappers with K-line date sharding + all-market li
 - Modify: `src/gangtise_openapi/domains/__init__.py`
 - Modify: `src/gangtise_openapi/_facade.py`
 
-**Endpoint manifest** (TS reference: `cli.ts:333-409`).
+**Endpoint manifest** (verified against `cli.ts:335-378`).
 
 | Endpoint key | Python method | Kwargs | Body fields |
 |---|---|---|---|
-| `fundamental.income-statement` | `income_statement` | `security_code, start_date, end_date, fiscal_year, period, report_type, field, raw` | `securityCode, startDate, endDate, fiscalYear, period (list or None), reportType (list or None), fieldList` |
+| `fundamental.income-statement` | `income_statement` | `security_code, start_date=None, end_date=None, fiscal_year=None, period=None, report_type=None, field=None, raw=False` | `securityCode, startDate, endDate, fiscalYear (list), period (list or None), reportType (list or None), fieldList` |
 | `fundamental.income-statement-quarterly` | `income_statement_quarterly` | same | same |
 | `fundamental.balance-sheet` | `balance_sheet` | same | same |
 | `fundamental.cash-flow` | `cash_flow` | same | same |
@@ -3981,14 +4371,23 @@ git commit -m "feat(quote): 6 wrappers with K-line date sharding + all-market li
 | `fundamental.income-statement-hk` | `income_statement_hk` | same | same |
 | `fundamental.balance-sheet-hk` | `balance_sheet_hk` | same | same |
 | `fundamental.cash-flow-hk` | `cash_flow_hk` | same | same |
-| `fundamental.main-business` | `main_business` | `security_code, start_date, end_date, breakdown="product", period, field, raw` | `securityCode, startDate, endDate, breakdown, periodList, fieldList` |
-| `fundamental.valuation-analysis` | `valuation_analysis` | `security_code, indicator, range_=None, field=None, raw` (TS uses `--range` flag; `range` is a Python builtin, so use `range_`; body field `range`) | `securityCode, indicator, range, fieldList` |
-| `fundamental.top-holders` | `top_holders` | `security_code, top_n=None, field=None, raw` | `securityCode, topN, fieldList` |
-| `fundamental.earning-forecast` | `earning_forecast` | `security_code, broker=None, field=None, raw` | `securityCode, brokerList, fieldList` |
+| `fundamental.main-business` | `main_business` | `security_code, start_date=None, end_date=None, breakdown="product", period=None, field=None, raw=False` | `securityCode, startDate, endDate, breakdown, periodList, fieldList`. `breakdown` is one of `product / industry / region`. |
+| `fundamental.valuation-analysis` | `valuation_analysis` | `security_code, indicator (required, one of peTtm/pbMrq/peg/psTtm/pcfTtm/em), start_date=None, end_date=None, limit=None, field=None, skip_null=False, raw=False` | `securityCode, indicator, startDate, endDate, limit, fieldList`. `skip_null` is **client-side** post-filter (TS does it locally — drop rows where `value` or `percentileRank` is null). |
+| `fundamental.top-holders` | `top_holders` | `security_code, holder_type (required, one of "top10" / "top10Float"), start_date=None, end_date=None, fiscal_year=None, period=None, raw=False` | `securityCode, holderType, startDate, endDate, fiscalYear (list), period (list or None)`. No `fieldList`. |
+| `fundamental.earning-forecast` | `earning_forecast` | `security_code, start_date=None, end_date=None, consensus=None, raw=False` | `securityCode, startDate, endDate, consensusList`. `consensus` is a list of `netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps`. No `fieldList`. |
 
-**DataFrame schema:** for the 8 statement endpoints the schema is best left `schema=None` (server response columns vary by report shape); for `valuation_analysis` schema is `["securityCode", "indicator", "date", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]`; for `top_holders`: `["securityCode", "reportDate", "holderName", "shareCount", "sharePercent"]`; for `earning_forecast`: `["securityCode", "broker", "reportDate", "year", "revenueForecast", "netProfitForecast", "epsForecast", "targetPrice"]`; for `main_business`: `["securityCode", "reportDate", "breakdown", "name", "revenue", "revenuePercent"]`.
+**Key corrections vs v1:**
+- `valuation_analysis`: takes `indicator/startDate/endDate/limit/fieldList` (not `range_`). `indicator` is required and constrained to 6 choices. `skip_null` is a Python-side filter, not a body param.
+- `top_holders`: takes `holderType/startDate/endDate/fiscalYear/period` (not `topN`). `holderType` is required.
+- `earning_forecast`: takes `startDate/endDate/consensusList` (not `brokerList`).
 
-Use the wrapper template established in Task 17 (with `_strip_none` + `_as_list`). Each method follows:
+**Schemas:**
+- 8 statement endpoints + `main_business`: `schema=None`, let pandas infer.
+- `valuation_analysis`: `["securityCode", "indicator", "date", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]`.
+- `top_holders`: `schema=None`.
+- `earning_forecast`: `schema=None`.
+
+Use the wrapper template established in Task 17. Statement endpoints look like:
 
 ```python
 def income_statement(
@@ -4001,7 +4400,7 @@ def income_statement(
     report_type: Any = None,
     field: Any = None,
     raw: bool = False,
-):
+) -> pd.DataFrame | dict[str, Any]:
     body = _strip_none({
         "securityCode": security_code,
         "startDate": start_date,
@@ -4016,6 +4415,40 @@ def income_statement(
         return result
     rows = result.get("list", []) if isinstance(result, dict) else result
     return to_dataframe(rows, schema=None)
+```
+
+`valuation_analysis` has the `skip_null` post-filter; sketch:
+
+```python
+def valuation_analysis(
+    self, *,
+    security_code: str,
+    indicator: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int | None = None,
+    field: Any = None,
+    skip_null: bool = False,
+    raw: bool = False,
+) -> pd.DataFrame | dict[str, Any]:
+    body = _strip_none({
+        "securityCode": security_code,
+        "indicator": indicator,
+        "startDate": start_date,
+        "endDate": end_date,
+        "limit": limit,
+        "fieldList": _as_list(field),
+    })
+    result = self._client._call("fundamental.valuation-analysis", body=body)
+    if raw:
+        return result
+    rows = result.get("list", []) if isinstance(result, dict) else result
+    if skip_null:
+        rows = [
+            r for r in rows
+            if r.get("value") is not None and r.get("percentileRank") is not None
+        ]
+    return to_dataframe(rows, schema=_VALUATION_ANALYSIS_SCHEMA)
 ```
 
 - [ ] **Step 1: Create the file with all 12 wrappers**
@@ -4034,147 +4467,481 @@ git commit -m "feat(fundamental): 12 wrappers (statements + valuation + holders 
 
 ---
 
-### Task 19: AI domain (14 endpoints incl. 2 async-polled)
+### Task 19a: AI — non-polled endpoints (10)
 
 **Files:**
 - Create: `src/gangtise_openapi/domains/ai.py`
 - Create: `tests/endpoints/test_ai.py`
 - Modify: `domains/__init__.py`, `_facade.py`
 
-**Endpoint manifest** (TS reference: `cli.ts:367-505`).
+**Endpoint manifest** (verified against `cli.ts:383-472`).
 
-| Endpoint key | Python method | Kwargs | Body fields | Notes |
+| Endpoint key | Python method | Kwargs (Python) | Body fields (TS) | Notes |
 |---|---|---|---|---|
-| `ai.knowledge-batch` | `knowledge_batch` | `query, count=None, raw` | `query, count` | Returns list |
-| `ai.knowledge-resource.download` | `knowledge_resource_download` | `resource_id, output=None` | query: `resourceId` | download (Task 21) |
-| `ai.security-clue.list` | `security_clue_list` | `from_, size, security, industry, gts_code, time_range, raw` | `from, size, securityList, industryList, gtsCodeList, timeRange` | paginated |
-| `ai.one-pager` | `one_pager` | `security_code, raw` | `securityCode` | dict result |
-| `ai.investment-logic` | `investment_logic` | `security_code, raw` | `securityCode` | dict result |
-| `ai.peer-comparison` | `peer_comparison` | `security_code, raw` | `securityCode` | dict result |
-| `ai.theme-tracking` | `theme_tracking` | `theme_id, raw` | `themeId` | dict result |
-| `ai.research-outline` | `research_outline` | `security_code, raw` | `securityCode` | dict result |
-| `ai.hot-topic` | `hot_topic` | `raw` | (empty body) | dict result |
-| `ai.management-discuss-announcement` | `management_discuss_announcement` | `security_code, period, dimension="all", raw` | `securityCode, period, dimension` | dict result |
-| `ai.management-discuss-earnings-call` | `management_discuss_earnings_call` | `security_code, period, raw` | `securityCode, period` | dict result |
-| **Async-polled pair: earnings-review** | | | | |
-| `ai.earnings-review.get-id` + `.get-content` | `earnings_review(security_code, period, *, wait=True, raw=False)` and `earnings_review_check(data_id, raw=False)` | see code below | see code below | uses `_async_content.poll_content` |
-| **Async-polled pair: viewpoint-debate** | | | | |
-| `ai.viewpoint-debate.get-id` + `.get-content` | `viewpoint_debate(viewpoint, *, wait=True, raw=False)` and `viewpoint_debate_check(data_id, raw=False)` | see code below | see code below | uses `_async_content.poll_content` |
+| `ai.knowledge-batch` | `knowledge_batch` | `query (list[str] or str), top=10, resource_type=None, knowledge_name=None, start_time=None, end_time=None, raw=False` | `queries (list, NOT `query`), top, resourceTypes (list[int]), knowledgeNames (list), startTime (ms), endTime (ms)` | `start_time`/`end_time` are ms timestamps (TS `parseOptionalNumberOption ... min: 0`). `query` is a list — TS uses `collectList`. |
+| `ai.security-clue.list` | `security_clue_list` | `start_time (required), end_time (required), query_mode (required: bySecurity/byIndustry), from_=0, size=None, gts_code=None, source=None, raw=False` | `from, size, startTime, endTime, queryMode, gtsCodeList, source (list, NOT sourceList)` | Paginated, `max_page_size=500`. |
+| `ai.one-pager` | `one_pager` | `security_code, raw=False` | `securityCode` | Single-record result. |
+| `ai.investment-logic` | `investment_logic` | `security_code, raw=False` | `securityCode` | |
+| `ai.peer-comparison` | `peer_comparison` | `security_code, raw=False` | `securityCode` | |
+| `ai.theme-tracking` | `theme_tracking` | `theme_id (required), date (required, yyyy-MM-dd), type_=None (list of morning/night), raw=False` | `themeId, date, type` (TS body key is `type`, not `typeList`) | `type_` to avoid Python keyword clash. |
+| `ai.research-outline` | `research_outline` | `security_code, raw=False` | `securityCode` | |
+| `ai.hot-topic` | `hot_topic` | `from_=0, size=None, start_date=None, end_date=None, category=None, with_related_securities=True, with_close_reading=True, raw=False` | `from, size, startDate, endDate, categoryList (defaults to all four if not passed: morningBriefing/noonBriefing/afternoonFlash/eveningBriefing), withRelatedSecurities (True or undefined), withCloseReading (True or undefined)` | Paginated, `max_page_size=20`. The wrapper must default `categoryList` to all four when the user passes `None`. The TS `with_*` flags use `undefined` instead of `False`. |
+| `ai.management-discuss-announcement` | `management_discuss_announcement` | `report_date (required), security_code (required), dimension (required: businessOperation/financialPerformance/developmentAndRisk/all), raw=False` | `reportDate, securityCode, **discussionDimension** (NOT `dimension`)` | TS renames the body field. |
+| `ai.management-discuss-earnings-call` | `management_discuss_earnings_call` | `report_date (required), security_code (required), dimension (required, same 3 — NO `all`), raw=False` | `reportDate, securityCode, discussionDimension` | |
 
-**Wrappers for the two async pairs (full code):**
+**Key corrections vs v1:**
+- `knowledge_batch`: body field is `queries` (list, plural), not `query`. Includes `resourceTypes/knowledgeNames/startTime/endTime`.
+- `security_clue_list`: requires `start_time`, `end_time`, `query_mode`. Body uses `source` (no `List` suffix), not `sourceList`. No `industry` / `time_range` kwargs.
+- `theme_tracking`: requires `date`. Body uses `type` (no list suffix).
+- `hot_topic`: has full from/size/dates/categoryList/with_* params.
+- `management_discuss_*`: requires `reportDate` (TS makes it required). Body field is `discussionDimension`, not `dimension`.
+
+**Knowledge-resource download** is handled in **Task 22** (or a sibling task right after — it uses `download_to_path`). Do NOT put it on `AI` in this task.
+
+- [ ] **Step 1: Write all 10 wrappers** in `src/gangtise_openapi/domains/ai.py` using the Task 17 template (`_as_list`, `_strip_none`). Examples for the trickier ones:
+
+```python
+def hot_topic(
+    self,
+    *,
+    from_: int = 0,
+    size: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    category: Any = None,
+    with_related_securities: bool = True,
+    with_close_reading: bool = True,
+    raw: bool = False,
+) -> pd.DataFrame | dict[str, Any]:
+    default_categories = ["morningBriefing", "noonBriefing", "afternoonFlash", "eveningBriefing"]
+    body = _strip_none({
+        "from": from_,
+        "size": size,
+        "startDate": start_date,
+        "endDate": end_date,
+        "categoryList": _as_list(category) or default_categories,
+        # TS sets these to True or undefined — never False.
+        "withRelatedSecurities": True if with_related_securities else None,
+        "withCloseReading": True if with_close_reading else None,
+    })
+    result = self._client._call("ai.hot-topic", body=body)
+    if raw:
+        return result
+    rows = result.get("list", []) if isinstance(result, dict) else result
+    return to_dataframe(rows, schema=None)
+
+
+def management_discuss_announcement(
+    self,
+    *,
+    report_date: str,
+    security_code: str,
+    dimension: str,  # businessOperation | financialPerformance | developmentAndRisk | all
+    raw: bool = False,
+) -> dict[str, Any]:
+    body = {
+        "reportDate": report_date,
+        "securityCode": security_code,
+        "discussionDimension": dimension,
+    }
+    result = self._client._call("ai.management-discuss-announcement", body=body)
+    return result if raw else result
+```
+
+- [ ] **Step 2: Wire `__init__.py` + facade.**
+
+- [ ] **Step 3: One smoke test per endpoint (10 tests).**
+
+- [ ] **Step 4: Run + commit**
+
+Run: `uv run pytest tests/endpoints/test_ai.py -v` → 10 passed.
+
+```bash
+git add src/gangtise_openapi/domains/ai.py \
+        src/gangtise_openapi/domains/__init__.py \
+        src/gangtise_openapi/_facade.py \
+        tests/endpoints/test_ai.py
+git commit -m "feat(ai): 10 non-polled wrappers (knowledge/security-clue/insight/hot-topic/management-discuss)"
+```
+
+---
+
+### Task 19b: AI — async-polled pair (earnings-review + viewpoint-debate)
+
+**Files:**
+- Modify: `src/gangtise_openapi/domains/ai.py` (add 4 methods)
+- Modify: `tests/endpoints/test_ai.py` (add polling tests)
+
+Spec §5 Path B. Wrappers mirror `gangtise-openapi-cli/src/cli.ts:410-498`.
+
+- [ ] **Step 1: Add 4 methods to `AI`**
 
 ```python
 from gangtise_openapi._async_content import poll_content
 
 
 class AI:
-    # ... other wrappers as per manifest ...
+    # ... existing methods from Task 19a ...
 
     def earnings_review(
         self,
         *,
         security_code: str,
-        period: str,
+        period: str,            # e.g. "2025q3", "2025interim", "2025annual"
         wait: bool = True,
         raw: bool = False,
-    ):
+    ) -> dict[str, Any]:
         id_result = self._client._call(
             "ai.earnings-review.get-id",
             body={"securityCode": security_code, "period": period},
         )
-        data_id = id_result.get("dataId") if isinstance(id_result, dict) else None
+        if not isinstance(id_result, dict):
+            raise ApiError(
+                "earnings-review.get-id returned unexpected shape",
+                details=id_result,
+            )
+        data_id = id_result.get("dataId")
         if not data_id:
-            return id_result if raw else id_result
+            raise ApiError(
+                "earnings-review.get-id did not return a dataId",
+                details=id_result,
+            )
         if not wait:
             return {"data_id": data_id, "status": "pending"}
 
-        def fetch():
+        def fetch() -> Any:
             return self._client._call(
                 "ai.earnings-review.get-content", body={"dataId": data_id}
             )
 
-        result = poll_content(fetch)
-        return result
+        return poll_content(fetch)
 
-    def earnings_review_check(self, *, data_id: str, raw: bool = False):
-        result = self._client._call(
+    def earnings_review_check(
+        self,
+        *,
+        data_id: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        """Non-blocking single check. Returns the content if ready, otherwise
+        raises ApiError(code='410110') for callers to handle.
+        """
+        return self._client._call(
             "ai.earnings-review.get-content", body={"dataId": data_id}
         )
-        return result
 
     def viewpoint_debate(
         self,
         *,
-        viewpoint: str,
+        viewpoint: str,         # max 1000 chars
         wait: bool = True,
         raw: bool = False,
-    ):
+    ) -> dict[str, Any]:
         id_result = self._client._call(
             "ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint}
         )
-        data_id = id_result.get("dataId") if isinstance(id_result, dict) else None
+        if not isinstance(id_result, dict):
+            raise ApiError(
+                "viewpoint-debate.get-id returned unexpected shape",
+                details=id_result,
+            )
+        data_id = id_result.get("dataId")
         if not data_id:
-            return id_result
+            raise ApiError(
+                "viewpoint-debate.get-id did not return a dataId",
+                details=id_result,
+            )
         if not wait:
             return {"data_id": data_id, "status": "pending"}
 
-        def fetch():
+        def fetch() -> Any:
             return self._client._call(
                 "ai.viewpoint-debate.get-content", body={"dataId": data_id}
             )
 
         return poll_content(fetch)
 
-    def viewpoint_debate_check(self, *, data_id: str, raw: bool = False):
+    def viewpoint_debate_check(
+        self,
+        *,
+        data_id: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
         return self._client._call(
             "ai.viewpoint-debate.get-content", body={"dataId": data_id}
         )
 ```
 
-- [ ] **Step 1: Write all 14 wrappers** (`ai.py`).
-- [ ] **Step 2: Wire `__init__.py` + facade.**
-- [ ] **Step 3: Smoke tests** — one per endpoint. For the async pairs, mock the id endpoint + one successful content fetch; assert the wrapper returns the content. Add one extra test for `wait=False` returning `{"data_id": ..., "status": "pending"}`. Add one test for the `410110`→ready transition (sleep stubbed to no-op via `monkeypatch.setattr("gangtise_openapi._async_content.time.sleep", lambda s: None)`).
-- [ ] **Step 4: Run `uv run pytest tests/endpoints/test_ai.py -v`** — expected: 12 passed (10 sync + earnings-review + viewpoint-debate, deferred-download skip for knowledge-resource).
-- [ ] **Step 5: Commit:** `feat(ai): 14 wrappers with transparent polling for earnings-review + viewpoint-debate`.
+- [ ] **Step 2: Add tests**
+
+Required tests:
+1. `earnings_review(wait=True)` — mock id endpoint + content-ready response. Stub sleep: `monkeypatch.setattr("gangtise_openapi._async_content.time.sleep", lambda s: None)`. Assert the returned dict has `content`.
+2. `earnings_review(wait=False)` — assert returns `{"data_id": "...", "status": "pending"}` without calling get-content.
+3. `earnings_review` with one `410110` pending response then ready — assert it sleeps once and returns content.
+4. `earnings_review` with `410111` terminal — assert raises `ApiError(code="410111")`.
+5. `earnings_review_check(data_id)` — assert it calls get-content once and returns whatever the server returns (including `{"content": null}` for still-pending — does NOT raise).
+6. `viewpoint_debate` mirror of #1.
+7. `viewpoint_debate(wait=False)` mirror of #2.
+8. `viewpoint_debate_check` mirror of #5.
+
+- [ ] **Step 3: Run + commit**
+
+Run: `uv run pytest tests/endpoints/test_ai.py -v` → 10 (from 19a) + 8 = 18 passed.
+
+```bash
+git add src/gangtise_openapi/domains/ai.py tests/endpoints/test_ai.py
+git commit -m "feat(ai): transparent polling for earnings-review + viewpoint-debate (with fire-and-forget *_check helpers)"
+```
 
 ---
 
-### Task 20: Vault + Alternative domains
+### Task 19c: AI knowledge-resource download (1 endpoint)
+
+**Files:**
+- Modify: `src/gangtise_openapi/domains/ai.py`
+- Modify: `tests/endpoints/test_ai.py`
+
+This task must land **after Task 22** (which creates `download_to_path`).
+
+- [ ] **Step 1: Add the wrapper**
+
+```python
+def knowledge_resource_download(
+    self,
+    *,
+    resource_type: int,         # required (TS makes it required)
+    source_id: str,             # required (TS makes it required)
+    output: str | Path | None = None,
+) -> Path:
+    return download_to_path(
+        client=self._client,
+        endpoint_key="ai.knowledge-resource.download",
+        query={"resourceType": resource_type, "sourceId": source_id},
+        output=output,
+        fallback_name=f"knowledge-{source_id}",
+        title_lookup=None,
+    )
+```
+
+- [ ] **Step 2: Add a smoke test** mocking the download response with `Content-Disposition: attachment; filename="..."`.
+
+- [ ] **Step 3: Run + commit**
+
+```bash
+git add src/gangtise_openapi/domains/ai.py tests/endpoints/test_ai.py
+git commit -m "feat(ai): knowledge-resource download wrapper"
+```
+
+---
+
+### Task 20a: Vault — list + non-download endpoints (7)
 
 **Files:**
 - Create: `src/gangtise_openapi/domains/vault.py`
-- Create: `src/gangtise_openapi/domains/alternative.py`
 - Create: `tests/endpoints/test_vault.py`
+- Modify: `domains/__init__.py`, `_facade.py`
+
+**Vault list manifest** (verified against `cli.ts:512-562` + `commandBodies.ts`).
+
+| Endpoint key | Python method | Kwargs | Body fields | Pagination |
+|---|---|---|---|---|
+| `vault.drive.list` | `drive_list` | `from_=0, size=None, start_time=None, end_time=None, keyword=None, file_type=None, space_type=None, raw=False` | `from, size, startTime, endTime, keyword, fileTypeList, spaceTypeList` | 50 |
+| `vault.record.list` | `record_list` | `from_=0, size=None, start_time=None, end_time=None, keyword=None, category=None, space_type=None, raw=False` | `from, size, startTime, endTime, keyword, categoryList, spaceTypeList` | 50 |
+| `vault.my-conference.list` | `my_conference_list` | `from_=0, size=None, start_time=None, end_time=None, keyword=None, research_area=None, security=None, institution=None, category=None, raw=False` | `from, size, startTime, endTime, keyword, researchAreaList, securityList, institutionList, categoryList` | 50 |
+| `vault.wechat-message.list` | `wechat_message_list` | `from_=0, size=None, start_time=None, end_time=None, keyword=None, security=None, wechat_group_id=None, industry=None, category=None, tag=None, raw=False` | `from, size, startTime, endTime, keyword, securityList, wechatGroupIdList, industryIdList, categoryList, tagList` | 50 |
+| `vault.wechat-chatroom.list` | `wechat_chatroom_list` | `from_=0, size=20, room_name=None, raw=False` | `from, size, roomName` (string — TS joins list with `,` when multiple) | **NOT paginated** |
+| `vault.stock-pool.list` | `stock_pool_list` | `raw=False` | `{}` (empty) | NOT paginated |
+| `vault.stock-pool.stocks` | `stock_pool_stocks` | `pool_id="all", raw=False` | `poolIdList` (always a list; `"all"` becomes `["all"]`) | NOT paginated |
+
+**Key corrections vs v1:**
+- `drive_list`: missing `start_time/end_time/space_type` in v1. Body is `fileTypeList`+`spaceTypeList` (NOT `fileType`).
+- `record_list`: missing `category/space_type`.
+- `my_conference_list`: missing `research_area/security/institution/category`.
+- `wechat_message_list`: missing `wechat_group_id/industry/category/tag` (the whole point of the endpoint).
+- `wechat_chatroom_list`: NOT paginated. `room_name` is a string in the body (TS joins list with comma).
+- `stock_pool_stocks`: body is `poolIdList` (list), not `poolId` (single). Default value `"all"` becomes `["all"]`.
+
+- [ ] **Step 1: Write the 7 wrappers** using the Task 17 template. Examples for the tricky ones:
+
+```python
+def wechat_message_list(
+    self,
+    *,
+    from_: int = 0,
+    size: int | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    keyword: str | None = None,
+    security: Any = None,
+    wechat_group_id: Any = None,
+    industry: Any = None,
+    category: Any = None,
+    tag: Any = None,
+    raw: bool = False,
+) -> pd.DataFrame | dict[str, Any]:
+    body = _strip_none({
+        "from": from_,
+        "size": size,
+        "startTime": start_time,
+        "endTime": end_time,
+        "keyword": keyword,
+        "securityList": _as_list(security),
+        "wechatGroupIdList": _as_list(wechat_group_id),
+        "industryIdList": _as_list(industry),
+        "categoryList": _as_list(category),
+        "tagList": _as_list(tag),
+    })
+    result = self._client._call("vault.wechat-message.list", body=body)
+    if raw:
+        return result
+    rows = result.get("list", []) if isinstance(result, dict) else result
+    return to_dataframe(rows, schema=None)
+
+
+def wechat_chatroom_list(
+    self,
+    *,
+    from_: int = 0,
+    size: int = 20,
+    room_name: Any = None,
+    raw: bool = False,
+) -> pd.DataFrame | dict[str, Any]:
+    names = _as_list(room_name) or []
+    body = {
+        "from": from_,
+        "size": size,
+        # TS joins multiple names with comma; preserve that.
+        "roomName": ",".join(names) if names else None,
+    }
+    body = _strip_none(body)
+    result = self._client._call("vault.wechat-chatroom.list", body=body)
+    if raw:
+        return result
+    rows = result.get("list", []) if isinstance(result, dict) else result
+    return to_dataframe(rows, schema=None)
+
+
+def stock_pool_stocks(
+    self,
+    *,
+    pool_id: Any = "all",
+    raw: bool = False,
+) -> pd.DataFrame | dict[str, Any]:
+    body = {"poolIdList": _as_list(pool_id)}
+    result = self._client._call("vault.stock-pool.stocks", body=body)
+    if raw:
+        return result
+    rows = result.get("list", []) if isinstance(result, dict) else result
+    return to_dataframe(rows, schema=None)
+```
+
+- [ ] **Step 2: Wire `__init__.py` + facade.**
+
+- [ ] **Step 3: One smoke test per endpoint (7 tests).**
+
+- [ ] **Step 4: Run + commit**
+
+Run: `uv run pytest tests/endpoints/test_vault.py -v` → 7 passed.
+
+```bash
+git add src/gangtise_openapi/domains/vault.py \
+        src/gangtise_openapi/domains/__init__.py \
+        src/gangtise_openapi/_facade.py \
+        tests/endpoints/test_vault.py
+git commit -m "feat(vault): 7 list and stock-pool wrappers"
+```
+
+---
+
+### Task 20b: Vault — download endpoints (3)
+
+**Files:**
+- Modify: `src/gangtise_openapi/domains/vault.py`
+- Modify: `tests/endpoints/test_vault.py`
+
+Lands **after Task 22**.
+
+**Download manifest** (verified against `cli.ts:516-547`).
+
+| Endpoint key | Python method | Required kwargs | Optional kwargs | Query | Title lookup |
+|---|---|---|---|---|---|
+| `vault.drive.download` | `drive_download` | `file_id: str` | `output=None` | `fileId` | `vault.drive.list` / `fileId` |
+| `vault.record.download` | `record_download` | `record_id: str, content_type: str` (one of "original"/"asr"/"summary") | `output=None` | `recordId, contentType` | `vault.record.list` / `recordId` |
+| `vault.my-conference.download` | `my_conference_download` | `conference_id: str, content_type: str` (one of "asr"/"summary") | `output=None` | `conferenceId, contentType` | `vault.my-conference.list` / `conferenceId` |
+
+**Key corrections vs v1:** `record.download` and `my-conference.download` both have a **required** `content_type` query param (v1 missed it entirely).
+
+- [ ] **Step 1: Add 3 download methods following the Task 16b pattern.** Each method calls `download_to_path(... title_lookup=("vault.<list>", "<idField>", id))`.
+
+- [ ] **Step 2: 3 smoke tests** asserting the query string includes `contentType` for the two that require it.
+
+- [ ] **Step 3: Run + commit**
+
+```bash
+git add src/gangtise_openapi/domains/vault.py tests/endpoints/test_vault.py
+git commit -m "feat(vault): 3 download wrappers with required contentType"
+```
+
+---
+
+### Task 20c: Alternative domain (2)
+
+**Files:**
+- Create: `src/gangtise_openapi/domains/alternative.py`
 - Create: `tests/endpoints/test_alternative.py`
 - Modify: `domains/__init__.py`, `_facade.py`
 
-**Vault manifest** (TS reference: `cli.ts:508-650` and the wechat blocks).
+**Manifest** (verified against `cli.ts:568-593`).
 
 | Endpoint key | Python method | Kwargs | Body fields | Notes |
 |---|---|---|---|---|
-| `vault.drive.list` | `drive_list` | `from_, size, keyword=None, file_type=None, raw` | `from, size, keyword, fileType` | paginated |
-| `vault.drive.download` | `drive_download` | `file_id, output=None` | query: `fileId` | download |
-| `vault.record.list` | `record_list` | `from_, size, keyword=None, start_time=None, end_time=None, raw` | `from, size, keyword, startTime, endTime` | paginated |
-| `vault.record.download` | `record_download` | `record_id, output=None` | query: `recordId` | download |
-| `vault.my-conference.list` | `my_conference_list` | `from_, size, keyword, start_time, end_time, raw` | similar | paginated |
-| `vault.my-conference.download` | `my_conference_download` | `conference_id, output=None` | query | download |
-| `vault.wechat-message.list` | `wechat_message_list` | `from_, size, chatroom_id=None, security=None, start_time=None, end_time=None, raw` | `from, size, chatroomId, securityList, startTime, endTime` | paginated. Use `_commandBodies.buildWechatMessageListBody` equivalent — see TS `commandBodies.ts` |
-| `vault.wechat-chatroom.list` | `wechat_chatroom_list` | `from_, size, keyword=None, raw` | `from, size, keyword` | paginated. Body builder in TS `commandBodies.ts` |
-| `vault.stock-pool.list` | `stock_pool_list` | `raw` | (empty body) | returns `{poolList: [...]}` |
-| `vault.stock-pool.stocks` | `stock_pool_stocks` | `pool_id, raw` | `poolId` (`pool_id="all"` → server-side full query) | returns `{list: [...]}` |
+| `alternative.edb-search` | `edb_search` | `keyword (required), limit: int = 100, raw=False` | `keyword, limit` | TS allows `limit` up to 200. |
+| `alternative.edb-data` | `edb_data` | `indicator_id (required, list, max 10), start_date (required), end_date (required), raw=False` | `indicatorIdList, startDate, endDate` | Response is `{fieldList, dataList}` matrix shape; the wrapper transposes to `{list: [...]}` when `raw=False`. |
 
-**Alternative manifest** (TS reference: `cli.ts:651-695`).
+The `edb-data` transposition (mirroring `cli.ts:582-591`):
 
-| Endpoint key | Python method | Kwargs | Body fields |
-|---|---|---|---|
-| `alternative.edb-search` | `edb_search` | `keyword, raw` | `keyword` |
-| `alternative.edb-data` | `edb_data` | `indicator_id, start_date=None, end_date=None, raw` | `indicatorIdList, startDate, endDate` |
+```python
+def edb_data(
+    self,
+    *,
+    indicator_id: Any,
+    start_date: str,
+    end_date: str,
+    raw: bool = False,
+) -> pd.DataFrame | dict[str, Any]:
+    body = {
+        "indicatorIdList": _as_list(indicator_id),
+        "startDate": start_date,
+        "endDate": end_date,
+    }
+    result = self._client._call("alternative.edb-data", body=body)
+    if raw:
+        return result
+    if (
+        isinstance(result, dict)
+        and isinstance(result.get("fieldList"), list)
+        and isinstance(result.get("dataList"), list)
+    ):
+        fields: list[str] = result["fieldList"]
+        rows = [
+            {field: row[i] for i, field in enumerate(fields)}
+            for row in result["dataList"]
+        ]
+        return to_dataframe(rows, schema=fields)
+    return result
+```
 
-- [ ] **Step 1: Write `domains/vault.py` and `domains/alternative.py` using the wrapper template established in Task 17.**
-- [ ] **Step 2: Wire `__init__.py` + facade for both domains.**
-- [ ] **Step 3: Write one smoke test per endpoint.**
-- [ ] **Step 4: Run `uv run pytest tests/endpoints/test_vault.py tests/endpoints/test_alternative.py -v` — expected: 12 passed (10 vault + 2 alternative; download endpoints skipped for Task 21).**
-- [ ] **Step 5: Commit:** `feat(vault,alternative): wrap 12 endpoints`.
+- [ ] **Step 1: Write both wrappers.**
+- [ ] **Step 2: Wire `__init__.py` + facade.**
+- [ ] **Step 3: 2 smoke tests. The `edb-data` test must mock the `{fieldList, dataList}` shape and assert the wrapper produces a DataFrame with the right columns.**
+- [ ] **Step 4: Run + commit**
+
+```bash
+git add src/gangtise_openapi/domains/alternative.py \
+        src/gangtise_openapi/domains/__init__.py \
+        src/gangtise_openapi/_facade.py \
+        tests/endpoints/test_alternative.py
+git commit -m "feat(alternative): edb-search + edb-data with matrix→DataFrame transpose"
+```
 
 ---
 
@@ -4188,44 +4955,87 @@ class AI:
 
 In-memory snapshot + atomic JSON write to `~/.config/gangtise/title-cache.json`. Mirrors `gangtise-openapi-cli/src/core/titleCache.ts`.
 
+**Cache shape** (from TS `TitleCacheData` / `TitleCacheEntry`):
+
+```json
+{
+  "insight.research.list": {
+    "titles": {"r1": "标题A", "r2": "标题B"},
+    "ts": 1716800000000
+  }
+}
+```
+
+- Cache is per-endpoint, keyed by string id.
+- Each endpoint entry has a `ts` (epoch ms). Entries older than 24 hours are treated as cache miss (TTL).
+- `TITLE_LOOKUP_SIZE = 200`: when a download wrapper falls back to "fetch the list endpoint and find the row," it requests `from=0, size=200`.
+
 - [ ] **Step 1: Write the failing test `tests/unit/test_title_cache.py`**
 
 ```python
 import json
+import time
 
-from gangtise_openapi._title_cache import TitleCache
+import pytest
+
+from gangtise_openapi._title_cache import TITLE_CACHE_TTL_MS, TitleCache, extract_titles
 
 
-def test_set_and_get_roundtrip(tmp_path):
+def test_set_and_lookup_roundtrip(tmp_path):
     cache = TitleCache(tmp_path / "titles.json")
-    cache.set("report-123", "公司A-2026年度报告")
-    assert cache.get("report-123") == "公司A-2026年度报告"
+    cache.set_titles("insight.research.list", {"r1": "标题A"})
+    assert cache.lookup("insight.research.list", "r1") == "标题A"
+
+
+def test_lookup_miss(tmp_path):
+    cache = TitleCache(tmp_path / "titles.json")
+    assert cache.lookup("insight.research.list", "r1") is None
 
 
 def test_persists_to_disk(tmp_path):
     path = tmp_path / "titles.json"
     cache_one = TitleCache(path)
-    cache_one.set("report-123", "X")
+    cache_one.set_titles("ep", {"x": "y"})
     cache_one.flush()
     cache_two = TitleCache(path)
-    assert cache_two.get("report-123") == "X"
+    assert cache_two.lookup("ep", "x") == "y"
+
+
+def test_ttl_expires(tmp_path, monkeypatch):
+    path = tmp_path / "titles.json"
+    cache = TitleCache(path)
+    # Stash a stale entry by directly writing to disk
+    stale_ts = int(time.time() * 1000) - TITLE_CACHE_TTL_MS - 1000
+    path.write_text(json.dumps({"ep": {"titles": {"x": "y"}, "ts": stale_ts}}))
+    cache2 = TitleCache(path)
+    assert cache2.lookup("ep", "x") is None
 
 
 def test_corrupt_file_treated_as_empty(tmp_path):
     path = tmp_path / "titles.json"
     path.write_text("not json", encoding="utf8")
     cache = TitleCache(path)
-    assert cache.get("anything") is None
+    assert cache.lookup("ep", "x") is None
 
 
-def test_atomic_write_no_partial(tmp_path):
-    path = tmp_path / "titles.json"
-    cache = TitleCache(path)
-    cache.set("a", "1")
-    cache.set("b", "2")
-    cache.flush()
-    data = json.loads(path.read_text(encoding="utf8"))
-    assert data == {"a": "1", "b": "2"}
+def test_extract_titles_from_rows():
+    rows = [
+        {"reportId": "r1", "title": "标题A", "other": "x"},
+        {"reportId": "r2", "title": "标题B"},
+        {"reportId": "r3"},                # missing title — skip
+        {"title": "标题C"},                # missing id — skip
+    ]
+    out = extract_titles(rows, id_field="reportId", title_field="title")
+    assert out == {"r1": "标题A", "r2": "标题B"}
+
+
+def test_set_titles_merges():
+    cache = TitleCache(None)
+    cache.set_titles("ep", {"a": "1", "b": "2"})
+    cache.set_titles("ep", {"b": "B", "c": "3"})
+    assert cache.lookup("ep", "a") == "1"
+    assert cache.lookup("ep", "b") == "B"
+    assert cache.lookup("ep", "c") == "3"
 ```
 
 - [ ] **Step 2: Write `src/gangtise_openapi/_title_cache.py`**
@@ -4236,44 +5046,133 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
+from typing import Any, Iterable
+
+TITLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+TITLE_LOOKUP_SIZE = 200
+
+
+def extract_titles(
+    rows: Iterable[Any],
+    *,
+    id_field: str,
+    title_field: str = "title",
+) -> dict[str, str]:
+    """Pull (id → title) pairs from a list of dicts, skipping any row that
+    lacks either field. Mirrors TS `extractTitles` in titleCache.ts.
+    """
+    out: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ident = row.get(id_field)
+        title = row.get(title_field)
+        if ident is None or not isinstance(title, str) or not title:
+            continue
+        out[str(ident)] = title
+    return out
 
 
 class TitleCache:
-    def __init__(self, path: Path) -> None:
+    """Per-process snapshot of `~/.config/gangtise/title-cache.json`.
+
+    `path=None` means in-memory only — useful for tests and when the config
+    explicitly disables the disk cache.
+    """
+
+    def __init__(self, path: Path | None) -> None:
         self._path = path
         self._lock = threading.Lock()
-        self._data: dict[str, str] = self._load()
+        self._data: dict[str, dict[str, Any]] = self._load()
+        self._dirty = False
 
-    def _load(self) -> dict[str, str]:
+    def _load(self) -> dict[str, dict[str, Any]]:
+        if self._path is None:
+            return {}
         try:
             raw = self._path.read_text(encoding="utf8")
         except OSError:
             return {}
         try:
-            data = json.loads(raw)
+            parsed = json.loads(raw)
         except json.JSONDecodeError:
             return {}
-        if not isinstance(data, dict):
+        if not isinstance(parsed, dict):
             return {}
-        return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+        return parsed
 
-    def get(self, key: str) -> str | None:
+    def lookup(self, endpoint_key: str, id_value: str) -> str | None:
         with self._lock:
-            return self._data.get(key)
+            entry = self._data.get(endpoint_key)
+            if not entry:
+                return None
+            ts = entry.get("ts")
+            if not isinstance(ts, int) or (int(time.time() * 1000) - ts) > TITLE_CACHE_TTL_MS:
+                return None
+            titles = entry.get("titles")
+            if not isinstance(titles, dict):
+                return None
+            value = titles.get(str(id_value))
+            return value if isinstance(value, str) else None
 
-    def set(self, key: str, value: str) -> None:
+    def set_titles(self, endpoint_key: str, titles: dict[str, str]) -> None:
+        if not titles:
+            return
         with self._lock:
-            self._data[key] = value
+            existing = self._data.get(endpoint_key, {}).get("titles", {})
+            merged = {**existing, **titles}
+            self._data[endpoint_key] = {
+                "titles": merged,
+                "ts": int(time.time() * 1000),
+            }
+            self._dirty = True
 
     def flush(self) -> None:
+        if self._path is None:
+            return
         with self._lock:
+            if not self._dirty:
+                return
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-            tmp.write_text(json.dumps(self._data, ensure_ascii=False, indent=2), encoding="utf8")
+            tmp = self._path.with_suffix(
+                self._path.suffix + f".tmp-{os.getpid()}-{int(time.time()*1000)}"
+            )
+            tmp.write_text(
+                json.dumps(self._data, ensure_ascii=False),
+                encoding="utf8",
+            )
             os.chmod(tmp, 0o600)
             tmp.replace(self._path)
+            self._dirty = False
 ```
+
+**Integration with list wrappers:** Task 16a's `Insight` class never touches the title cache directly; instead, when Task 22 adds `_record_list_titles(...)` to `GangtiseClient`, the list wrappers that have downloadable siblings (research, foreign-report, announcement, announcement-hk, summary, drive, record, my-conference) call:
+
+```python
+self._client._record_list_titles(
+    list_endpoint_key="insight.research.list",
+    id_field="reportId",
+    title_field="title",   # or whatever TS resolveTitle uses
+    rows=rows,
+)
+```
+
+right before returning the DataFrame. This populates the cache as a side effect. Subsequent downloads can then look up the title without hitting the list endpoint a second time.
+
+If list wrappers were already implemented in Tasks 16a / 20a without this side-effect, **Task 22 is responsible for retrofitting the call** into each list wrapper before its own commit. The retrofitted wrappers list:
+
+- `insight.summary.list` → `id_field="summaryId"`
+- `insight.research.list` → `id_field="reportId"`
+- `insight.foreign-report.list` → `id_field="reportId"`
+- `insight.announcement.list` → `id_field="announcementId"`
+- `insight.announcement-hk.list` → `id_field="announcementId"`
+- `vault.drive.list` → `id_field="fileId"`
+- `vault.record.list` → `id_field="recordId"`
+- `vault.my-conference.list` → `id_field="conferenceId"`
+
+(`title_field` is `"title"` for all of them per TS `resolveTitle` default.)
 
 - [ ] **Step 3: Run + commit**
 
@@ -4286,12 +5185,13 @@ git commit -m "feat(title-cache): atomic JSON cache for resolved download titles
 
 ---
 
-### Task 22: Streaming download (`_download.py`)
+### Task 22: Streaming download (`_download.py`) + title-cache wiring
 
 **Files:**
 - Create: `src/gangtise_openapi/_download.py`
 - Create: `tests/unit/test_download.py`
-- Modify: every domain wrapper that currently has `raise NotImplementedError("download support lands in Task 21")`.
+- Modify: `src/gangtise_openapi/_client.py` (add `_record_list_titles` + own a `TitleCache` instance)
+- Modify: each list wrapper from Tasks 16a / 20a that has a downloadable sibling — call `self._client._record_list_titles(...)` before returning.
 
 - [ ] **Step 1: Write the failing test `tests/unit/test_download.py`**
 
@@ -4415,6 +5315,13 @@ def _extension_for(content_type: str | None) -> str:
     }.get(lower, "")
 
 
+TitleLookup = tuple[str, str, str]  # (list_endpoint_key, id_field, id_value)
+
+
+def _sanitize_filename(name: str) -> str:
+    return name.translate(str.maketrans({c: "_" for c in r'/\:*?"<>|'})).strip()
+
+
 def download_to_path(
     *,
     client: GangtiseClient,
@@ -4422,7 +5329,17 @@ def download_to_path(
     query: dict[str, str | int],
     output: str | Path | None,
     fallback_name: str,
+    title_lookup: TitleLookup | None = None,
 ) -> Path:
+    """Stream a download endpoint to disk.
+
+    Resolution order for the output filename when `output` is None:
+      1. Title cache hit on `title_lookup` (if provided)
+      2. List-endpoint fallback fetch — calls the list endpoint with
+         `from=0, size=TITLE_LOOKUP_SIZE` and scans for `id_field == id_value`
+      3. `Content-Disposition` filename
+      4. `<fallback_name><ext-from-mime>`
+    """
     endpoint = lookup(endpoint_key)
     if endpoint.kind != "download":
         raise DownloadError(f"endpoint {endpoint_key} is not a download endpoint")
@@ -4445,14 +5362,15 @@ def download_to_path(
             )
         content_disposition = response.headers.get("content-disposition")
         content_type = response.headers.get("content-type")
-        if output is None:
-            filename = _parse_content_disposition(content_disposition)
-            if not filename:
-                filename = f"{fallback_name}{_extension_for(content_type)}"
-            target = Path.cwd() / filename
-        else:
-            target = Path(output).expanduser()
-            target.parent.mkdir(parents=True, exist_ok=True)
+        target = _decide_target(
+            client=client,
+            output=output,
+            fallback_name=fallback_name,
+            content_disposition=content_disposition,
+            content_type=content_type,
+            title_lookup=title_lookup,
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".part")
         try:
             with tmp.open("wb") as fh:
@@ -4463,40 +5381,153 @@ def download_to_path(
             tmp.unlink(missing_ok=True)
             raise DownloadError(f"failed to write to {target}: {exc}") from exc
     return target
+
+
+def _decide_target(
+    *,
+    client: GangtiseClient,
+    output: str | Path | None,
+    fallback_name: str,
+    content_disposition: str | None,
+    content_type: str | None,
+    title_lookup: TitleLookup | None,
+) -> Path:
+    if output is not None:
+        return Path(output).expanduser()
+    ext_from_mime = _extension_for(content_type)
+    if title_lookup is not None:
+        list_key, id_field, id_value = title_lookup
+        title = client._resolve_title(list_key, id_field, id_value)
+        if title:
+            sanitized = _sanitize_filename(title)
+            if ext_from_mime and not sanitized.lower().endswith(ext_from_mime.lower()):
+                sanitized += ext_from_mime
+            return Path.cwd() / sanitized
+    disposition_name = _parse_content_disposition(content_disposition)
+    if disposition_name:
+        return Path.cwd() / disposition_name
+    return Path.cwd() / f"{fallback_name}{ext_from_mime}"
 ```
 
-- [ ] **Step 3: Replace `NotImplementedError("Task 21")` placeholders**
-
-For each `*_download` method placed in Tasks 16/19/20, replace the body with a `download_to_path(...)` call. Example:
+**Extend `GangtiseClient`** (modify `_client.py` from Task 13):
 
 ```python
-from gangtise_openapi._download import download_to_path
+from gangtise_openapi._title_cache import (
+    TITLE_LOOKUP_SIZE,
+    TitleCache,
+    extract_titles,
+)
 
-def research_download(
-    self,
-    *,
-    report_id: str,
-    output: str | Path | None = None,
-) -> Path:
-    return download_to_path(
-        client=self._client,
-        endpoint_key="insight.research.download",
-        query={"reportId": report_id},
-        output=output,
-        fallback_name=f"research-{report_id}",
-    )
+
+class GangtiseClient:
+    # ... existing fields & methods ...
+
+    def __init__(self, ...) -> None:
+        # ... existing setup ...
+        self._title_cache = TitleCache(cfg.title_cache_path)
+
+    def _record_list_titles(
+        self,
+        *,
+        list_endpoint_key: str,
+        id_field: str,
+        title_field: str,
+        rows: list[Any],
+    ) -> None:
+        titles = extract_titles(rows, id_field=id_field, title_field=title_field)
+        if titles:
+            self._title_cache.set_titles(list_endpoint_key, titles)
+            self._title_cache.flush()
+
+    def _resolve_title(
+        self,
+        list_endpoint_key: str,
+        id_field: str,
+        id_value: str,
+        title_field: str = "title",
+    ) -> str | None:
+        cached = self._title_cache.lookup(list_endpoint_key, id_value)
+        if cached:
+            return cached
+        # Cache miss → fetch first page of the list endpoint and scan.
+        try:
+            result = self._call(
+                list_endpoint_key,
+                body={"from": 0, "size": TITLE_LOOKUP_SIZE},
+            )
+        except Exception:
+            return None
+        rows = result.get("list") if isinstance(result, dict) else result
+        if not isinstance(rows, list):
+            return None
+        titles = extract_titles(rows, id_field=id_field, title_field=title_field)
+        if titles:
+            self._title_cache.set_titles(list_endpoint_key, titles)
+            self._title_cache.flush()
+        return titles.get(str(id_value))
 ```
 
-Apply to: `insight.summary.download`, `insight.research.download`, `insight.foreign-report.download`, `insight.announcement.download`, `insight.announcement-hk.download`, `insight.independent-opinion.download`, `ai.knowledge-resource.download`, `vault.drive.download`, `vault.record.download`, `vault.my-conference.download`.
+(Apply the equivalent change to `AsyncGangtiseClient` in Task 25 — the async download helper will need `await client._resolve_title_async(...)`.)
 
-- [ ] **Step 4: Remove the `pytest.mark.skip` decorators in the smoke tests**
+- [ ] **Step 3: Retrofit list wrappers to populate the title cache**
 
-For each `test_*_download`, replace the skip with a real respx test asserting the file lands at the expected path and the body matches the mocked bytes.
+For each list wrapper whose endpoint has a downloadable sibling, after building the rows DataFrame, call:
+
+```python
+self._client._record_list_titles(
+    list_endpoint_key="insight.research.list",
+    id_field="reportId",
+    title_field="title",
+    rows=rows,
+)
+```
+
+Apply to these 8 list wrappers (see the Task 21 manifest for `id_field`):
+- `insight.summary.list` → `summaryId`
+- `insight.research.list` → `reportId`
+- `insight.foreign-report.list` → `reportId`
+- `insight.announcement.list` → `announcementId`
+- `insight.announcement-hk.list` → `announcementId`
+- `vault.drive.list` → `fileId`
+- `vault.record.list` → `recordId`
+- `vault.my-conference.list` → `conferenceId`
+
+`independent-opinion.list` and `ai.knowledge-resource.download` have no title resolution in TS — skip them.
+
+- [ ] **Step 4: Add an end-to-end download+title-resolution test**
+
+```python
+def test_download_uses_title_cache(tmp_path, monkeypatch, seeded_config):
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        # First, hit the list endpoint to populate the cache
+        router.post("/application/open-insight/broker-report/getList").mock(
+            return_value=httpx.Response(
+                200, json={
+                    "code": "000000", "status": True,
+                    "data": {"total": 1, "list": [
+                        {"reportId": "r1", "title": "Alpha Report 2026Q1"},
+                    ]},
+                },
+            )
+        )
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"data", headers={"content-type": "application/pdf"},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            from gangtise_openapi.domains.insight import Insight
+            Insight(client).research_list()  # populates title cache as a side-effect
+            path = Insight(client).research_download(report_id="r1")
+    assert path.name.startswith("Alpha Report 2026Q1")
+    assert path.suffix == ".pdf"
+```
 
 - [ ] **Step 5: Run all tests**
 
 Run: `uv run pytest -v`
-Expected: all previously skipped download tests now pass.
+Expected: all unit + endpoint tests pass; the title-cache integration test asserts a list-endpoint call populates the cache and a subsequent download uses it.
 
 - [ ] **Step 6: Commit**
 
@@ -4946,7 +5977,12 @@ class AsyncGangtiseClient:
         self._http = build_async_client(self._config)
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: object | None,
+    ) -> None:
         await self.aclose()
 
     async def aclose(self) -> None:
@@ -5069,14 +6105,14 @@ git commit -m "feat(async): AsyncGangtiseClient + async pagination/sharding/poll
 
 ---
 
-### Task 26: Async domain wrappers (9 modules)
+### Task 26: Async domain wrappers — common pattern + per-domain tasks
 
-**Files (per domain):**
-- Modify: `src/gangtise_openapi/domains/<name>.py` — add `class Async<Name>` next to the existing sync class.
-- Modify: `src/gangtise_openapi/domains/__init__.py` — re-export async classes.
-- Create: `tests/endpoints/test_<name>_async.py` — one smoke test per endpoint.
+Tasks 26a through 26i each mirror one sync domain. Same files per task:
+- Modify: `src/gangtise_openapi/domains/<name>.py` (add `class Async<Name>`)
+- Modify: `src/gangtise_openapi/domains/__init__.py` (re-export `Async<Name>`)
+- Create or modify: `tests/endpoints/test_<name>_async.py` (one smoke test per endpoint)
 
-**Pattern** (apply to every domain):
+**Pattern (apply to every domain):**
 
 ```python
 class AsyncQuote:
@@ -5110,6 +6146,7 @@ async def download_to_path_async(
     query: dict[str, str | int],
     output: str | Path | None,
     fallback_name: str,
+    title_lookup: TitleLookup | None = None,
 ) -> Path:
     endpoint = lookup(endpoint_key)
     if endpoint.kind != "download":
@@ -5128,14 +6165,15 @@ async def download_to_path_async(
             )
         content_disposition = response.headers.get("content-disposition")
         content_type = response.headers.get("content-type")
-        if output is None:
-            filename = _parse_content_disposition(content_disposition)
-            if not filename:
-                filename = f"{fallback_name}{_extension_for(content_type)}"
-            target = Path.cwd() / filename
-        else:
-            target = Path(output).expanduser()
-            target.parent.mkdir(parents=True, exist_ok=True)
+        target = await _decide_target_async(
+            client=client,
+            output=output,
+            fallback_name=fallback_name,
+            content_disposition=content_disposition,
+            content_type=content_type,
+            title_lookup=title_lookup,
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".part")
         try:
             with tmp.open("wb") as fh:
@@ -5146,6 +6184,74 @@ async def download_to_path_async(
             tmp.unlink(missing_ok=True)
             raise DownloadError(f"failed to write to {target}: {exc}") from exc
     return target
+
+
+async def _decide_target_async(
+    *,
+    client: "AsyncGangtiseClient",
+    output: str | Path | None,
+    fallback_name: str,
+    content_disposition: str | None,
+    content_type: str | None,
+    title_lookup: TitleLookup | None,
+) -> Path:
+    if output is not None:
+        return Path(output).expanduser()
+    ext_from_mime = _extension_for(content_type)
+    if title_lookup is not None:
+        list_key, id_field, id_value = title_lookup
+        title = await client._resolve_title(list_key, id_field, id_value)
+        if title:
+            sanitized = _sanitize_filename(title)
+            if ext_from_mime and not sanitized.lower().endswith(ext_from_mime.lower()):
+                sanitized += ext_from_mime
+            return Path.cwd() / sanitized
+    disposition_name = _parse_content_disposition(content_disposition)
+    if disposition_name:
+        return Path.cwd() / disposition_name
+    return Path.cwd() / f"{fallback_name}{ext_from_mime}"
+```
+
+The async client needs the sibling methods. Add to `AsyncGangtiseClient` (Task 25):
+
+```python
+async def _record_list_titles(
+    self,
+    *,
+    list_endpoint_key: str,
+    id_field: str,
+    title_field: str,
+    rows: list[Any],
+) -> None:
+    titles = extract_titles(rows, id_field=id_field, title_field=title_field)
+    if titles:
+        self._title_cache.set_titles(list_endpoint_key, titles)
+        self._title_cache.flush()
+
+async def _resolve_title(
+    self,
+    list_endpoint_key: str,
+    id_field: str,
+    id_value: str,
+    title_field: str = "title",
+) -> str | None:
+    cached = self._title_cache.lookup(list_endpoint_key, id_value)
+    if cached:
+        return cached
+    try:
+        result = await self._call(
+            list_endpoint_key, body={"from": 0, "size": TITLE_LOOKUP_SIZE}
+        )
+    except Exception:
+        return None
+    rows = result.get("list") if isinstance(result, dict) else result
+    if not isinstance(rows, list):
+        return None
+    titles = extract_titles(rows, id_field=id_field, title_field=title_field)
+    if titles:
+        self._title_cache.set_titles(list_endpoint_key, titles)
+        self._title_cache.flush()
+    return titles.get(str(id_value))
 ```
 
 - [ ] **Step 2: For each of the 9 domain modules, add the `Async<Name>` class**
@@ -5195,22 +6301,46 @@ async def test_async_realtime(tmp_path):
     assert df.iloc[0]["price"] == 1.2
 ```
 
-- [ ] **Step 4: Run + commit (per domain, small commits)**
+- [ ] **Step 4: Run per-domain task and commit**
 
-Run: `uv run pytest tests/endpoints -v` → all sync + async tests pass.
+Each Task 26* below follows this checklist:
 
-Commits, one per domain:
-```
-feat(auth-async): mirror Auth with AsyncAuth
-feat(lookup-async): mirror Lookup with AsyncLookup
-feat(reference-async): mirror Reference with AsyncReference
-feat(insight-async): mirror Insight with AsyncInsight (19)
-feat(quote-async): mirror Quote with AsyncQuote (sharded)
-feat(fundamental-async): mirror Fundamental with AsyncFundamental (12)
-feat(ai-async): mirror AI with AsyncAI incl. async polling
-feat(vault-async): mirror Vault with AsyncVault (10)
-feat(alternative-async): mirror Alternative with AsyncAlternative
-```
+1. Add the `Async<Name>` class to `domains/<name>.py`, mirroring the sync class method-for-method.
+2. Re-export from `domains/__init__.py`.
+3. Add `tests/endpoints/test_<name>_async.py` with one `@pytest.mark.anyio async def` test per endpoint, mirroring the sync test file.
+4. Run `uv run pytest tests/endpoints/test_<name>_async.py -v`.
+5. Commit with the message indicated.
+
+| Task | Domain | Sync class size | Commit message |
+|---|---|---|---|
+| 26a | Auth | 2 methods | `feat(auth-async): AsyncAuth mirror` |
+| 26b | Lookup | 8 methods | `feat(lookup-async): AsyncLookup mirror` |
+| 26c | Reference | 1 method | `feat(reference-async): AsyncReference mirror` |
+| 26d | Insight | 13 list + 6 download = 19 | `feat(insight-async): AsyncInsight mirror (19 endpoints)` |
+| 26e | Quote | 6 (4 sharded) | `feat(quote-async): AsyncQuote with async sharding` |
+| 26f | Fundamental | 12 | `feat(fundamental-async): AsyncFundamental mirror (12)` |
+| 26g | AI | 10 sync + 4 polled + 1 download = 15 | `feat(ai-async): AsyncAI mirror with async polling` |
+| 26h | Vault | 7 list + 3 download = 10 | `feat(vault-async): AsyncVault mirror (10)` |
+| 26i | Alternative | 2 | `feat(alternative-async): AsyncAlternative mirror` |
+
+**Domain-specific notes:**
+
+- **26e (Quote):** the sharding helper is now `fetch_shards_async` from Task 25. Replace the `ThreadPoolExecutor`-based `fetch_shards` with the async version.
+- **26g (AI):** use `poll_content_async` instead of `poll_content`. The `wait=False` path returns a dict immediately (no awaiting beyond the id call).
+- **26d / 26h:** download methods call `await download_to_path_async(...)` (added in Step 1 below) and pass `title_lookup=...` exactly like the sync versions. The list wrappers must call `await self._client._record_list_titles(...)` — async variant.
+
+All async tests must use the `anyio_backend` fixture defined in `tests/conftest.py` (Task 7.5) and the `seeded_config` fixture.
+
+Per-domain "minimum acceptable" test count:
+- 26a: 2 (login, status)
+- 26b: 2 (research_areas + 1 other)
+- 26c: 1
+- 26d: 19 (one per endpoint, downloads use the same Content-Disposition assertion as sync)
+- 26e: 4 (day_kline single, day_kline all-market shards, realtime, minute_kline)
+- 26f: 12
+- 26g: 15 (incl. one `wait=False` and one `410110→ready` polling test)
+- 26h: 10
+- 26i: 2
 
 ---
 
@@ -5681,54 +6811,65 @@ Expected: prints `0.1.0`.
 
 ---
 
-## Self-Review
+## Self-Review (v2)
+
+**Task count:** v1 had 31 tasks. v2 has **37 task headings** plus a 9-row dispatch table under Task 26 (26a-26i), giving **45 commit boundaries** for the executor. Splits introduced: 16 → 16a + 16b; 19 → 19a + 19b + 19c; 20 → 20a + 20b + 20c; 26 → 26a..26i (table-driven); new 7.5 conftest task.
 
 **Spec coverage check** (per `docs/superpowers/specs/2026-05-27-gangtise-openapi-python-design.md`):
 
 | Spec section | Covered by |
 |---|---|
-| §2 PyPI name `gangtise-openapi` | Task 1 (`pyproject.toml`) |
-| §2 Python 3.10+ | Task 1 (`requires-python`) |
+| §2 PyPI name `gangtise-openapi` | Task 1 |
+| §2 Python 3.10+ | Task 1 |
 | §2 uv + hatchling | Task 1 |
-| §3 three-layer architecture | Tasks 13 (client), 15-20 (domains), 14 (facade) |
-| §4 file layout | Reflected in File Structure table + Task file targets |
-| §5 Path A (sync tabular) | Task 13 + Tasks 15-20 + Task 12 normalize |
-| §5 Path B (async polling) | Tasks 11, 19 (sync), 25, 26 (async) |
-| §5 Path C (streaming download) | Tasks 21, 22, 26 |
-| §5 retry policy (429/5xx/network/999999, auth-code self-heal) | Task 8, Task 13 (auth retry), Task 24 (async mirror) |
+| §3 three-layer architecture | Tasks 13, 14, 15-20c |
+| §4 file layout | File Structure table + Task file targets |
+| §5 Path A (sync tabular) | Tasks 13, 15-20c, 12 |
+| §5 Path B (async polling) | Tasks 11, 19b, 25, 26g |
+| §5 Path C (streaming download + title cache) | Tasks 21, 22 (incl. retrofit step), 16b, 19c, 20b, 26d/26g/26h |
+| §5 retry policy | Tasks 8, 13 (auth retry), 24 |
 | §5 exception tree | Task 3 |
 | §6 env vars + token cache | Tasks 4, 5, 13 |
 | §6 `configure()` semantics | Task 14 |
 | §6 logging | Task 23 |
-| §7 unit tests + endpoint smokes + live integration | Throughout; Task 30 wires the live marker |
+| §7 unit + endpoint smoke + live integration | Throughout + Task 30 |
 | §8 SemVer + `__about__.py` | Task 1 |
-| §8 release workflow + GH Release | Task 29 |
-| §8 compatibility contract | Reflected in `__init__.py` exports (Tasks 13, 14, 27) |
-| §9 in-scope: title cache | Task 21 |
-| §9 out of scope: Retry-After/Pydantic/codegen | Not implemented — correct |
+| §8 release workflow | Task 29 |
+| §8 compatibility contract | Tasks 13, 14, 27 |
+| §9 in-scope: title cache | Tasks 21, 22 (lookup chain: cache → list-endpoint fallback → Content-Disposition → fallback name) |
+| §9 out of scope: Retry-After / Pydantic / codegen | Not implemented — correct |
 | §10 resolved questions (slug, PyPI name, license) | Tasks 1, 29 |
 
-**Placeholder scan:** the plan deliberately leaves three "translate from TS source" instructions:
+**Placeholder scan:** the plan retains two structured "translate from TS source" steps. These are bounded mechanical work, not "TBD":
 
-1. **Task 6 step 3** — the full 73-entry endpoint dict body is described as "translate every entry from `endpoints.ts`". This is not a placeholder; it's a structured mechanical translation backed by:
-   - A complete list of expected endpoint keys (step 5)
-   - A test that fails until all 73 entries are present (step 4)
-   - The exact format helper (`_ep(...)`)
-   - The TS reference file path
-2. **Task 7 step 1** — translating eight lookup data tables. The TS array shape is structurally simple (`{id, name}` etc.) and the per-file pattern is shown; tests assert the result is `list[dict]` with non-empty content.
-3. **Tasks 16, 18, 19, 20** — each domain task lists an explicit endpoint manifest (Python kwargs ↔ TS body field names) and one full-code example. The remaining wrappers in each domain are produced by copy-and-substitute, with smoke tests pinning behavior.
+1. **Task 6 step 3** — translating the 73 endpoint definitions from `endpoints.ts`. Backed by a test that asserts the exact key set (step 5) and a pagination-registry test that asserts the per-endpoint `max_page_size` (step 4 v2). An engineer with `endpoints.ts` open can finish this mechanically.
+2. **Task 7 step 1** — translating eight lookup arrays. Tests assert `list[dict]` shape with non-empty content; the TS data shape is trivial.
 
-These are concrete enough that an engineer with the TS source open can execute them mechanically. They are not "TBD" or "add appropriate error handling" — they are bounded translation tasks.
+All other tasks now show **full code** for every step including the domain wrappers (manifests are concrete kwargs↔body mappings, not "translate as needed"). Task 17, 18, 19a/b/c, 20a/b/c each list endpoint shapes explicitly.
 
 **Type consistency check:**
-- `EndpointDef` fields: `key, method, path, kind, description, pagination` — consistent across Task 6, Task 8, Task 9, Task 17, Task 22.
-- `Config` fields: `base_url, access_key, secret_key, token, token_cache_path, title_cache_path, timeout_ms, page_concurrency, verbose` — consistent across Tasks 4, 13, 14, 24, 25.
-- `TokenCache` fields: `access_token, expires_in, time, expires_at, uid, user_name, tenant_id` — consistent across Tasks 5 and 13.
-- `GangtiseClient` methods used by domains: `_call(endpoint_key, body, query)`, `_get_token`, `_http_client`, `config`, `login` — consistent across Tasks 13, 16-20, 22, 25, 26.
-- `download_to_path` signature: `client, endpoint_key, query, output, fallback_name` — used identically in Tasks 22, 26.
-- `poll_content` / `poll_content_async` signature: `fetch, *, sleep | (none for async), max_attempts` — consistent across Tasks 11, 19, 25.
+- `EndpointDef` fields: `key, method, path, kind, description, pagination` — Tasks 6, 8, 9, 17, 22.
+- `Config` fields: 9 fields — Tasks 4, 13, 14, 24, 25.
+- `TokenCache` fields: 7 fields — Tasks 5 and 13.
+- `GangtiseClient` public surface used by domains: `_call`, `_get_token`, `_http_client`, `config`, `login`, `_record_list_titles`, `_resolve_title` — consistent across Tasks 13, 22, 16a, 16b, 19c, 20a/b.
+- `download_to_path(client, endpoint_key, query, output, fallback_name, title_lookup=None)` — Tasks 22, 16b, 19c, 20b.
+- `download_to_path_async(...)` — same signature, async variant — Task 26 prologue, 26d, 26g, 26h.
+- `poll_content(fetch, *, sleep=time.sleep, max_attempts=14)` / `poll_content_async(fetch, *, max_attempts=14)` — Tasks 11, 25, 19b, 26g.
+- `TitleCache.lookup(endpoint_key, id_value)`, `set_titles(endpoint_key, titles)`, `flush()` — Tasks 21, 22, 26 async client.
 
-No drift found in the cross-task signatures.
+No drift in the cross-task signatures.
+
+**Granularity check** (response to Codex Medium #5):
+- Largest remaining single task is 19a (10 AI wrappers + 10 smoke tests) — still substantial but bounded; can be done in ~20 minutes by a focused agent.
+- Largest async task is 26d (Insight, 19 endpoints to mirror). The mirror is mostly mechanical (s/sync/async/, s/def /async def /, s/return self._client._call/return await self._client._call/) — acceptable for one task.
+- Critical path lengths (from scaffold to first PyPI publish): 1 → 2 → 3 → 4 → 5 → 6 → 7 → 7.5 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16a → 17 → 18 → 19a → 19b → 20a → 20c → 21 → 22 → 16b → 19c → 20b → 23 → 24 → 25 → 26a/b/c/d/e/f/g/h/i (parallelisable) → 27 → 28 → 29 → 30 → 31.
+
+**Dependency map (subset, for executor):**
+- 22 (download) depends on 13 (client), 21 (title cache), 15-20c (list wrappers that retrofit).
+- 16b, 19c, 20b (downloads) depend on 22.
+- 25 (async client) depends on 13, 24.
+- 26d/26g/26h (async with downloads) depend on 25 + 22 + the sync sibling task.
+- 31 (release) depends on everything.
 
 ---
 

@@ -137,7 +137,7 @@ gangtise-openapi/
 
 ```python
 from gangtise_openapi import gangtise
-df = gangtise.quote.day_kline(security="000001.SH", start_time="2026-01-01")
+df = gangtise.quote.day_kline(security="000001.SH", start_date="2026-01-01")
 ```
 
 1. `gangtise.quote` → `_Facade._ensure_client()` lazy-builds `GangtiseClient`
@@ -149,8 +149,12 @@ df = gangtise.quote.day_kline(security="000001.SH", start_time="2026-01-01")
    - `auth_provider.get_header()` consults the in-memory `TokenCache`; on miss
      or near-expiry, calls `_token_refresh()` (deduped via `threading.Lock`).
    - `httpx.Client.request(...)` with `timeout = config.timeout_ms / 1000`.
-   - Retry policy: 5xx / network timeout / API code `999999` → exponential
-     backoff (base 400ms, max 4s), max 2 retries.
+   - Retry policy (matches `gangtise-openapi-cli/src/core/transport.ts`):
+     HTTP `429 / 500 / 502 / 503 / 504`, retryable network errors
+     (`ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`, `EAI_AGAIN`, plus httpx
+     equivalents), and API code `999999`. Exponential backoff with jitter
+     (base 400ms, max 4s), max 2 retries. `Retry-After` header and quota-aware
+     pacing are out of scope (§9).
    - Envelope unwrap: `code == "000000"` or `success == True` → return `data`;
      otherwise raise `ApiError(msg, code, status_code, details)`.
    - Auth codes (`8000014`, `8000015`) force a one-shot token refresh and
@@ -175,22 +179,42 @@ df = gangtise.quote.day_kline(security="000001.SH", start_time="2026-01-01")
 ### Path B — transparent async polling
 
 ```python
-content = gangtise.ai.earnings_review(security="600519.SH", date="2026-Q1")
+# blocking, default — SDK polls until ready (~3 min budget) and returns content
+content = gangtise.ai.earnings_review(security_code="600519.SH", period="2026q1")
+
+# fire-and-forget — returns immediately with the dataId; user polls later
+pending = gangtise.ai.earnings_review(security_code="600519.SH",
+                                      period="2026q1", wait=False)
+content = gangtise.ai.earnings_review_check(data_id=pending["data_id"])
 ```
 
-Wrapper internally:
-1. Calls `ai.earnings-review.get-id` to obtain `taskId`.
-2. Calls `_async_content.poll(client, task_id=..., family="earnings-review")`.
-   The poll function maps `family` to the TS-equivalent check endpoint
-   (mirrors `checkAsyncContent` / `pollAsyncContent` in
-   `gangtise-openapi-cli/src/core/asyncContent.ts`; exact endpoint keys to
-   be confirmed by reading that module during implementation).
-   Backoff: 5, 8, 13, 20, 30 seconds, then repeats 30s.
-   `POLL_MAX_ATTEMPTS = 10` (matches TS source). Times out with
-   `ApiError("polling timeout")`.
-3. Calls `ai.earnings-review.get-content` once ready.
-4. Returns dict (not tabular). `raw=True` returns the envelope `data` as-is;
-   default returns the same dict but with top-level keys snake_cased.
+Wrapper internally (mirrors `gangtise-openapi-cli/src/core/asyncContent.ts`
+and `cli.ts`):
+
+1. Calls `ai.earnings-review.get-id` with `{securityCode, period}` → returns
+   `{dataId: str}`. (Identifier is **dataId**, not taskId.)
+2. If `wait=False`: return `{"data_id": ..., "status": "pending"}` immediately.
+3. If `wait=True` (default): call `_async_content.poll(client,
+   get_content_key="ai.earnings-review.get-content", data_id=...)`.
+   - Each attempt POSTs to the **same** `*.get-content` endpoint (no separate
+     check endpoint).
+   - Result classification by API code:
+     - `200`/envelope ok and body has non-null `content` → ready, return body
+     - `ApiError.code == "410110"` → still pending, sleep and retry
+     - `ApiError.code == "410111"` → terminal failure, raise
+       `ApiError("Content generation failed (terminal). Do not retry.",
+       code="410111")`
+     - Any other error → propagate
+   - Backoff per attempt: `min(30s, round(5s * 1.6 ** (attempt-1)))` → 5, 8,
+     13, 20, 30, 30, … (matches TS `nextDelayMs`).
+   - `POLL_MAX_ATTEMPTS = 14` (matches TS source). Exhaustion raises
+     `ApiError("Content not available after 14 attempts")`.
+4. Returns dict. `raw=True` returns envelope `data` as-is; default returns the
+   same dict but with top-level keys snake_cased.
+5. `gangtise.ai.viewpoint_debate(...)` follows the identical pattern, using
+   `ai.viewpoint-debate.get-id` / `ai.viewpoint-debate.get-content`. Sibling
+   helper `viewpoint_debate_check(data_id=...)` is exposed for users who run
+   the workflow asynchronously.
 
 ### Path C — streaming download
 
@@ -245,9 +269,28 @@ client = GangtiseClient(access_key="...", secret_key="...", base_url="...",
                         timeout=30.0)
 ```
 
-The facade exposes `gangtise.configure(...)` to replace the default client.
-A second call raises `ConfigError("default client already configured")`. Use
-`gangtise.reset()` to allow re-configure.
+The facade exposes `gangtise.configure(...)` to pin the default client.
+Semantics are notebook-friendly:
+
+- **First call** with any config: builds and pins the default client.
+- **Subsequent call with the same effective config** (every kwarg matches):
+  no-op. Returns the existing client. This lets notebook cells re-run safely.
+- **Subsequent call with a different config**: raises
+  `ConfigError("default client already configured with different settings;
+  call gangtise.reset() or pass replace=True")`.
+- **`configure(..., replace=True)`**: tears down the current default client
+  and replaces it. Equivalent to `reset()` + `configure(...)`.
+- **`gangtise.reset()`**: closes the current default client (`httpx.Client
+  .close()` / `AsyncClient.aclose()`), clears the in-memory token cache, and
+  evicts all cached domain wrappers (`gangtise.quote`, etc.). The on-disk
+  token cache file is left untouched.
+
+Config equality compares the fields that are actually customizable: `base_url`,
+`access_key`, `secret_key`, `token`, `token_cache_path`, `timeout`. Anything
+unset on either side is treated as "match" against the env-derived default.
+
+`configure` and `reset` are part of the public API contract (see §8
+Compatibility).
 
 ### Token cache file format
 
@@ -298,13 +341,19 @@ Identical to TS `TokenCache`:
 
 - `_pagination.collect`: single page; exact-multiple total; remainder;
   `requested_size` truncation; `total` drift across pages; unexpected shape
-- `_quote_sharding`: shard day count per market (A=1, HK=2, US=1); `--limit`
-  default 10000 injection when `security=all` and no explicit limit; shard
-  merge dedup
-- `_async_content.poll`: backoff sequence (5,8,13,20,30); timeout; ready exit
+- `_quote_sharding`: shard day count per market (A-share day-kline = 1,
+  HK day-kline = 2, US day-kline = 1, index-day-kline = 30); `--limit` default
+  10000 injection when `security=all` and no explicit limit; shard merge
+  dedup
+- `_async_content.poll`: backoff sequence (5,8,13,20,30,30,…); `410110`
+  classified as pending and retried; `410111` classified as terminal failure
+  and raised; `POLL_MAX_ATTEMPTS = 14` exhaustion path; ready-on-first-attempt
+  exit
 - `_auth.TokenCache`: valid; expired; near-expiry buffer; corrupt JSON
-- `_transport.retry`: 5xx; `999999`; `8000014` (one-shot full refresh + retry);
-  retryable network codes
+- `_transport.retry`: HTTP 429 / 500 / 502 / 503 / 504; API code `999999`;
+  retryable network errors (`ECONNRESET`, `ETIMEDOUT`, `ENOTFOUND`,
+  `EAI_AGAIN`, httpx equivalents); `8000014` triggers exactly one forced
+  token refresh + retry
 - `_normalize.to_dataframe`: empty list; column order locked; dtype inference;
   `raw=True` passes through untouched
 
@@ -386,8 +435,11 @@ the same mocked endpoint, asserting identical DataFrame output.
 
 ### Compatibility contract
 
-- Public API: `gangtise_openapi.gangtise` facade, `GangtiseClient`,
-  `AsyncGangtiseClient`, exception tree, `__version__`.
+- Public API: `gangtise_openapi.gangtise` facade (including its domain
+  attributes `.quote / .insight / …` and its lifecycle methods `configure`,
+  `reset`), `GangtiseClient`, `AsyncGangtiseClient`, exception tree
+  (`GangtiseError`, `ConfigError`, `ApiError`, `ValidationError`,
+  `DownloadError`), and `__version__`.
 - Anything reachable only via underscore-prefixed modules is private. Refactor
   freely.
 - Breaking change in public API ⇒ major bump.
@@ -399,19 +451,32 @@ the same mocked endpoint, asserting identical DataFrame output.
 - Python CLI binary. npm CLI remains canonical.
 - Multi-process token coordination.
 - Auto-generated endpoint wrappers (manual is acceptable at 73 endpoints).
-- Pydantic models for response shapes. DataFrame + dict covers the buy-side use
-  case.
+- Pydantic / typed response models. DataFrame + dict covers the buy-side use
+  case; revisit if user demand emerges.
+- Auto-generated OpenAPI schema or codegen pipeline from `endpoints.ts`.
 - Caching of paginated results to disk.
-- Rate limit handling beyond exponential retry on `999999`.
+- `Retry-After` header parsing, quota-aware pacing, and other advanced
+  rate-limit strategies. Basic exponential backoff on 429/5xx/`999999` is the
+  whole story for v0.1.0.
+
+### Explicitly in scope (clarifications)
+
+- Streaming download with title resolution and on-disk caching of resolved
+  titles. The Python port mirrors the TS `_download` + `_titleCache` behavior
+  (atomic write via temp + rename, in-memory snapshot, JSON file format).
+  Cache lives at `~/.config/gangtise/title-cache.json` to match the npm CLI.
 
 ## 10. Risks & Open Questions
 
-### Open questions (need user input before implementation)
+### Resolved questions
 
-- **GitHub repo slug** — default `gangtise-openapi-python`. Confirm with user.
-- **PyPI account / publisher** — need a PyPI org account or personal account
-  to claim `gangtise-openapi`. Confirm before tagging v0.1.0.
-- **License** — assume MIT to match the npm CLI. Confirm.
+- **GitHub repo slug**: `gangtise-openapi-python` under the `gangtiser` org.
+- **PyPI name availability**: `https://pypi.org/pypi/gangtise-openapi/json`
+  returns 404 as of 2026-05-27 (verified by Codex). Name is free to claim.
+- **PyPI publisher account**: pending — Trusted Publisher / OIDC config goes
+  in once a user/org account exists. Tracked as a release-time prerequisite,
+  not a v0.1.0 implementation blocker.
+- **License**: MIT, matching `gangtise-openapi-cli`.
 
 ### Risks
 

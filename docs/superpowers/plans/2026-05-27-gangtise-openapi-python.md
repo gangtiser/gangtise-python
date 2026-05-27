@@ -932,7 +932,7 @@ git commit -m "feat(auth): add TokenCache with atomic write + 0600 perms"
 ```python
 import pytest
 
-from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
+from gangtise_openapi._endpoints import EndpointDef, lookup
 
 
 def test_endpoint_count():
@@ -1765,7 +1765,7 @@ def request_json(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/unit/test_transport.py -v`
-Expected: 15 passed.
+Expected: 17 passed (counted from the test functions defined in step 1).
 
 - [ ] **Step 5: Commit**
 
@@ -2521,17 +2521,18 @@ def test_call_with_env_token_skips_login(client_config, monkeypatch):
         timeout_ms=5000,
         page_concurrency=3,
     )
-    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post("/application/auth/oauth/open/loginV2")
-        # The login endpoint must NOT be hit because GANGTISE_TOKEN is set.
-        with GangtiseClient(_config=cfg) as client:
-            router.post("/application/open-quote/quote/realtime").mock(
-                return_value=httpx.Response(
-                    200, json={"code": "000000", "status": True, "data": []}
-                )
+    # Use assert_all_called=False because the login route is intentionally
+    # registered to prove it gets zero traffic.
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        login_route = router.post("/application/auth/oauth/open/loginV2")
+        router.post("/application/open-quote/quote/realtime").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": []}
             )
+        )
+        with GangtiseClient(_config=cfg) as client:
             client._call("quote.realtime", body={"securityList": ["000001.SH"]})
-        assert route.call_count == 0
+        assert login_route.call_count == 0
 
 
 def test_call_login_happens_when_no_token(client_config):
@@ -2674,7 +2675,7 @@ from gangtise_openapi._auth import (
     write_token_cache,
 )
 from gangtise_openapi._config import Config, load_config
-from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
+from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import ApiError
 from gangtise_openapi._lookup import LOOKUP_LOADERS
 from gangtise_openapi._pagination import collect_paginated
@@ -4200,7 +4201,7 @@ class Quote:
         limit: int | None = None,
         field: Any = None,
         raw: bool = False,
-    ):
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         body = _strip_none({
             "securityCode": security,
             "startTime": start_time,
@@ -4220,7 +4221,7 @@ class Quote:
         security: Any,
         field: Any = None,
         raw: bool = False,
-    ):
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         body = _strip_none({
             "securityList": _as_list(security),
             "fieldList": _as_list(field),
@@ -5176,7 +5177,7 @@ If list wrappers were already implemented in Tasks 16a / 20a without this side-e
 
 - [ ] **Step 3: Run + commit**
 
-Run: `uv run pytest tests/unit/test_title_cache.py -v` → 4 passed.
+Run: `uv run pytest tests/unit/test_title_cache.py -v` → 7 passed.
 
 ```bash
 git add src/gangtise_openapi/_title_cache.py tests/unit/test_title_cache.py
@@ -5467,7 +5468,7 @@ class GangtiseClient:
         return titles.get(str(id_value))
 ```
 
-(Apply the equivalent change to `AsyncGangtiseClient` in Task 25 — the async download helper will need `await client._resolve_title_async(...)`.)
+(Apply the equivalent change to `AsyncGangtiseClient` in Task 25. The async client exposes the **same** method names (`_record_list_titles` and `_resolve_title`) but defined as `async def`. The async download helper calls `await client._resolve_title(...)` — no `_async` suffix, since the sync/async clients are distinct types and don't need to disambiguate.)
 
 - [ ] **Step 3: Retrofit list wrappers to populate the title cache**
 
@@ -5931,6 +5932,7 @@ async def poll_content_async(
 import anyio
 
 from gangtise_openapi._pagination import collect_paginated_async
+from gangtise_openapi._title_cache import TITLE_LOOKUP_SIZE, TitleCache, extract_titles
 from gangtise_openapi._transport_async import build_async_client, request_json_async
 
 
@@ -5968,6 +5970,7 @@ class AsyncGangtiseClient:
         self._http: httpx.AsyncClient | None = None
         self._memo_cache: TokenCache | None = None
         self._lock = anyio.Lock()
+        self._title_cache = TitleCache(cfg.title_cache_path)
 
     @property
     def config(self) -> Config:
@@ -6119,7 +6122,13 @@ class AsyncQuote:
     def __init__(self, client: "AsyncGangtiseClient") -> None:
         self._client = client
 
-    async def realtime(self, *, security: Any, field: Any = None, raw: bool = False):
+    async def realtime(
+        self,
+        *,
+        security: Any,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         body = _strip_none({
             "securityList": _as_list(security),
             "fieldList": _as_list(field),
@@ -6129,7 +6138,10 @@ class AsyncQuote:
             return result
         rows = result if isinstance(result, list) else result.get("list", [])
         return to_dataframe(rows, schema=_REALTIME_SCHEMA)
-    # ... mirror each sync method, with `async def` and `await`
+    # ... mirror each sync method. Preserve the sync return-type annotation:
+    # if Quote.day_kline -> pd.DataFrame | dict[str, Any], so does
+    # AsyncQuote.day_kline; mypy strict will not let any wrapper omit a
+    # return type.
 ```
 
 For domains with sharded K-line (Quote): call `fetch_shards_async` instead of `fetch_shards`. For AI's earnings-review / viewpoint-debate: use `poll_content_async`.

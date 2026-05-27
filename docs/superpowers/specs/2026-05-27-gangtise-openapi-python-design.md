@@ -401,9 +401,7 @@ the same mocked endpoint, asserting identical DataFrame output.
   `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `.env*`.
 - Commit convention: Conventional Commits, no commit-msg hook.
 - First commit: `chore: initial scaffold` (pyproject + LICENSE + README skel).
-- Remote: GitHub repo under the `gangtiser` org. Working name
-  `gangtise-openapi-python`. The user confirms the final slug before the
-  first push (open question in §10).
+- Remote: `gangtiser/gangtise-python` on GitHub (locked 2026-05-28).
 
 ### Versioning
 
@@ -470,7 +468,7 @@ the same mocked endpoint, asserting identical DataFrame output.
 
 ### Resolved questions
 
-- **GitHub repo slug**: `gangtise-openapi-python` under the `gangtiser` org.
+- **GitHub repo slug**: `gangtiser/gangtise-python` (locked 2026-05-28).
 - **PyPI name availability**: `https://pypi.org/pypi/gangtise-openapi/json`
   returns 404 as of 2026-05-27 (verified by Codex). Name is free to claim.
 - **PyPI publisher account**: pending — Trusted Publisher / OIDC config goes

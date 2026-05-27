@@ -183,9 +183,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gangtiser/gangtise-openapi-python"
-Source = "https://github.com/gangtiser/gangtise-openapi-python"
-Issues = "https://github.com/gangtiser/gangtise-openapi-python/issues"
+Homepage = "https://github.com/gangtiser/gangtise-python"
+Source = "https://github.com/gangtiser/gangtise-python"
+Issues = "https://github.com/gangtiser/gangtise-python/issues"
 
 [dependency-groups]
 dev = [
@@ -6658,7 +6658,7 @@ Before the first release, configure PyPI Trusted Publishing for the `gangtise-op
 1. Claim the `gangtise-openapi` name on PyPI (verified free as of 2026-05-27).
 2. Add a Trusted Publisher in PyPI project settings:
    - Owner: `gangtiser`
-   - Repository: `gangtise-openapi-python`
+   - Repository: `gangtise-python`
    - Workflow: `release.yml`
    - Environment: (leave blank)
 3. Run the workflow once via TestPyPI by temporarily pointing `pypa/gh-action-pypi-publish@release/v1` at `repository-url: https://test.pypi.org/legacy/`. Revert before tagging the real `v0.1.0`.
@@ -6783,7 +6783,7 @@ Expected: prints `_Facade`. Then remove `.check-venv`.
 
 - [ ] **Step 3: Confirm PyPI Trusted Publisher is configured**
 
-Visit https://pypi.org/manage/project/gangtise-openapi/settings/publishing/ and verify the entry pointing at `gangtiser/gangtise-openapi-python` and workflow `release.yml`.
+Visit https://pypi.org/manage/project/gangtise-openapi/settings/publishing/ and verify the entry pointing at `gangtiser/gangtise-python` and workflow `release.yml`.
 
 - [ ] **Step 4: TestPyPI smoke (optional)**
 
@@ -6812,7 +6812,7 @@ git push origin main --follow-tags
 
 - [ ] **Step 6: Watch the release workflow**
 
-Open https://github.com/gangtiser/gangtise-openapi-python/actions and confirm the `Release` workflow succeeds. Verify the package is live on PyPI:
+Open https://github.com/gangtiser/gangtise-python/actions and confirm the `Release` workflow succeeds. Verify the package is live on PyPI:
 
 ```bash
 uv venv .verify-venv

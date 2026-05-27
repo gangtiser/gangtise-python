@@ -371,7 +371,7 @@ def test_quote_day_kline(respx_mock, sync_client):
         })
     )
     df = sync_client.quote.day_kline(security="000001.SH",
-                                     start_time="2026-01-01")
+                                     start_date="2026-01-01")
     assert isinstance(df, pd.DataFrame)
     assert list(df.columns) == [...]   # schema lock
     assert len(df) == 2

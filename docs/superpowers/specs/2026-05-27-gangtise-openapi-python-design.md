@@ -466,14 +466,19 @@ the same mocked endpoint, asserting identical DataFrame output.
 
 ## 10. Risks & Open Questions
 
-### Resolved questions (all locked 2026-05-28)
+### Locked decisions (2026-05-28)
 
 - **GitHub repo slug**: `gangtiser/gangtise-python`.
 - **PyPI package name**: `gangtise-openapi` (verified free on PyPI 2026-05-27).
-- **PyPI publisher account**: pending — Trusted Publisher / OIDC config goes
-  in once a user/org account exists. Release-time prerequisite, not a v0.1.0
-  implementation blocker.
 - **License**: MIT, matching `gangtise-openapi-cli`.
+
+### Release prerequisite (not a design question)
+
+- **PyPI publisher account**: a `gangtiser` user/org account on PyPI must
+  exist before tagging v0.1.0, with Trusted Publisher (OIDC) configured for
+  the `gangtise-python` GitHub repo. This is a release-time setup step, not
+  a v0.1.0 implementation blocker — see `docs/RELEASE.md` (created in plan
+  Task 29).
 
 ### Risks
 

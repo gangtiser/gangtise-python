@@ -932,7 +932,7 @@ git commit -m "feat(auth): add TokenCache with atomic write + 0600 perms"
 ```python
 import pytest
 
-from gangtise_openapi._endpoints import EndpointDef, lookup
+from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
@@ -5932,7 +5932,7 @@ async def poll_content_async(
 import anyio
 
 from gangtise_openapi._pagination import collect_paginated_async
-from gangtise_openapi._title_cache import TITLE_LOOKUP_SIZE, TitleCache, extract_titles
+from gangtise_openapi._title_cache import TitleCache
 from gangtise_openapi._transport_async import build_async_client, request_json_async
 
 
@@ -6224,7 +6224,14 @@ async def _decide_target_async(
     return Path.cwd() / f"{fallback_name}{ext_from_mime}"
 ```
 
-The async client needs the sibling methods. Add to `AsyncGangtiseClient` (Task 25):
+The async client needs the sibling methods. Add to `AsyncGangtiseClient` (Task 25). When adding these methods, **extend the existing `_title_cache` import** in `_client.py` to bring in the names you now need:
+
+```python
+# Update the existing import block in _client.py
+from gangtise_openapi._title_cache import TITLE_LOOKUP_SIZE, TitleCache, extract_titles
+```
+
+Then add the methods:
 
 ```python
 async def _record_list_titles(

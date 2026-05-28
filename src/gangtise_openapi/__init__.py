@@ -2,7 +2,7 @@ import logging as _logging
 import os as _os
 
 from gangtise_openapi.__about__ import __version__
-from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._errors import (
     ApiError,
     ConfigError,
@@ -14,6 +14,7 @@ from gangtise_openapi._facade import gangtise
 
 __all__ = [
     "ApiError",
+    "AsyncGangtiseClient",
     "ConfigError",
     "DownloadError",
     "GangtiseClient",

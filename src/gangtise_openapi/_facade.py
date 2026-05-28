@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Any, ClassVar
 
-from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._config import Config, load_config
 from gangtise_openapi._errors import ConfigError
 
@@ -90,6 +90,9 @@ class _Facade:
         self._client = None
         self._signature = None
         self._domains.clear()
+        # also reset async facade
+        if hasattr(self, "_async_facade"):
+            del self._async_facade
 
     def _ensure_client(self) -> GangtiseClient:
         if self._client is None:
@@ -108,6 +111,52 @@ class _Facade:
             raise AttributeError(name)
         if name not in self._DOMAIN_FACTORIES:
             raise AttributeError(f"unknown domain or attribute: {name!r}")
+        if name not in self._domains:
+            module_path, class_name = self._DOMAIN_FACTORIES[name].split(":")
+            module = __import__(module_path, fromlist=[class_name])
+            cls = getattr(module, class_name)
+            self._domains[name] = cls(self._ensure_client())
+        return self._domains[name]
+
+    # ---- Async mirror ----
+
+    @property
+    def async_(self) -> _AsyncFacade:
+        if not hasattr(self, "_async_facade"):
+            self._async_facade = _AsyncFacade()
+        return self._async_facade
+
+
+class _AsyncFacade:
+    """Async mirror of `_Facade`. Lazy attribute dispatch to async domain wrappers."""
+
+    _DOMAIN_FACTORIES: ClassVar[dict[str, str]] = {
+        "auth": "gangtise_openapi.domains.auth:AsyncAuth",
+        "lookup": "gangtise_openapi.domains.lookup:AsyncLookup",
+        "reference": "gangtise_openapi.domains.reference:AsyncReference",
+        "insight": "gangtise_openapi.domains.insight:AsyncInsight",
+        "quote": "gangtise_openapi.domains.quote:AsyncQuote",
+        "fundamental": "gangtise_openapi.domains.fundamental:AsyncFundamental",
+        "ai": "gangtise_openapi.domains.ai:AsyncAI",
+        "vault": "gangtise_openapi.domains.vault:AsyncVault",
+        "alternative": "gangtise_openapi.domains.alternative:AsyncAlternative",
+    }
+
+    def __init__(self) -> None:
+        self._client: AsyncGangtiseClient | None = None
+        self._domains: dict[str, Any] = {}
+
+    def _ensure_client(self) -> AsyncGangtiseClient:
+        if self._client is None:
+            cfg = load_config()
+            self._client = AsyncGangtiseClient(_config=cfg)
+        return self._client
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if name not in self._DOMAIN_FACTORIES:
+            raise AttributeError(f"unknown async domain: {name!r}")
         if name not in self._domains:
             module_path, class_name = self._DOMAIN_FACTORIES[name].split(":")
             module = __import__(module_path, fromlist=[class_name])

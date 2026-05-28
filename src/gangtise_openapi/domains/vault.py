@@ -59,7 +59,14 @@ class Vault:
         result = self._client._call("vault.drive.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="vault.drive.list",
+            id_field="fileId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     def record_list(
         self,
@@ -85,7 +92,14 @@ class Vault:
         result = self._client._call("vault.record.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="vault.record.list",
+            id_field="recordId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     def my_conference_list(
         self,
@@ -115,7 +129,14 @@ class Vault:
         result = self._client._call("vault.my-conference.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="vault.my-conference.list",
+            id_field="conferenceId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     def wechat_message_list(
         self,

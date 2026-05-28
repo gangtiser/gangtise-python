@@ -20,6 +20,11 @@ from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import ApiError
 from gangtise_openapi._lookup import LOOKUP_LOADERS
 from gangtise_openapi._pagination import collect_paginated
+from gangtise_openapi._title_cache import (
+    TITLE_LOOKUP_SIZE,
+    TitleCache,
+    extract_titles,
+)
 from gangtise_openapi._transport import (
     build_sync_client,
     request_json,
@@ -62,6 +67,7 @@ class GangtiseClient:
         self._http: httpx.Client | None = None
         self._memo_cache: TokenCache | None = None
         self._lock = threading.Lock()
+        self._title_cache = TitleCache(cfg.title_cache_path)
 
     @property
     def config(self) -> Config:
@@ -164,6 +170,46 @@ class GangtiseClient:
                 concurrency=self._config.page_concurrency,
             )
         return self._request_once(endpoint, body or {}, query)
+
+    def _record_list_titles(
+        self,
+        *,
+        list_endpoint_key: str,
+        id_field: str,
+        title_field: str,
+        rows: list[Any],
+    ) -> None:
+        titles = extract_titles(rows, id_field=id_field, title_field=title_field)
+        if titles:
+            self._title_cache.set_titles(list_endpoint_key, titles)
+            self._title_cache.flush()
+
+    def _resolve_title(
+        self,
+        list_endpoint_key: str,
+        id_field: str,
+        id_value: str,
+        title_field: str = "title",
+    ) -> str | None:
+        cached = self._title_cache.lookup(list_endpoint_key, id_value)
+        if cached:
+            return cached
+        try:
+            result = self._call(
+                list_endpoint_key,
+                body={"from": 0, "size": TITLE_LOOKUP_SIZE},
+            )
+        except Exception:
+            # List-fetch failure must not break the download flow.
+            return None
+        rows = result.get("list") if isinstance(result, dict) else result
+        if not isinstance(rows, list):
+            return None
+        titles = extract_titles(rows, id_field=id_field, title_field=title_field)
+        if titles:
+            self._title_cache.set_titles(list_endpoint_key, titles)
+            self._title_cache.flush()
+        return titles.get(str(id_value))
 
     def _request_once(
         self,

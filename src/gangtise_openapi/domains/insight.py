@@ -128,7 +128,14 @@ class Insight:
         result = self._client._call("insight.summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.summary.list",
+            id_field="summaryId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     # ---- schedule helpers (roadshow / site-visit / strategy / forum) ----
 
@@ -331,7 +338,14 @@ class Insight:
         result = self._client._call("insight.research.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.research.list",
+            id_field="reportId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     # ---- foreign-report ----
 
@@ -379,7 +393,14 @@ class Insight:
         result = self._client._call("insight.foreign-report.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.foreign-report.list",
+            id_field="reportId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     # ---- announcement (A-share, 13-digit ms timestamps) ----
 
@@ -413,7 +434,14 @@ class Insight:
         result = self._client._call("insight.announcement.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.announcement.list",
+            id_field="announcementId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     # ---- announcement-hk (plain string timestamps) ----
 
@@ -447,7 +475,14 @@ class Insight:
         result = self._client._call("insight.announcement-hk.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.announcement-hk.list",
+            id_field="announcementId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     # ---- foreign-opinion ----
 

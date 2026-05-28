@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._download import download_to_path
 from gangtise_openapi._normalize import to_dataframe
 
 
@@ -214,3 +216,52 @@ class Vault:
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
+
+    # ---- download endpoints ----
+
+    def drive_download(
+        self,
+        *,
+        file_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="vault.drive.download",
+            query={"fileId": file_id},
+            output=output,
+            fallback_name=f"file-{file_id}",
+            title_lookup=("vault.drive.list", "fileId", file_id),
+        )
+
+    def record_download(
+        self,
+        *,
+        record_id: str,
+        content_type: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="vault.record.download",
+            query={"recordId": record_id, "contentType": content_type},
+            output=output,
+            fallback_name=f"record-{record_id}-{content_type}",
+            title_lookup=("vault.record.list", "recordId", record_id),
+        )
+
+    def my_conference_download(
+        self,
+        *,
+        conference_id: str,
+        content_type: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="vault.my-conference.download",
+            query={"conferenceId": conference_id, "contentType": content_type},
+            output=output,
+            fallback_name=f"conference-{conference_id}-{content_type}",
+            title_lookup=("vault.my-conference.list", "conferenceId", conference_id),
+        )

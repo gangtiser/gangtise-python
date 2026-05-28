@@ -361,3 +361,20 @@ def test_viewpoint_debate_check_returns_server_response(tmp_path):
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             result = AI(client).viewpoint_debate_check(data_id="xyz")
     assert result == {"content": None}
+
+
+def test_knowledge_resource_download_writes_file(tmp_path):
+    cfg = _cfg(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-data/ai/resource/download").mock(
+            return_value=httpx.Response(
+                200, content=b"resource",
+                headers={"content-disposition": 'attachment; filename="kb.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=cfg) as client:
+            path = AI(client).knowledge_resource_download(
+                resource_type=1, source_id="s1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"resource"

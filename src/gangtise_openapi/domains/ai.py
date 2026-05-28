@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from gangtise_openapi._async_content import poll_content
 from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._download import download_to_path
 from gangtise_openapi._errors import ApiError
 from gangtise_openapi._normalize import to_dataframe
 
@@ -288,4 +290,22 @@ class AI:
     ) -> dict[str, Any]:
         return self._client._call(  # type: ignore[no-any-return]
             "ai.viewpoint-debate.get-content", body={"dataId": data_id}
+        )
+
+    # ---- knowledge-resource download ----
+
+    def knowledge_resource_download(
+        self,
+        *,
+        resource_type: int,
+        source_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="ai.knowledge-resource.download",
+            query={"resourceType": resource_type, "sourceId": source_id},
+            output=output,
+            fallback_name=f"knowledge-{source_id}",
+            title_lookup=None,
         )

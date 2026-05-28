@@ -152,3 +152,52 @@ def test_stock_pool_stocks_default_all(tmp_path):
         body = route.calls.last.request.read().replace(b" ", b"")
         assert b'"poolIdList":["all"]' in body
     assert df.iloc[0]["securityCode"] == "000001.SZ"
+
+
+def test_drive_download_writes_file(tmp_path):
+    cfg = _cfg(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-vault/drive/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"file",
+                headers={"content-disposition": 'attachment; filename="f.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=cfg) as client:
+            path = Vault(client).drive_download(file_id="f1", output=tmp_path / "out.pdf")
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"file"
+
+
+def test_record_download_includes_content_type(tmp_path):
+    cfg = _cfg(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-vault/record/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"audio",
+                headers={"content-disposition": 'attachment; filename="r.mp3"'},
+            )
+        )
+        with GangtiseClient(_config=cfg) as client:
+            Vault(client).record_download(
+                record_id="r1", content_type="original", output=tmp_path / "out.mp3",
+            )
+        sent_url = str(route.calls.last.request.url)
+        assert "contentType=original" in sent_url
+
+
+def test_my_conference_download_includes_content_type(tmp_path):
+    cfg = _cfg(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-vault/my-conference/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"summary",
+                headers={"content-disposition": 'attachment; filename="c.txt"'},
+            )
+        )
+        with GangtiseClient(_config=cfg) as client:
+            Vault(client).my_conference_download(
+                conference_id="c1", content_type="summary", output=tmp_path / "out.txt",
+            )
+        sent_url = str(route.calls.last.request.url)
+        assert "contentType=summary" in sent_url

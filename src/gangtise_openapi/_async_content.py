@@ -4,6 +4,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import anyio
+
 from gangtise_openapi._errors import ApiError
 
 POLL_MAX_ATTEMPTS = 14
@@ -57,6 +59,39 @@ def poll_content(
                 return result
         if attempt < max_attempts:
             sleep(next_delay_seconds(attempt))
+    raise ApiError(
+        f"Content not available after {max_attempts} attempts",
+        code=CODE_PENDING,
+    ) from last_pending
+
+
+AsyncFetcher = Callable[[], Any]
+
+
+async def poll_content_async(
+    fetch: AsyncFetcher,
+    *,
+    max_attempts: int = POLL_MAX_ATTEMPTS,
+) -> Any:
+    last_pending: ApiError | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = await fetch()
+        except ApiError as error:
+            kind = _classify(error)
+            if kind == "terminal":
+                raise ApiError(
+                    "Content generation failed (terminal). Do not retry.",
+                    code=CODE_TERMINAL,
+                ) from error
+            if kind == "other":
+                raise
+            last_pending = error
+        else:
+            if isinstance(result, dict) and result.get("content") is not None:
+                return result
+        if attempt < max_attempts:
+            await anyio.sleep(next_delay_seconds(attempt))
     raise ApiError(
         f"Content not available after {max_attempts} attempts",
         code=CODE_PENDING,

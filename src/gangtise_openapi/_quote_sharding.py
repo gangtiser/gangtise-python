@@ -5,6 +5,8 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import anyio
+
 SHARD_DAYS: dict[str, int] = {
     "quote.day-kline": 1,
     "quote.day-kline-hk": 2,
@@ -61,3 +63,28 @@ def fetch_shards(
     workers = max(1, min(concurrency, len(shards)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(fetch, shards))
+
+
+AsyncShardFetcher = Callable[[tuple[dt.date, dt.date]], Any]
+
+
+async def fetch_shards_async(
+    shards: Sequence[tuple[dt.date, dt.date]],
+    *,
+    fetch: AsyncShardFetcher,
+    concurrency: int,
+) -> list[Any]:
+    if not shards:
+        return []
+    workers = max(1, min(concurrency, len(shards)))
+    semaphore = anyio.Semaphore(workers)
+    results: list[Any] = [None] * len(shards)
+
+    async def run_one(idx: int, window: tuple[dt.date, dt.date]) -> None:
+        async with semaphore:
+            results[idx] = await fetch(window)
+
+    async with anyio.create_task_group() as tg:
+        for idx, window in enumerate(shards):
+            tg.start_soon(run_one, idx, window)
+    return results

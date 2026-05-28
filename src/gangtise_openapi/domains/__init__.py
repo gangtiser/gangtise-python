@@ -5,5 +5,6 @@ from gangtise_openapi.domains.insight import Insight
 from gangtise_openapi.domains.lookup import Lookup
 from gangtise_openapi.domains.quote import Quote
 from gangtise_openapi.domains.reference import Reference
+from gangtise_openapi.domains.vault import Vault
 
-__all__ = ["AI", "Auth", "Fundamental", "Insight", "Lookup", "Quote", "Reference"]
+__all__ = ["AI", "Auth", "Fundamental", "Insight", "Lookup", "Quote", "Reference", "Vault"]

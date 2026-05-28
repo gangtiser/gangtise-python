@@ -34,6 +34,7 @@ class _Facade:
         "lookup": "gangtise_openapi.domains.lookup:Lookup",
         "quote": "gangtise_openapi.domains.quote:Quote",
         "reference": "gangtise_openapi.domains.reference:Reference",
+        "vault": "gangtise_openapi.domains.vault:Vault",
     }
     # mapping populated in Phase 5: additional domains added as wrappers land.
 

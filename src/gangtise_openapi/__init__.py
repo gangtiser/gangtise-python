@@ -7,6 +7,7 @@ from gangtise_openapi._errors import (
     GangtiseError,
     ValidationError,
 )
+from gangtise_openapi._facade import gangtise
 
 __all__ = [
     "ApiError",
@@ -16,4 +17,5 @@ __all__ = [
     "GangtiseError",
     "ValidationError",
     "__version__",
+    "gangtise",
 ]

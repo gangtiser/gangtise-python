@@ -12,6 +12,7 @@ from gangtise_openapi._quote_sharding import (
     SHARD_DAYS,
     fetch_shards,
     fetch_shards_async,
+    is_all_market,
     needs_limit_injection,
     plan_shards,
 )
@@ -100,7 +101,7 @@ class Quote:
         if needs_limit_injection(security=security, explicit_limit=limit):
             limit = DEFAULT_FULL_MARKET_LIMIT
 
-        if start_date and end_date:
+        if is_all_market(security) and start_date and end_date:
             shards = plan_shards(
                 start_date=_parse_date(start_date),
                 end_date=_parse_date(end_date),
@@ -297,7 +298,7 @@ class AsyncQuote:
         if needs_limit_injection(security=security, explicit_limit=limit):
             limit = DEFAULT_FULL_MARKET_LIMIT
 
-        if start_date and end_date:
+        if is_all_market(security) and start_date and end_date:
             shards = plan_shards(
                 start_date=_parse_date(start_date),
                 end_date=_parse_date(end_date),

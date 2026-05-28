@@ -39,14 +39,14 @@ def plan_shards(
     return shards
 
 
-def _is_all_market(security: Any) -> bool:
+def is_all_market(security: Any) -> bool:
     if security == "all":
         return True
     return isinstance(security, (list, tuple)) and "all" in security
 
 
 def needs_limit_injection(*, security: Any, explicit_limit: int | None) -> bool:
-    return _is_all_market(security) and explicit_limit is None
+    return is_all_market(security) and explicit_limit is None
 
 
 ShardFetcher = Callable[[tuple[dt.date, dt.date]], Any]

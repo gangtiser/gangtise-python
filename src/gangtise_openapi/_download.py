@@ -7,6 +7,7 @@ from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._endpoints import lookup
 from gangtise_openapi._errors import DownloadError
+from gangtise_openapi._transport import is_envelope, unwrap_envelope
 
 _DISPOSITION_RE = re.compile(r"filename\*?=(?:UTF-8''([^;]+)|\"?([^\";]+)\"?)")
 
@@ -80,6 +81,26 @@ def download_to_path(
             raise DownloadError(
                 f"download failed: HTTP {response.status_code} {response.text[:200]}"
             )
+
+        # JSON 200 = envelope error or metadata payload, NOT a binary download.
+        content_type_header = response.headers.get("content-type", "")
+        if "application/json" in content_type_header.lower():
+            response.read()
+            try:
+                parsed = response.json()
+            except ValueError as err:
+                raise DownloadError(
+                    f"download returned JSON content-type but body not parseable: "
+                    f"{response.text[:200]}"
+                ) from err
+            if is_envelope(parsed):
+                # unwrap_envelope raises ApiError on business failure; otherwise
+                # the "data" is not a downloadable artifact.
+                unwrap_envelope(parsed, status_code=response.status_code)
+            raise DownloadError(
+                f"download endpoint returned JSON, not a file: {response.text[:200]}"
+            )
+
         content_disposition = response.headers.get("content-disposition")
         content_type = response.headers.get("content-type")
         target = _decide_target(
@@ -125,7 +146,10 @@ def _decide_target(
             return Path.cwd() / sanitized
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
-        return Path.cwd() / disposition_name
+        # Use only the basename and sanitize - prevent path traversal from the server.
+        safe_name = _sanitize_filename(Path(disposition_name).name)
+        if safe_name:
+            return Path.cwd() / safe_name
     return Path.cwd() / f"{fallback_name}{ext_from_mime}"
 
 
@@ -160,6 +184,26 @@ async def download_to_path_async(
             raise DownloadError(
                 f"download failed: HTTP {response.status_code} {response.text[:200]}"
             )
+
+        # JSON 200 = envelope error or metadata payload, NOT a binary download.
+        content_type_header = response.headers.get("content-type", "")
+        if "application/json" in content_type_header.lower():
+            await response.aread()
+            try:
+                parsed = response.json()
+            except ValueError as err:
+                raise DownloadError(
+                    f"download returned JSON content-type but body not parseable: "
+                    f"{response.text[:200]}"
+                ) from err
+            if is_envelope(parsed):
+                # unwrap_envelope raises ApiError on business failure; otherwise
+                # the "data" is not a downloadable artifact.
+                unwrap_envelope(parsed, status_code=response.status_code)
+            raise DownloadError(
+                f"download endpoint returned JSON, not a file: {response.text[:200]}"
+            )
+
         content_disposition = response.headers.get("content-disposition")
         content_type = response.headers.get("content-type")
         target = await _decide_target_async(
@@ -205,5 +249,8 @@ async def _decide_target_async(
             return Path.cwd() / sanitized
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
-        return Path.cwd() / disposition_name
+        # Use only the basename and sanitize - prevent path traversal from the server.
+        safe_name = _sanitize_filename(Path(disposition_name).name)
+        if safe_name:
+            return Path.cwd() / safe_name
     return Path.cwd() / f"{fallback_name}{ext_from_mime}"

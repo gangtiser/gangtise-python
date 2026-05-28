@@ -41,6 +41,23 @@ def test_day_kline_single_security(tmp_path):
     assert df.iloc[0]["close"] == 12.3
 
 
+def test_day_kline_single_security_with_dates_does_not_shard(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"list": []}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Quote(client).day_kline(
+                security="000001.SH",
+                start_date="2026-01-01",
+                end_date="2026-12-31",  # 1 year range - would be 365 shards if mis-fired
+            )
+        assert route.call_count == 1
+
+
 def test_day_kline_all_market_injects_limit_10000(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-quote/kline/daily").mock(

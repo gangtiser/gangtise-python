@@ -28,6 +28,7 @@ class _Facade:
 
     _DOMAIN_FACTORIES: ClassVar[dict[str, str]] = {
         "ai": "gangtise_openapi.domains.ai:AI",
+        "alternative": "gangtise_openapi.domains.alternative:Alternative",
         "auth": "gangtise_openapi.domains.auth:Auth",
         "fundamental": "gangtise_openapi.domains.fundamental:Fundamental",
         "insight": "gangtise_openapi.domains.insight:Insight",

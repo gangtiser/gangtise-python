@@ -30,9 +30,10 @@ class _Facade:
         "auth": "gangtise_openapi.domains.auth:Auth",
         "insight": "gangtise_openapi.domains.insight:Insight",
         "lookup": "gangtise_openapi.domains.lookup:Lookup",
+        "quote": "gangtise_openapi.domains.quote:Quote",
         "reference": "gangtise_openapi.domains.reference:Reference",
     }
-    # mapping populated in Phase 5: "quote" -> "gangtise_openapi.domains.quote:Quote", etc.
+    # mapping populated in Phase 5: additional domains added as wrappers land.
 
     def __init__(self) -> None:
         self._client: GangtiseClient | None = None

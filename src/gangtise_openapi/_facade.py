@@ -27,6 +27,7 @@ class _Facade:
     """Module-level singleton exposing namespace-style access to the SDK."""
 
     _DOMAIN_FACTORIES: ClassVar[dict[str, str]] = {
+        "ai": "gangtise_openapi.domains.ai:AI",
         "auth": "gangtise_openapi.domains.auth:Auth",
         "fundamental": "gangtise_openapi.domains.fundamental:Fundamental",
         "insight": "gangtise_openapi.domains.insight:Insight",

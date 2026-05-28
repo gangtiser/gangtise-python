@@ -38,11 +38,13 @@ def seeded_config(config: Config) -> Config:
     """A Config whose on-disk token cache already holds a valid token."""
     config.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
     config.token_cache_path.write_text(
-        json.dumps({
-            "accessToken": "seeded-tok",
-            "expiresIn": 3600,
-            "time": 0,
-            "expiresAt": 9999999999,
-        })
+        json.dumps(
+            {
+                "accessToken": "seeded-tok",
+                "expiresIn": 3600,
+                "time": 0,
+                "expiresAt": 9999999999,
+            }
+        )
     )
     return config

@@ -25,7 +25,8 @@ async def test_async_call_uses_env_token(async_cfg):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-quote/quote/realtime").mock(
             return_value=httpx.Response(
-                200, json={"code": "000000", "status": True, "data": []},
+                200,
+                json={"code": "000000", "status": True, "data": []},
             )
         )
         async with AsyncGangtiseClient(_config=async_cfg) as client:

@@ -440,9 +440,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.income-statement",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def income_statement_quarterly(
@@ -459,9 +464,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.income-statement-quarterly",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def balance_sheet(
@@ -478,9 +488,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.balance-sheet",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def cash_flow(
@@ -497,9 +512,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.cash-flow",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def cash_flow_quarterly(
@@ -516,9 +536,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.cash-flow-quarterly",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def income_statement_hk(
@@ -535,9 +560,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.income-statement-hk",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def balance_sheet_hk(
@@ -554,9 +584,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.balance-sheet-hk",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def cash_flow_hk(
@@ -573,9 +608,14 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._statement(
             "fundamental.cash-flow-hk",
-            security_code=security_code, start_date=start_date, end_date=end_date,
-            fiscal_year=fiscal_year, period=period, report_type=report_type,
-            field=field, raw=raw,
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
         )
 
     async def main_business(
@@ -626,9 +666,7 @@ class AsyncFundamental:
                 "fieldList": _as_list(field),
             }
         )
-        result = await self._client._call(
-            "fundamental.valuation-analysis", body=body
-        )
+        result = await self._client._call("fundamental.valuation-analysis", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         rows = _extract_rows(result)
@@ -685,9 +723,7 @@ class AsyncFundamental:
                 "consensusList": _as_list(consensus),
             }
         )
-        result = await self._client._call(
-            "fundamental.earning-forecast", body=body
-        )
+        result = await self._client._call("fundamental.earning-forecast", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)

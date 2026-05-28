@@ -126,9 +126,7 @@ class GangtiseClient:
         )
         endpoint = lookup("auth.login")
         body = {"accessKey": access_key, "secretKey": secret_key}
-        result = request_json(
-            self._http_client(), self._config, endpoint, body=body, token=None
-        )
+        result = request_json(self._http_client(), self._config, endpoint, body=body, token=None)
         access_token: str = result["accessToken"]
         expires_in = int(result.get("expiresIn", 0))
         cache = TokenCache(

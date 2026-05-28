@@ -208,7 +208,7 @@ class AI:
         self,
         *,
         security_code: str,
-        period: str,           # e.g. "2025q3", "2025interim", "2025annual"
+        period: str,  # e.g. "2025q3", "2025interim", "2025annual"
         wait: bool = True,
         raw: bool = False,
     ) -> dict[str, Any]:
@@ -231,9 +231,7 @@ class AI:
             return {"data_id": data_id, "status": "pending"}
 
         def fetch() -> Any:
-            return self._client._call(
-                "ai.earnings-review.get-content", body={"dataId": data_id}
-            )
+            return self._client._call("ai.earnings-review.get-content", body={"dataId": data_id})
 
         return poll_content(fetch)  # type: ignore[no-any-return]
 
@@ -254,13 +252,11 @@ class AI:
     def viewpoint_debate(
         self,
         *,
-        viewpoint: str,        # max 1000 chars
+        viewpoint: str,  # max 1000 chars
         wait: bool = True,
         raw: bool = False,
     ) -> dict[str, Any]:
-        id_result = self._client._call(
-            "ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint}
-        )
+        id_result = self._client._call("ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint})
         if not isinstance(id_result, dict):
             raise ApiError(
                 "viewpoint-debate.get-id returned unexpected shape",
@@ -276,9 +272,7 @@ class AI:
             return {"data_id": data_id, "status": "pending"}
 
         def fetch() -> Any:
-            return self._client._call(
-                "ai.viewpoint-debate.get-content", body={"dataId": data_id}
-            )
+            return self._client._call("ai.viewpoint-debate.get-content", body={"dataId": data_id})
 
         return poll_content(fetch)  # type: ignore[no-any-return]
 
@@ -372,34 +366,24 @@ class AsyncAI:
         return to_dataframe(_extract_rows(result), schema=None)
 
     async def _security_only(self, endpoint_key: str, security_code: str) -> Any:
-        return await self._client._call(
-            endpoint_key, body={"securityCode": security_code}
-        )
+        return await self._client._call(endpoint_key, body={"securityCode": security_code})
 
-    async def one_pager(
-        self, *, security_code: str, raw: bool = False
-    ) -> dict[str, Any]:
+    async def one_pager(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.one-pager", security_code
         )
 
-    async def investment_logic(
-        self, *, security_code: str, raw: bool = False
-    ) -> dict[str, Any]:
+    async def investment_logic(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.investment-logic", security_code
         )
 
-    async def peer_comparison(
-        self, *, security_code: str, raw: bool = False
-    ) -> dict[str, Any]:
+    async def peer_comparison(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.peer-comparison", security_code
         )
 
-    async def research_outline(
-        self, *, security_code: str, raw: bool = False
-    ) -> dict[str, Any]:
+    async def research_outline(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.research-outline", security_code
         )

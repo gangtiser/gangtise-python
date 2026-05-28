@@ -10,7 +10,9 @@ from gangtise_openapi.domains.vault import Vault
 def _cfg(tmp_path) -> Config:
     return Config(
         base_url="https://api.test",
-        access_key="ak", secret_key="sk", token="tok",
+        access_key="ak",
+        secret_key="sk",
+        token="tok",
         token_cache_path=tmp_path / "tok.json",
         title_cache_path=tmp_path / "title.json",
     )
@@ -20,8 +22,10 @@ def test_drive_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-vault/drive/getList").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": {
                         "total": 1,
                         "list": [{"id": "f1", "name": "doc.pdf"}],
@@ -39,8 +43,10 @@ def test_record_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-vault/record/getList").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": {
                         "total": 1,
                         "list": [{"id": "r1", "title": "调研1"}],
@@ -58,8 +64,10 @@ def test_my_conference_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-vault/my-conference/getList").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": {
                         "total": 1,
                         "list": [{"id": "c1", "title": "策略会"}],
@@ -77,8 +85,10 @@ def test_wechat_message_list_body_shape(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/wechatgroupmsg/list").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": {
                         "total": 1,
                         "list": [{"id": "m1", "content": "msg"}],
@@ -107,8 +117,10 @@ def test_wechat_chatroom_list_joins_room_names(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/wechatgroupmsg/chatroomId").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": [{"chatroomId": "r1", "roomName": "group1"}],
                 },
             )
@@ -125,8 +137,10 @@ def test_stock_pool_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-vault/stock-pool/getPoolList").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": {"poolList": [{"poolId": "p1", "poolName": "核心池"}]},
                 },
             )
@@ -141,8 +155,10 @@ def test_stock_pool_stocks_default_all(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/stock-pool/getStockList").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": [{"securityCode": "000001.SZ", "poolId": "p1"}],
                 },
             )
@@ -159,7 +175,8 @@ def test_drive_download_writes_file(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-vault/drive/download/file").mock(
             return_value=httpx.Response(
-                200, content=b"file",
+                200,
+                content=b"file",
                 headers={"content-disposition": 'attachment; filename="f.pdf"'},
             )
         )
@@ -174,13 +191,16 @@ def test_record_download_includes_content_type(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.get("/application/open-vault/record/download/file").mock(
             return_value=httpx.Response(
-                200, content=b"audio",
+                200,
+                content=b"audio",
                 headers={"content-disposition": 'attachment; filename="r.mp3"'},
             )
         )
         with GangtiseClient(_config=cfg) as client:
             Vault(client).record_download(
-                record_id="r1", content_type="original", output=tmp_path / "out.mp3",
+                record_id="r1",
+                content_type="original",
+                output=tmp_path / "out.mp3",
             )
         sent_url = str(route.calls.last.request.url)
         assert "contentType=original" in sent_url
@@ -191,13 +211,16 @@ def test_my_conference_download_includes_content_type(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.get("/application/open-vault/my-conference/download/file").mock(
             return_value=httpx.Response(
-                200, content=b"summary",
+                200,
+                content=b"summary",
                 headers={"content-disposition": 'attachment; filename="c.txt"'},
             )
         )
         with GangtiseClient(_config=cfg) as client:
             Vault(client).my_conference_download(
-                conference_id="c1", content_type="summary", output=tmp_path / "out.txt",
+                conference_id="c1",
+                content_type="summary",
+                output=tmp_path / "out.txt",
             )
         sent_url = str(route.calls.last.request.url)
         assert "contentType=summary" in sent_url

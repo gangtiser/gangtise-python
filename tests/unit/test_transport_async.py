@@ -27,9 +27,7 @@ def cfg(tmp_path) -> Config:
 @pytest.mark.anyio
 async def test_request_json_async_success(respx_mock, cfg):
     respx_mock.post("/p").mock(
-        return_value=httpx.Response(
-            200, json={"code": "000000", "status": True, "data": {"v": 1}}
-        )
+        return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": {"v": 1}})
     )
     async with build_async_client(cfg) as http:
         out = await request_json_async(http, cfg, _endpoint(), body={}, token="tok")
@@ -41,9 +39,7 @@ async def test_request_json_async_500_then_success(respx_mock, cfg):
     respx_mock.post("/p").mock(
         side_effect=[
             httpx.Response(500, text="boom"),
-            httpx.Response(
-                200, json={"code": "000000", "status": True, "data": {"v": 2}}
-            ),
+            httpx.Response(200, json={"code": "000000", "status": True, "data": {"v": 2}}),
         ]
     )
     async with build_async_client(cfg) as http:

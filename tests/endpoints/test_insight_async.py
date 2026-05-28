@@ -59,7 +59,8 @@ async def test_async_research_download_writes_file(tmp_path, seeded_config):
         )
         async with AsyncGangtiseClient(_config=seeded_config) as client:
             path = await AsyncInsight(client).research_download(
-                report_id="r1", output=tmp_path / "out.pdf",
+                report_id="r1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"data"

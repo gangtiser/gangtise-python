@@ -44,9 +44,7 @@ def test_call_with_env_token_skips_login(client_config, monkeypatch):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         login_route = router.post("/application/auth/oauth/open/loginV2")
         router.post("/application/open-quote/quote/realtime").mock(
-            return_value=httpx.Response(
-                200, json={"code": "000000", "status": True, "data": []}
-            )
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": []})
         )
         with GangtiseClient(_config=cfg) as client:
             client._call("quote.realtime", body={"securityList": ["000001.SH"]})
@@ -84,9 +82,14 @@ def test_call_auth_code_8000014_triggers_one_refresh(client_config, tmp_path):
     # Pre-seed an obviously expired-looking token to force refresh path.
     client_config.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
     client_config.token_cache_path.write_text(
-        json.dumps({
-            "accessToken": "stale", "expiresIn": 1, "time": 0, "expiresAt": 9999999999,
-        })
+        json.dumps(
+            {
+                "accessToken": "stale",
+                "expiresIn": 1,
+                "time": 0,
+                "expiresAt": 9999999999,
+            }
+        )
     )
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         router.post("/application/auth/oauth/open/loginV2").mock(

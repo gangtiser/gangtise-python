@@ -93,9 +93,7 @@ def test_cash_flow_quarterly(tmp_path):
 
 def test_income_statement_hk(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(
-            "/application/open-fundamental/financial-report/income-statement/hk"
-        ).mock(
+        router.post("/application/open-fundamental/financial-report/income-statement/hk").mock(
             return_value=_row_response({"securityCode": "00700.HK", "revenue": 999.0}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -105,9 +103,7 @@ def test_income_statement_hk(tmp_path):
 
 def test_balance_sheet_hk(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(
-            "/application/open-fundamental/financial-report/balance-sheet/hk"
-        ).mock(
+        router.post("/application/open-fundamental/financial-report/balance-sheet/hk").mock(
             return_value=_row_response({"securityCode": "00700.HK", "totalAssets": 8000.0}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -117,9 +113,7 @@ def test_balance_sheet_hk(tmp_path):
 
 def test_cash_flow_hk(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(
-            "/application/open-fundamental/financial-report/cash-flow-statement/hk"
-        ).mock(
+        router.post("/application/open-fundamental/financial-report/cash-flow-statement/hk").mock(
             return_value=_row_response({"securityCode": "00700.HK", "operatingCashFlow": 333.0}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -233,17 +227,13 @@ def test_valuation_analysis_skip_null(tmp_path):
 
 def test_top_holders(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post(
-            "/application/open-fundamental/capital-structure/top-holders"
-        ).mock(
+        route = router.post("/application/open-fundamental/capital-structure/top-holders").mock(
             return_value=_row_response(
                 {"securityCode": "000001.SZ", "holderType": "top10", "holderName": "X"}
             ),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Fundamental(client).top_holders(
-                security_code="000001.SZ", holder_type="top10"
-            )
+            df = Fundamental(client).top_holders(security_code="000001.SZ", holder_type="top10")
         body = route.calls.last.request.read().replace(b" ", b"")
         # No fieldList on top-holders body.
         assert b"fieldList" not in body

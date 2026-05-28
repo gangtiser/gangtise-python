@@ -55,11 +55,13 @@ class Alternative:
         end_date: str,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "indicatorIdList": _as_list(indicator_id),
-            "startDate": start_date,
-            "endDate": end_date,
-        })
+        body = _strip_none(
+            {
+                "indicatorIdList": _as_list(indicator_id),
+                "startDate": start_date,
+                "endDate": end_date,
+            }
+        )
         result = self._client._call("alternative.edb-data", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -114,11 +116,13 @@ class AsyncAlternative:
         end_date: str,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "indicatorIdList": _as_list(indicator_id),
-            "startDate": start_date,
-            "endDate": end_date,
-        })
+        body = _strip_none(
+            {
+                "indicatorIdList": _as_list(indicator_id),
+                "startDate": start_date,
+                "endDate": end_date,
+            }
+        )
         result = await self._client._call("alternative.edb-data", body=body)
         if raw:
             return result  # type: ignore[no-any-return]

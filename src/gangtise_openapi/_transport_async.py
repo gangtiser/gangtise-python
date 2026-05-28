@@ -26,7 +26,7 @@ def build_async_client(config: Config) -> httpx.AsyncClient:
 
 def _backoff_delay(attempt: int, base_ms: float = 400.0, max_ms: float = 4000.0) -> float:
     jitter = random.random() * base_ms
-    raw_ms: float = base_ms * float(2 ** attempt) + jitter
+    raw_ms: float = base_ms * float(2**attempt) + jitter
     return min(max_ms, raw_ms) / 1000.0
 
 
@@ -78,9 +78,7 @@ async def request_json_async(
     attempt = 0
     while True:
         try:
-            status_code, parsed = await _do_request(
-                http, endpoint, body, token=token, query=query
-            )
+            status_code, parsed = await _do_request(http, endpoint, body, token=token, query=query)
             if status_code >= 400:
                 if is_envelope(parsed):
                     code = parsed.get("code")

@@ -43,8 +43,8 @@ def test_extract_titles_from_rows():
     rows = [
         {"reportId": "r1", "title": "标题A", "other": "x"},
         {"reportId": "r2", "title": "标题B"},
-        {"reportId": "r3"},                # missing title - skip
-        {"title": "标题C"},                # missing id - skip
+        {"reportId": "r3"},  # missing title - skip
+        {"title": "标题C"},  # missing id - skip
     ]
     out = extract_titles(rows, id_field="reportId", title_field="title")
     assert out == {"r1": "标题A", "r2": "标题B"}

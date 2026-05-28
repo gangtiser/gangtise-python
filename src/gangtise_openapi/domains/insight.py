@@ -69,22 +69,24 @@ class Insight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "rankType": rank_type,
-            "researchAreaList": _as_list(research_area),
-            "chiefList": _as_list(chief),
-            "securityList": _as_list(security),
-            "brokerList": _as_list(broker),
-            "industryList": _as_list(industry),
-            "conceptList": _as_list(concept),
-            "llmTagList": _as_list(llm_tag),
-            "sourceList": _as_list(source),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "researchAreaList": _as_list(research_area),
+                "chiefList": _as_list(chief),
+                "securityList": _as_list(security),
+                "brokerList": _as_list(broker),
+                "industryList": _as_list(industry),
+                "conceptList": _as_list(concept),
+                "llmTagList": _as_list(llm_tag),
+                "sourceList": _as_list(source),
+            }
+        )
         result = self._client._call("insight.opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -111,22 +113,24 @@ class Insight:
         participant_role: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "sourceList": _as_list(source),
-            "researchAreaList": _as_list(research_area),
-            "securityList": _as_list(security),
-            "institutionList": _as_list(institution),
-            "categoryList": _as_list(category),
-            "marketList": _as_list(market),
-            "participantRoleList": _as_list(participant_role),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "sourceList": _as_list(source),
+                "researchAreaList": _as_list(research_area),
+                "securityList": _as_list(security),
+                "institutionList": _as_list(institution),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "participantRoleList": _as_list(participant_role),
+            }
+        )
         result = self._client._call("insight.summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -161,22 +165,24 @@ class Insight:
         permission: Any,
         raw: bool,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "researchAreaList": _as_list(research_area),
-            "institutionList": _as_list(institution),
-            "securityList": _as_list(security),
-            "categoryList": _as_list(category),
-            "marketList": _as_list(market),
-            "participantRoleList": _as_list(participant_role),
-            "brokerTypeList": _as_list(broker_type),
-            "objectList": _as_list(object_),
-            "permission": _as_list(permission),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "institutionList": _as_list(institution),
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "participantRoleList": _as_list(participant_role),
+                "brokerTypeList": _as_list(broker_type),
+                "objectList": _as_list(object_),
+                "permission": _as_list(permission),
+            }
+        )
         result = self._client._call(endpoint_key, body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -203,11 +209,21 @@ class Insight:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._schedule_list(
             "insight.roadshow.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     def site_visit_list(
@@ -231,11 +247,21 @@ class Insight:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._schedule_list(
             "insight.site-visit.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     def strategy_list(
@@ -259,11 +285,21 @@ class Insight:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._schedule_list(
             "insight.strategy.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     def forum_list(
@@ -287,11 +323,21 @@ class Insight:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._schedule_list(
             "insight.forum.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     # ---- research ----
@@ -318,25 +364,27 @@ class Insight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "brokerList": _as_list(broker),
-            "securityList": _as_list(security),
-            "industryList": _as_list(industry),
-            "categoryList": _as_list(category),
-            "llmTagList": _as_list(llm_tag),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-            "minReportPages": min_pages,
-            "maxReportPages": max_pages,
-            "sourceList": _as_list(source),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "brokerList": _as_list(broker),
+                "securityList": _as_list(security),
+                "industryList": _as_list(industry),
+                "categoryList": _as_list(category),
+                "llmTagList": _as_list(llm_tag),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+                "minReportPages": min_pages,
+                "maxReportPages": max_pages,
+                "sourceList": _as_list(source),
+            }
+        )
         result = self._client._call("insight.research.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -373,25 +421,27 @@ class Insight:
         max_pages: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "securityList": _as_list(security),
-            "regionList": _as_list(region),
-            "categoryList": _as_list(category),
-            "industryList": _as_list(industry),
-            "brokerList": _as_list(broker),
-            "llmTagList": _as_list(llm_tag),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-            "minReportPages": min_pages,
-            "maxReportPages": max_pages,
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "regionList": _as_list(region),
+                "categoryList": _as_list(category),
+                "industryList": _as_list(industry),
+                "brokerList": _as_list(broker),
+                "llmTagList": _as_list(llm_tag),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+                "minReportPages": min_pages,
+                "maxReportPages": max_pages,
+            }
+        )
         result = self._client._call("insight.foreign-report.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -421,18 +471,20 @@ class Insight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": _to_unix_ms(start_time),
-            "endTime": _to_unix_ms(end_time),
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "securityList": _as_list(security),
-            "announcementTypeList": _as_list(announcement_type),
-            "categoryList": _as_list(category),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": _to_unix_ms(start_time),
+                "endTime": _to_unix_ms(end_time),
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "announcementTypeList": _as_list(announcement_type),
+                "categoryList": _as_list(category),
+            }
+        )
         result = self._client._call("insight.announcement.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -462,18 +514,20 @@ class Insight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "securityList": _as_list(security),
-            "announcementTypeList": _as_list(announcement_type),
-            "categoryList": _as_list(category),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "announcementTypeList": _as_list(announcement_type),
+                "categoryList": _as_list(category),
+            }
+        )
         result = self._client._call("insight.announcement-hk.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -505,20 +559,22 @@ class Insight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "rankType": rank_type,
-            "regionList": _as_list(region),
-            "industryList": _as_list(industry),
-            "securityList": _as_list(security),
-            "brokerList": _as_list(broker),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "regionList": _as_list(region),
+                "industryList": _as_list(industry),
+                "securityList": _as_list(security),
+                "brokerList": _as_list(broker),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+            }
+        )
         result = self._client._call("insight.foreign-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -541,18 +597,20 @@ class Insight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "rankType": rank_type,
-            "industryList": _as_list(industry),
-            "securityList": _as_list(security),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "industryList": _as_list(industry),
+                "securityList": _as_list(security),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+            }
+        )
         result = self._client._call("insight.independent-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -687,22 +745,24 @@ class AsyncInsight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "rankType": rank_type,
-            "researchAreaList": _as_list(research_area),
-            "chiefList": _as_list(chief),
-            "securityList": _as_list(security),
-            "brokerList": _as_list(broker),
-            "industryList": _as_list(industry),
-            "conceptList": _as_list(concept),
-            "llmTagList": _as_list(llm_tag),
-            "sourceList": _as_list(source),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "researchAreaList": _as_list(research_area),
+                "chiefList": _as_list(chief),
+                "securityList": _as_list(security),
+                "brokerList": _as_list(broker),
+                "industryList": _as_list(industry),
+                "conceptList": _as_list(concept),
+                "llmTagList": _as_list(llm_tag),
+                "sourceList": _as_list(source),
+            }
+        )
         result = await self._client._call("insight.opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -727,22 +787,24 @@ class AsyncInsight:
         participant_role: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "sourceList": _as_list(source),
-            "researchAreaList": _as_list(research_area),
-            "securityList": _as_list(security),
-            "institutionList": _as_list(institution),
-            "categoryList": _as_list(category),
-            "marketList": _as_list(market),
-            "participantRoleList": _as_list(participant_role),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "sourceList": _as_list(source),
+                "researchAreaList": _as_list(research_area),
+                "securityList": _as_list(security),
+                "institutionList": _as_list(institution),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "participantRoleList": _as_list(participant_role),
+            }
+        )
         result = await self._client._call("insight.summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -775,22 +837,24 @@ class AsyncInsight:
         permission: Any,
         raw: bool,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "researchAreaList": _as_list(research_area),
-            "institutionList": _as_list(institution),
-            "securityList": _as_list(security),
-            "categoryList": _as_list(category),
-            "marketList": _as_list(market),
-            "participantRoleList": _as_list(participant_role),
-            "brokerTypeList": _as_list(broker_type),
-            "objectList": _as_list(object_),
-            "permission": _as_list(permission),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "institutionList": _as_list(institution),
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "participantRoleList": _as_list(participant_role),
+                "brokerTypeList": _as_list(broker_type),
+                "objectList": _as_list(object_),
+                "permission": _as_list(permission),
+            }
+        )
         result = await self._client._call(endpoint_key, body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -817,11 +881,21 @@ class AsyncInsight:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._schedule_list(
             "insight.roadshow.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     async def site_visit_list(
@@ -845,11 +919,21 @@ class AsyncInsight:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._schedule_list(
             "insight.site-visit.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     async def strategy_list(
@@ -873,11 +957,21 @@ class AsyncInsight:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._schedule_list(
             "insight.strategy.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     async def forum_list(
@@ -901,11 +995,21 @@ class AsyncInsight:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._schedule_list(
             "insight.forum.list",
-            from_=from_, size=size, start_time=start_time, end_time=end_time,
-            keyword=keyword, research_area=research_area, institution=institution,
-            security=security, category=category, market=market,
-            participant_role=participant_role, broker_type=broker_type,
-            object_=object_, permission=permission, raw=raw,
+            from_=from_,
+            size=size,
+            start_time=start_time,
+            end_time=end_time,
+            keyword=keyword,
+            research_area=research_area,
+            institution=institution,
+            security=security,
+            category=category,
+            market=market,
+            participant_role=participant_role,
+            broker_type=broker_type,
+            object_=object_,
+            permission=permission,
+            raw=raw,
         )
 
     async def research_list(
@@ -930,25 +1034,27 @@ class AsyncInsight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "brokerList": _as_list(broker),
-            "securityList": _as_list(security),
-            "industryList": _as_list(industry),
-            "categoryList": _as_list(category),
-            "llmTagList": _as_list(llm_tag),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-            "minReportPages": min_pages,
-            "maxReportPages": max_pages,
-            "sourceList": _as_list(source),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "brokerList": _as_list(broker),
+                "securityList": _as_list(security),
+                "industryList": _as_list(industry),
+                "categoryList": _as_list(category),
+                "llmTagList": _as_list(llm_tag),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+                "minReportPages": min_pages,
+                "maxReportPages": max_pages,
+                "sourceList": _as_list(source),
+            }
+        )
         result = await self._client._call("insight.research.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -983,28 +1089,28 @@ class AsyncInsight:
         max_pages: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "securityList": _as_list(security),
-            "regionList": _as_list(region),
-            "categoryList": _as_list(category),
-            "industryList": _as_list(industry),
-            "brokerList": _as_list(broker),
-            "llmTagList": _as_list(llm_tag),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-            "minReportPages": min_pages,
-            "maxReportPages": max_pages,
-        })
-        result = await self._client._call(
-            "insight.foreign-report.list", body=body
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "regionList": _as_list(region),
+                "categoryList": _as_list(category),
+                "industryList": _as_list(industry),
+                "brokerList": _as_list(broker),
+                "llmTagList": _as_list(llm_tag),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+                "minReportPages": min_pages,
+                "maxReportPages": max_pages,
+            }
         )
+        result = await self._client._call("insight.foreign-report.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         rows = _extract_rows(result)
@@ -1031,18 +1137,20 @@ class AsyncInsight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": _to_unix_ms(start_time),
-            "endTime": _to_unix_ms(end_time),
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "securityList": _as_list(security),
-            "announcementTypeList": _as_list(announcement_type),
-            "categoryList": _as_list(category),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": _to_unix_ms(start_time),
+                "endTime": _to_unix_ms(end_time),
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "announcementTypeList": _as_list(announcement_type),
+                "categoryList": _as_list(category),
+            }
+        )
         result = await self._client._call("insight.announcement.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -1070,21 +1178,21 @@ class AsyncInsight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "searchType": search_type,
-            "rankType": rank_type,
-            "securityList": _as_list(security),
-            "announcementTypeList": _as_list(announcement_type),
-            "categoryList": _as_list(category),
-        })
-        result = await self._client._call(
-            "insight.announcement-hk.list", body=body
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "announcementTypeList": _as_list(announcement_type),
+                "categoryList": _as_list(category),
+            }
         )
+        result = await self._client._call("insight.announcement-hk.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         rows = _extract_rows(result)
@@ -1113,23 +1221,23 @@ class AsyncInsight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "rankType": rank_type,
-            "regionList": _as_list(region),
-            "industryList": _as_list(industry),
-            "securityList": _as_list(security),
-            "brokerList": _as_list(broker),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-        })
-        result = await self._client._call(
-            "insight.foreign-opinion.list", body=body
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "regionList": _as_list(region),
+                "industryList": _as_list(industry),
+                "securityList": _as_list(security),
+                "brokerList": _as_list(broker),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+            }
         )
+        result = await self._client._call("insight.foreign-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
@@ -1149,21 +1257,21 @@ class AsyncInsight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "rankType": rank_type,
-            "industryList": _as_list(industry),
-            "securityList": _as_list(security),
-            "ratingList": _as_list(rating),
-            "ratingChangeList": _as_list(rating_change),
-        })
-        result = await self._client._call(
-            "insight.independent-opinion.list", body=body
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "industryList": _as_list(industry),
+                "securityList": _as_list(security),
+                "ratingList": _as_list(rating),
+                "ratingChangeList": _as_list(rating_change),
+            }
         )
+        result = await self._client._call("insight.independent-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
@@ -1233,7 +1341,9 @@ class AsyncInsight:
             output=output,
             fallback_name=f"announcement-{announcement_id}",
             title_lookup=(
-                "insight.announcement.list", "announcementId", announcement_id,
+                "insight.announcement.list",
+                "announcementId",
+                announcement_id,
             ),
         )
 
@@ -1250,7 +1360,9 @@ class AsyncInsight:
             output=output,
             fallback_name=f"announcement-hk-{announcement_id}",
             title_lookup=(
-                "insight.announcement-hk.list", "announcementId", announcement_id,
+                "insight.announcement-hk.list",
+                "announcementId",
+                announcement_id,
             ),
         )
 

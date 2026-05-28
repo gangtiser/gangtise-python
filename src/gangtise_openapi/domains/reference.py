@@ -47,11 +47,13 @@ class Reference:
         # TS body shape (cli.ts:503):
         #   { keyword, category: maybeArray(category) | undefined, top: int }
         # category choices the TS CLI enforces: stock/dr/index/fund.
-        body = _strip_none({
-            "keyword": keyword,
-            "category": _as_list(category),
-            "top": top,
-        })
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "category": _as_list(category),
+                "top": top,
+            }
+        )
         result = self._client._call("reference.securities-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -78,11 +80,13 @@ class AsyncReference:
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        body = _strip_none({
-            "keyword": keyword,
-            "category": _as_list(category),
-            "top": top,
-        })
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "category": _as_list(category),
+                "top": top,
+            }
+        )
         result = await self._client._call("reference.securities-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]

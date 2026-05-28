@@ -159,9 +159,7 @@ def test_hot_topic_omits_false_flags(tmp_path):
 
 def test_management_discuss_announcement(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post(
-            "/application/open-ai/management-discuss/from-announcement"
-        ).mock(
+        route = router.post("/application/open-ai/management-discuss/from-announcement").mock(
             return_value=_dict_response({"securityCode": "000001.SZ", "discussion": "x"}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -178,9 +176,7 @@ def test_management_discuss_announcement(tmp_path):
 
 def test_management_discuss_earnings_call(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post(
-            "/application/open-ai/management-discuss/from-earningsCall"
-        ).mock(
+        route = router.post("/application/open-ai/management-discuss/from-earningsCall").mock(
             return_value=_dict_response({"securityCode": "000001.SZ", "discussion": "y"}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -219,9 +215,7 @@ def test_earnings_review_wait_true_returns_content(tmp_path, monkeypatch):
             )
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            result = AI(client).earnings_review(
-                security_code="600519.SH", period="2026q1"
-            )
+            result = AI(client).earnings_review(security_code="600519.SH", period="2026q1")
     assert result["content"] == "result"
 
 
@@ -236,7 +230,9 @@ def test_earnings_review_wait_false_returns_pending(tmp_path):
         content_route = router.post(_EARNINGS_GET_CONTENT)
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             result = AI(client).earnings_review(
-                security_code="600519.SH", period="2026q1", wait=False,
+                security_code="600519.SH",
+                period="2026q1",
+                wait=False,
             )
         assert content_route.call_count == 0
     assert result == {"data_id": "abc", "status": "pending"}
@@ -268,9 +264,7 @@ def test_earnings_review_polls_on_410110_then_succeeds(tmp_path, monkeypatch):
             ]
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            result = AI(client).earnings_review(
-                security_code="600519.SH", period="2026q1"
-            )
+            result = AI(client).earnings_review(security_code="600519.SH", period="2026q1")
     assert result["content"] == "done"
     assert content_route.call_count == 2
 
@@ -294,9 +288,7 @@ def test_earnings_review_terminal_410111_raises(tmp_path, monkeypatch):
             GangtiseClient(_config=_cfg(tmp_path)) as client,
             pytest.raises(ApiError) as exc,
         ):
-            AI(client).earnings_review(
-                security_code="600519.SH", period="2026q1"
-            )
+            AI(client).earnings_review(security_code="600519.SH", period="2026q1")
     assert exc.value.code == "410111"
 
 
@@ -343,9 +335,7 @@ def test_viewpoint_debate_wait_false_returns_pending(tmp_path):
         )
         content_route = router.post(_VIEWPOINT_GET_CONTENT)
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            result = AI(client).viewpoint_debate(
-                viewpoint="AI is bullish", wait=False
-            )
+            result = AI(client).viewpoint_debate(viewpoint="AI is bullish", wait=False)
         assert content_route.call_count == 0
     assert result == {"data_id": "xyz", "status": "pending"}
 
@@ -368,13 +358,16 @@ def test_knowledge_resource_download_writes_file(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-data/ai/resource/download").mock(
             return_value=httpx.Response(
-                200, content=b"resource",
+                200,
+                content=b"resource",
                 headers={"content-disposition": 'attachment; filename="kb.pdf"'},
             )
         )
         with GangtiseClient(_config=cfg) as client:
             path = AI(client).knowledge_resource_download(
-                resource_type=1, source_id="s1", output=tmp_path / "out.pdf",
+                resource_type=1,
+                source_id="s1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"resource"

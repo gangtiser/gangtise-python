@@ -195,7 +195,8 @@ def test_summary_download_writes_file(tmp_path, seeded_config):
         )
         with GangtiseClient(_config=seeded_config) as client:
             path = Insight(client).summary_download(
-                summary_id="s1", output=tmp_path / "out.pdf",
+                summary_id="s1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"data"
@@ -212,7 +213,8 @@ def test_research_download_writes_file(tmp_path, seeded_config):
         )
         with GangtiseClient(_config=seeded_config) as client:
             path = Insight(client).research_download(
-                report_id="r1", output=tmp_path / "out.pdf",
+                report_id="r1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"data"
@@ -229,7 +231,8 @@ def test_foreign_report_download_writes_file(tmp_path, seeded_config):
         )
         with GangtiseClient(_config=seeded_config) as client:
             path = Insight(client).foreign_report_download(
-                report_id="fr1", output=tmp_path / "out.pdf",
+                report_id="fr1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"data"
@@ -246,7 +249,8 @@ def test_announcement_download_writes_file(tmp_path, seeded_config):
         )
         with GangtiseClient(_config=seeded_config) as client:
             path = Insight(client).announcement_download(
-                announcement_id="a1", output=tmp_path / "out.pdf",
+                announcement_id="a1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"data"
@@ -263,7 +267,8 @@ def test_announcement_hk_download_writes_file(tmp_path, seeded_config):
         )
         with GangtiseClient(_config=seeded_config) as client:
             path = Insight(client).announcement_hk_download(
-                announcement_id="hk1", output=tmp_path / "out.pdf",
+                announcement_id="hk1",
+                output=tmp_path / "out.pdf",
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"data"

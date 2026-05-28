@@ -52,11 +52,7 @@ def unwrap_envelope(payload: Any, status_code: int | None = None) -> Any:
         return payload
     code = payload.get("code")
     code_str = str(code) if code is not None else None
-    ok = (
-        payload.get("status") is True
-        or payload.get("success") is True
-        or _success_code(code)
-    )
+    ok = payload.get("status") is True or payload.get("success") is True or _success_code(code)
     if not ok:
         raise ApiError(
             payload.get("msg") or "API request failed",
@@ -77,7 +73,7 @@ def is_retryable_error(error: BaseException) -> bool:
 
 def _backoff_delay(attempt: int, base_ms: float = 400.0, max_ms: float = 4000.0) -> float:
     jitter = random.random() * base_ms
-    raw_ms: float = base_ms * float(2 ** attempt) + jitter
+    raw_ms: float = base_ms * float(2**attempt) + jitter
     return min(max_ms, raw_ms) / 1000.0
 
 

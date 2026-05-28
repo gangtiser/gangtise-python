@@ -13,7 +13,9 @@ from gangtise_openapi.domains.alternative import AsyncAlternative
 def _cfg(tmp_path) -> Config:
     return Config(
         base_url="https://api.test",
-        access_key="ak", secret_key="sk", token="tok",
+        access_key="ak",
+        secret_key="sk",
+        token="tok",
         token_cache_path=tmp_path / "tok.json",
         title_cache_path=tmp_path / "title.json",
     )
@@ -24,8 +26,10 @@ async def test_async_edb_data_transposes_matrix(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-alternative/EDB/getData").mock(
             return_value=httpx.Response(
-                200, json={
-                    "code": "000000", "status": True,
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
                     "data": {
                         "fieldList": ["date", "indicatorId", "value"],
                         "dataList": [

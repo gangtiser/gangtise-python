@@ -49,15 +49,17 @@ class Vault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "fileTypeList": _as_list(file_type),
-            "spaceTypeList": _as_list(space_type),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "fileTypeList": _as_list(file_type),
+                "spaceTypeList": _as_list(space_type),
+            }
+        )
         result = self._client._call("vault.drive.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -82,15 +84,17 @@ class Vault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "categoryList": _as_list(category),
-            "spaceTypeList": _as_list(space_type),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "categoryList": _as_list(category),
+                "spaceTypeList": _as_list(space_type),
+            }
+        )
         result = self._client._call("vault.record.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -117,17 +121,19 @@ class Vault:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "researchAreaList": _as_list(research_area),
-            "securityList": _as_list(security),
-            "institutionList": _as_list(institution),
-            "categoryList": _as_list(category),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "securityList": _as_list(security),
+                "institutionList": _as_list(institution),
+                "categoryList": _as_list(category),
+            }
+        )
         result = self._client._call("vault.my-conference.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -155,18 +161,20 @@ class Vault:
         tag: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "securityList": _as_list(security),
-            "wechatGroupIdList": _as_list(wechat_group_id),
-            "industryIdList": _as_list(industry),
-            "categoryList": _as_list(category),
-            "tagList": _as_list(tag),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "securityList": _as_list(security),
+                "wechatGroupIdList": _as_list(wechat_group_id),
+                "industryIdList": _as_list(industry),
+                "categoryList": _as_list(category),
+                "tagList": _as_list(tag),
+            }
+        )
         result = self._client._call("vault.wechat-message.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -181,11 +189,13 @@ class Vault:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         names = _as_list(room_name) or []
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "roomName": ",".join(names) if names else None,
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "roomName": ",".join(names) if names else None,
+            }
+        )
         result = self._client._call("vault.wechat-chatroom.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -285,15 +295,17 @@ class AsyncVault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "fileTypeList": _as_list(file_type),
-            "spaceTypeList": _as_list(space_type),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "fileTypeList": _as_list(file_type),
+                "spaceTypeList": _as_list(space_type),
+            }
+        )
         result = await self._client._call("vault.drive.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -318,15 +330,17 @@ class AsyncVault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "categoryList": _as_list(category),
-            "spaceTypeList": _as_list(space_type),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "categoryList": _as_list(category),
+                "spaceTypeList": _as_list(space_type),
+            }
+        )
         result = await self._client._call("vault.record.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -353,17 +367,19 @@ class AsyncVault:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "researchAreaList": _as_list(research_area),
-            "securityList": _as_list(security),
-            "institutionList": _as_list(institution),
-            "categoryList": _as_list(category),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "securityList": _as_list(security),
+                "institutionList": _as_list(institution),
+                "categoryList": _as_list(category),
+            }
+        )
         result = await self._client._call("vault.my-conference.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -391,18 +407,20 @@ class AsyncVault:
         tag: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "startTime": start_time,
-            "endTime": end_time,
-            "keyword": keyword,
-            "securityList": _as_list(security),
-            "wechatGroupIdList": _as_list(wechat_group_id),
-            "industryIdList": _as_list(industry),
-            "categoryList": _as_list(category),
-            "tagList": _as_list(tag),
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "securityList": _as_list(security),
+                "wechatGroupIdList": _as_list(wechat_group_id),
+                "industryIdList": _as_list(industry),
+                "categoryList": _as_list(category),
+                "tagList": _as_list(tag),
+            }
+        )
         result = await self._client._call("vault.wechat-message.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -417,19 +435,19 @@ class AsyncVault:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         names = _as_list(room_name) or []
-        body = _strip_none({
-            "from": from_,
-            "size": size,
-            "roomName": ",".join(names) if names else None,
-        })
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "roomName": ",".join(names) if names else None,
+            }
+        )
         result = await self._client._call("vault.wechat-chatroom.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
 
-    async def stock_pool_list(
-        self, *, raw: bool = False
-    ) -> pd.DataFrame | dict[str, Any]:
+    async def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
         result = await self._client._call("vault.stock-pool.list", body={})
         if raw:
             return result  # type: ignore[no-any-return]

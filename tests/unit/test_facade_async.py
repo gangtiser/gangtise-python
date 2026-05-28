@@ -15,6 +15,7 @@ def test_async_mirror_lazy_creates_async_client(monkeypatch, tmp_path):
     assert async_facade is f.async_
 
     from gangtise_openapi._client import AsyncGangtiseClient
+
     assert isinstance(async_facade._ensure_client(), AsyncGangtiseClient)
 
 

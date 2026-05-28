@@ -8,7 +8,9 @@ from gangtise_openapi.domains.lookup import Lookup
 def _cfg(tmp_path) -> Config:
     return Config(
         base_url="https://api.test",
-        access_key="ak", secret_key="sk", token="tok",
+        access_key="ak",
+        secret_key="sk",
+        token="tok",
         token_cache_path=tmp_path / "tok.json",
         title_cache_path=tmp_path / "title.json",
     )

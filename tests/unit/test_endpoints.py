@@ -44,8 +44,7 @@ def test_pagination_registry_matches_ts_source():
         "vault.wechat-message.list": 50,
     }
     actual = {
-        k: ep.pagination.max_page_size
-        for k, ep in ENDPOINTS.items() if ep.pagination is not None
+        k: ep.pagination.max_page_size for k, ep in ENDPOINTS.items() if ep.pagination is not None
     }
     assert actual == expected
     assert ENDPOINTS["vault.wechat-chatroom.list"].pagination is None

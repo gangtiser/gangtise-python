@@ -41,9 +41,7 @@ def test_download_with_explicit_output(tmp_path: Path) -> None:
     assert path.read_bytes() == b"%PDF-fake"
 
 
-def test_download_uses_content_disposition_filename(
-    tmp_path: Path, monkeypatch: object
-) -> None:
+def test_download_uses_content_disposition_filename(tmp_path: Path, monkeypatch: object) -> None:
     monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-insight/broker-report/download/file").mock(
@@ -68,9 +66,7 @@ def test_download_uses_content_disposition_filename(
     assert path.read_bytes() == b"data"
 
 
-def test_download_falls_back_when_no_filename(
-    tmp_path: Path, monkeypatch: object
-) -> None:
+def test_download_falls_back_when_no_filename(tmp_path: Path, monkeypatch: object) -> None:
     monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-insight/broker-report/download/file").mock(

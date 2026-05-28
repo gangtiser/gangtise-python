@@ -3,6 +3,7 @@
 Required env vars: GANGTISE_ACCESS_KEY, GANGTISE_SECRET_KEY (or a valid GANGTISE_TOKEN).
 Skipped by default. CI never runs these.
 """
+
 from __future__ import annotations
 
 import os
@@ -31,6 +32,7 @@ def test_live_login(client: GangtiseClient) -> None:
 
 def test_live_lookup_research_areas(client: GangtiseClient) -> None:
     from gangtise_openapi.domains.lookup import Lookup
+
     df = Lookup(client).research_areas()
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
@@ -38,5 +40,6 @@ def test_live_lookup_research_areas(client: GangtiseClient) -> None:
 
 def test_live_quote_realtime(client: GangtiseClient) -> None:
     from gangtise_openapi.domains.quote import Quote
+
     df = Quote(client).realtime(security=["000001.SH"])
     assert isinstance(df, pd.DataFrame)

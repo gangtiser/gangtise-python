@@ -17,15 +17,39 @@ from gangtise_openapi._quote_sharding import (
 )
 
 _DAY_KLINE_SCHEMA = [
-    "securityCode", "date", "open", "high", "low", "close",
-    "volume", "amount", "preClose", "changePct", "turnover",
+    "securityCode",
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
+    "preClose",
+    "changePct",
+    "turnover",
 ]
 _MINUTE_KLINE_SCHEMA = [
-    "securityCode", "datetime", "open", "high", "low", "close", "volume", "amount",
+    "securityCode",
+    "datetime",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount",
 ]
 _REALTIME_SCHEMA = [
-    "securityCode", "name", "price", "open", "high", "low", "preClose",
-    "volume", "amount", "changePct",
+    "securityCode",
+    "name",
+    "price",
+    "open",
+    "high",
+    "low",
+    "preClose",
+    "volume",
+    "amount",
+    "changePct",
 ]
 
 
@@ -87,13 +111,15 @@ class Quote:
 
         def fetch_shard(window: tuple[dt.date, dt.date]) -> Any:
             s, e = window
-            body = _strip_none({
-                "securityList": _as_list(security),
-                "startDate": s.isoformat(),
-                "endDate": e.isoformat(),
-                "limit": limit,
-                "fieldList": _as_list(field),
-            })
+            body = _strip_none(
+                {
+                    "securityList": _as_list(security),
+                    "startDate": s.isoformat(),
+                    "endDate": e.isoformat(),
+                    "limit": limit,
+                    "fieldList": _as_list(field),
+                }
+            )
             return self._client._call(endpoint_key, body=body)
 
         if shards:
@@ -101,13 +127,15 @@ class Quote:
                 shards, fetch=fetch_shard, concurrency=self._client.config.page_concurrency
             )
         else:
-            body = _strip_none({
-                "securityList": _as_list(security),
-                "startDate": _date_to_iso(start_date),
-                "endDate": _date_to_iso(end_date),
-                "limit": limit,
-                "fieldList": _as_list(field),
-            })
+            body = _strip_none(
+                {
+                    "securityList": _as_list(security),
+                    "startDate": _date_to_iso(start_date),
+                    "endDate": _date_to_iso(end_date),
+                    "limit": limit,
+                    "fieldList": _as_list(field),
+                }
+            )
             page_results = [self._client._call(endpoint_key, body=body)]
 
         merged: dict[str, Any] = {}
@@ -135,8 +163,12 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._day_kline(
             "quote.day-kline",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     def day_kline_hk(
@@ -151,8 +183,12 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._day_kline(
             "quote.day-kline-hk",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     def day_kline_us(
@@ -167,8 +203,12 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._day_kline(
             "quote.day-kline-us",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     def index_day_kline(
@@ -183,8 +223,12 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any]:
         return self._day_kline(
             "quote.index-day-kline",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     def minute_kline(
@@ -197,13 +241,15 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        body = _strip_none({
-            "securityCode": security,
-            "startTime": start_time,
-            "endTime": end_time,
-            "limit": limit,
-            "fieldList": _as_list(field),
-        })
+        body = _strip_none(
+            {
+                "securityCode": security,
+                "startTime": start_time,
+                "endTime": end_time,
+                "limit": limit,
+                "fieldList": _as_list(field),
+            }
+        )
         result = self._client._call("quote.minute-kline", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -217,10 +263,12 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        body = _strip_none({
-            "securityList": _as_list(security),
-            "fieldList": _as_list(field),
-        })
+        body = _strip_none(
+            {
+                "securityList": _as_list(security),
+                "fieldList": _as_list(field),
+            }
+        )
         result = self._client._call("quote.realtime", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -260,13 +308,15 @@ class AsyncQuote:
 
         async def fetch_shard(window: tuple[dt.date, dt.date]) -> Any:
             s, e = window
-            body = _strip_none({
-                "securityList": _as_list(security),
-                "startDate": s.isoformat(),
-                "endDate": e.isoformat(),
-                "limit": limit,
-                "fieldList": _as_list(field),
-            })
+            body = _strip_none(
+                {
+                    "securityList": _as_list(security),
+                    "startDate": s.isoformat(),
+                    "endDate": e.isoformat(),
+                    "limit": limit,
+                    "fieldList": _as_list(field),
+                }
+            )
             return await self._client._call(endpoint_key, body=body)
 
         if shards:
@@ -276,13 +326,15 @@ class AsyncQuote:
                 concurrency=self._client.config.page_concurrency,
             )
         else:
-            body = _strip_none({
-                "securityList": _as_list(security),
-                "startDate": _date_to_iso(start_date),
-                "endDate": _date_to_iso(end_date),
-                "limit": limit,
-                "fieldList": _as_list(field),
-            })
+            body = _strip_none(
+                {
+                    "securityList": _as_list(security),
+                    "startDate": _date_to_iso(start_date),
+                    "endDate": _date_to_iso(end_date),
+                    "limit": limit,
+                    "fieldList": _as_list(field),
+                }
+            )
             page_results = [await self._client._call(endpoint_key, body=body)]
 
         merged: dict[str, Any] = {}
@@ -293,9 +345,7 @@ class AsyncQuote:
                 rows.extend(result["list"])
             elif isinstance(result, list):
                 rows.extend(result)
-        result_payload: dict[str, Any] = (
-            {**merged, "list": rows} if merged else {"list": rows}
-        )
+        result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
         if raw:
             return result_payload
         return to_dataframe(rows, schema=_DAY_KLINE_SCHEMA)
@@ -312,8 +362,12 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._day_kline(
             "quote.day-kline",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     async def day_kline_hk(
@@ -328,8 +382,12 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._day_kline(
             "quote.day-kline-hk",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     async def day_kline_us(
@@ -344,8 +402,12 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._day_kline(
             "quote.day-kline-us",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     async def index_day_kline(
@@ -360,8 +422,12 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any]:
         return await self._day_kline(
             "quote.index-day-kline",
-            security=security, start_date=start_date, end_date=end_date,
-            limit=limit, field=field, raw=raw,
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
         )
 
     async def minute_kline(
@@ -374,13 +440,15 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        body = _strip_none({
-            "securityCode": security,
-            "startTime": start_time,
-            "endTime": end_time,
-            "limit": limit,
-            "fieldList": _as_list(field),
-        })
+        body = _strip_none(
+            {
+                "securityCode": security,
+                "startTime": start_time,
+                "endTime": end_time,
+                "limit": limit,
+                "fieldList": _as_list(field),
+            }
+        )
         result = await self._client._call("quote.minute-kline", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -394,10 +462,12 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        body = _strip_none({
-            "securityList": _as_list(security),
-            "fieldList": _as_list(field),
-        })
+        body = _strip_none(
+            {
+                "securityList": _as_list(security),
+                "fieldList": _as_list(field),
+            }
+        )
         result = await self._client._call("quote.realtime", body=body)
         if raw:
             return result  # type: ignore[no-any-return]

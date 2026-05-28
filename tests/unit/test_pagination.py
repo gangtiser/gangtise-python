@@ -7,8 +7,12 @@ from gangtise_openapi._pagination import collect_paginated
 
 def _ep(max_page_size: int = 50) -> EndpointDef:
     return EndpointDef(
-        key="x", method="POST", path="/p", kind="json",
-        description="d", pagination=Pagination(max_page_size=max_page_size),
+        key="x",
+        method="POST",
+        path="/p",
+        kind="json",
+        description="d",
+        pagination=Pagination(max_page_size=max_page_size),
     )
 
 

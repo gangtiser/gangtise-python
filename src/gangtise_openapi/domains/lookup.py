@@ -66,9 +66,7 @@ class AsyncLookup:
     def __init__(self, client: AsyncGangtiseClient) -> None:
         self._client = client
 
-    async def _fetch(
-        self, method_name: str, *, raw: bool
-    ) -> pd.DataFrame | list[Any]:
+    async def _fetch(self, method_name: str, *, raw: bool) -> pd.DataFrame | list[Any]:
         endpoint_key, schema = _LOOKUP_ENDPOINT_BY_METHOD[method_name]
         data = await self._client._call(endpoint_key)
         if raw:
@@ -90,9 +88,7 @@ class AsyncLookup:
     async def regions(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
         return await self._fetch("regions", raw=raw)
 
-    async def announcement_categories(
-        self, *, raw: bool = False
-    ) -> pd.DataFrame | list[Any]:
+    async def announcement_categories(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
         return await self._fetch("announcement_categories", raw=raw)
 
     async def industry_codes(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:

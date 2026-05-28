@@ -33,9 +33,7 @@ async def test_async_fans_out_concurrently():
         f, s = body["from"], body["size"]
         return {"total": 12, "list": [{"i": j} for j in range(f, f + s)]}
 
-    out = await collect_paginated_async(
-        _ep(max_page_size=5), body={}, fetch=fetch, concurrency=4
-    )
+    out = await collect_paginated_async(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
     assert [r["i"] for r in out["list"]] == list(range(12))
 
 
@@ -45,6 +43,4 @@ async def test_async_invalid_from_raises():
         raise AssertionError("should not call")
 
     with pytest.raises(ValidationError):
-        await collect_paginated_async(
-            _ep(), body={"from": -1}, fetch=fetch, concurrency=3
-        )
+        await collect_paginated_async(_ep(), body={"from": -1}, fetch=fetch, concurrency=3)

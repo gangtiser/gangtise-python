@@ -29,7 +29,9 @@ class Auth:
                 "uid": cache.uid if cache else None,
                 "user_name": cache.user_name if cache else None,
                 "tenant_id": cache.tenant_id if cache else None,
-            } if cache else None,
+            }
+            if cache
+            else None,
         }
 
 
@@ -54,5 +56,7 @@ class AsyncAuth:
                 "uid": cache.uid if cache else None,
                 "user_name": cache.user_name if cache else None,
                 "tenant_id": cache.tenant_id if cache else None,
-            } if cache else None,
+            }
+            if cache
+            else None,
         }

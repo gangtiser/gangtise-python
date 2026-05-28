@@ -26,7 +26,11 @@ def _signature(cfg: Config) -> tuple[Any, ...]:
 class _Facade:
     """Module-level singleton exposing namespace-style access to the SDK."""
 
-    _DOMAIN_FACTORIES: ClassVar[dict[str, str]] = {}
+    _DOMAIN_FACTORIES: ClassVar[dict[str, str]] = {
+        "auth": "gangtise_openapi.domains.auth:Auth",
+        "lookup": "gangtise_openapi.domains.lookup:Lookup",
+        "reference": "gangtise_openapi.domains.reference:Reference",
+    }
     # mapping populated in Phase 5: "quote" -> "gangtise_openapi.domains.quote:Quote", etc.
 
     def __init__(self) -> None:

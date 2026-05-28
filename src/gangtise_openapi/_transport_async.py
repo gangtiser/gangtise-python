@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import json
+import random
+from typing import Any
+
+import anyio
+import httpx
+
+from gangtise_openapi._auth import normalize_token
+from gangtise_openapi._config import Config
+from gangtise_openapi._endpoints import EndpointDef
+from gangtise_openapi._errors import ApiError
+from gangtise_openapi._transport import (
+    is_envelope,
+    is_retryable_error,
+    unwrap_envelope,
+)
+
+
+def build_async_client(config: Config) -> httpx.AsyncClient:
+    timeout = httpx.Timeout(config.timeout_ms / 1000.0)
+    limits = httpx.Limits(max_connections=16, max_keepalive_connections=16, keepalive_expiry=60)
+    return httpx.AsyncClient(base_url=config.base_url, timeout=timeout, limits=limits)
+
+
+def _backoff_delay(attempt: int, base_ms: float = 400.0, max_ms: float = 4000.0) -> float:
+    jitter = random.random() * base_ms
+    raw_ms: float = base_ms * float(2 ** attempt) + jitter
+    return min(max_ms, raw_ms) / 1000.0
+
+
+async def _do_request(
+    http: httpx.AsyncClient,
+    endpoint: EndpointDef,
+    body: Any,
+    *,
+    token: str | None,
+    query: dict[str, str | int] | None,
+) -> tuple[int, Any]:
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if token is not None:
+        headers["Authorization"] = normalize_token(token)
+    response = await http.request(
+        endpoint.method,
+        endpoint.path,
+        params=query,
+        headers=headers,
+        content=None if endpoint.method == "GET" else json.dumps(body or {}).encode("utf8"),
+    )
+    try:
+        parsed = response.json()
+    except ValueError as err:
+        if response.status_code >= 400:
+            raise ApiError(
+                f"API request failed (HTTP {response.status_code})",
+                status_code=response.status_code,
+                details=response.text[:500],
+            ) from err
+        raise ApiError(
+            "Failed to parse API response",
+            status_code=response.status_code,
+            details=response.text[:500],
+        ) from err
+    return response.status_code, parsed
+
+
+async def request_json_async(
+    http: httpx.AsyncClient,
+    config: Config,
+    endpoint: EndpointDef,
+    *,
+    body: Any = None,
+    token: str | None,
+    query: dict[str, str | int] | None = None,
+    max_retries: int = 2,
+) -> Any:
+    attempt = 0
+    while True:
+        try:
+            status_code, parsed = await _do_request(
+                http, endpoint, body, token=token, query=query
+            )
+            if status_code >= 400:
+                if is_envelope(parsed):
+                    code = parsed.get("code")
+                    raise ApiError(
+                        parsed.get("msg") or f"API request failed (HTTP {status_code})",
+                        code=str(code) if code is not None else None,
+                        status_code=status_code,
+                        details=parsed,
+                    )
+                raise ApiError(
+                    f"API request failed (HTTP {status_code})",
+                    status_code=status_code,
+                    details=parsed,
+                )
+            return unwrap_envelope(parsed, status_code=status_code)
+        except Exception as error:
+            if attempt >= max_retries or not is_retryable_error(error):
+                raise
+            await anyio.sleep(_backoff_delay(attempt))
+            attempt += 1

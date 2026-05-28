@@ -179,3 +179,141 @@ def test_independent_opinion_list(tmp_path):
             df = Insight(client).independent_opinion_list(industry=42)
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "io1"
+
+
+# ---- Download endpoint tests ----
+
+
+def test_summary_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).summary_download(
+                summary_id="s1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_research_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).research_download(
+                report_id="r1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_foreign_report_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/foreign-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).foreign_report_download(
+                report_id="fr1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_announcement_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/announcement/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).announcement_download(
+                announcement_id="a1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_announcement_hk_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/announcement-hk/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).announcement_hk_download(
+                announcement_id="hk1", output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_independent_opinion_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/independent-opinion/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).independent_opinion_download(
+                independent_opinion_id="io1",
+                file_type=1,
+                output=tmp_path / "out.pdf",
+            )
+    assert path == tmp_path / "out.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_research_download_uses_title_cache(tmp_path, monkeypatch, seeded_config):
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-insight/broker-report/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "list": [{"reportId": "r1", "title": "Alpha Report 2026Q1"}],
+                    },
+                },
+            )
+        )
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-type": "application/pdf"},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            insight = Insight(client)
+            insight.research_list()
+            path = insight.research_download(report_id="r1")
+    assert path.name.startswith("Alpha Report 2026Q1")
+    assert path.suffix == ".pdf"

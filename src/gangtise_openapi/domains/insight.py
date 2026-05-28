@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._download import download_to_path
 from gangtise_openapi._normalize import to_dataframe
 
 
@@ -555,3 +557,106 @@ class Insight:
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
+
+    # ---- Download endpoints ----
+
+    def summary_download(
+        self,
+        *,
+        summary_id: str,
+        file_type: int | None = None,
+        output: str | Path | None = None,
+    ) -> Path:
+        query: dict[str, str | int] = {"summaryId": summary_id}
+        if file_type is not None:
+            query["fileType"] = file_type
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.summary.download",
+            query=query,
+            output=output,
+            fallback_name=f"summary-{summary_id}",
+            title_lookup=("insight.summary.list", "summaryId", summary_id),
+        )
+
+    def research_download(
+        self,
+        *,
+        report_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.research.download",
+            query={"reportId": report_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"research-{report_id}",
+            title_lookup=("insight.research.list", "reportId", report_id),
+        )
+
+    def foreign_report_download(
+        self,
+        *,
+        report_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.foreign-report.download",
+            query={"reportId": report_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"foreign-report-{report_id}",
+            title_lookup=("insight.foreign-report.list", "reportId", report_id),
+        )
+
+    def announcement_download(
+        self,
+        *,
+        announcement_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.announcement.download",
+            query={"announcementId": announcement_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"announcement-{announcement_id}",
+            title_lookup=("insight.announcement.list", "announcementId", announcement_id),
+        )
+
+    def announcement_hk_download(
+        self,
+        *,
+        announcement_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.announcement-hk.download",
+            query={"announcementId": announcement_id},
+            output=output,
+            fallback_name=f"announcement-hk-{announcement_id}",
+            title_lookup=("insight.announcement-hk.list", "announcementId", announcement_id),
+        )
+
+    def independent_opinion_download(
+        self,
+        *,
+        independent_opinion_id: str,
+        file_type: int,
+        output: str | Path | None = None,
+    ) -> Path:
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.independent-opinion.download",
+            query={
+                "independentOpinionId": independent_opinion_id,
+                "fileType": file_type,
+            },
+            output=output,
+            fallback_name=f"independent-opinion-{independent_opinion_id}",
+            title_lookup=None,
+        )

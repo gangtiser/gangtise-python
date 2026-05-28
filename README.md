@@ -4,7 +4,7 @@ Python SDK for [Gangtise OpenAPI](https://open.gangtise.com). Feature-parity wit
 
 ## Changelog
 
-### Unreleased
+### 0.1.1 - 2026-05-28
 
 - Added runnable sample coverage for all public SDK methods: 74 sync examples in `sample/sync/` and 74 async examples in `sample/async/`.
 - Added complete API parameter documentation in `sample/API_PARAMETERS.md`.

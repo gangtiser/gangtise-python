@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-28
+
 ### Added
 - Runnable sample coverage for all public SDK methods, with separate sync and async one-file examples.
 - Complete API parameter reference in `sample/API_PARAMETERS.md`.

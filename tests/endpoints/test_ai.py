@@ -1,9 +1,11 @@
 import httpx
 import pandas as pd
+import pytest
 import respx
 
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ApiError
 from gangtise_openapi.domains.ai import AI
 
 
@@ -191,3 +193,171 @@ def test_management_discuss_earnings_call(tmp_path):
         assert b'"discussionDimension":"businessOperation"' in sent
         assert b'"dimension"' not in sent
     assert result["discussion"] == "y"
+
+
+# ---- Async-polled endpoints ----
+
+_EARNINGS_GET_ID = "/application/open-ai/agent/earnings-review-getid"
+_EARNINGS_GET_CONTENT = "/application/open-ai/agent/earnings-review-getcontent"
+_VIEWPOINT_GET_ID = "/application/open-ai/agent/viewpoint-debate-getid"
+_VIEWPOINT_GET_CONTENT = "/application/open-ai/agent/viewpoint-debate-getcontent"
+
+
+def test_earnings_review_wait_true_returns_content(tmp_path, monkeypatch):
+    monkeypatch.setattr("gangtise_openapi._async_content.time.sleep", lambda _: None)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_EARNINGS_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "abc"}},
+            )
+        )
+        router.post(_EARNINGS_GET_CONTENT).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"content": "result"}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).earnings_review(
+                security_code="600519.SH", period="2026q1"
+            )
+    assert result["content"] == "result"
+
+
+def test_earnings_review_wait_false_returns_pending(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post(_EARNINGS_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "abc"}},
+            )
+        )
+        content_route = router.post(_EARNINGS_GET_CONTENT)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).earnings_review(
+                security_code="600519.SH", period="2026q1", wait=False,
+            )
+        assert content_route.call_count == 0
+    assert result == {"data_id": "abc", "status": "pending"}
+
+
+def test_earnings_review_polls_on_410110_then_succeeds(tmp_path, monkeypatch):
+    monkeypatch.setattr("gangtise_openapi._async_content.time.sleep", lambda _: None)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post(_EARNINGS_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "abc"}},
+            )
+        )
+        content_route = router.post(_EARNINGS_GET_CONTENT).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"code": "410110", "status": False, "msg": "pending"},
+                ),
+                httpx.Response(
+                    200,
+                    json={
+                        "code": "000000",
+                        "status": True,
+                        "data": {"content": "done"},
+                    },
+                ),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).earnings_review(
+                security_code="600519.SH", period="2026q1"
+            )
+    assert result["content"] == "done"
+    assert content_route.call_count == 2
+
+
+def test_earnings_review_terminal_410111_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr("gangtise_openapi._async_content.time.sleep", lambda _: None)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_EARNINGS_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "abc"}},
+            )
+        )
+        router.post(_EARNINGS_GET_CONTENT).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "410111", "status": False, "msg": "terminal"},
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as exc,
+        ):
+            AI(client).earnings_review(
+                security_code="600519.SH", period="2026q1"
+            )
+    assert exc.value.code == "410111"
+
+
+def test_earnings_review_check_returns_server_response(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_EARNINGS_GET_CONTENT).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"content": None}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).earnings_review_check(data_id="abc")
+    assert result == {"content": None}
+
+
+def test_viewpoint_debate_wait_true_returns_content(tmp_path, monkeypatch):
+    monkeypatch.setattr("gangtise_openapi._async_content.time.sleep", lambda _: None)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_VIEWPOINT_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "xyz"}},
+            )
+        )
+        router.post(_VIEWPOINT_GET_CONTENT).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"content": "debate"}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).viewpoint_debate(viewpoint="AI is bullish")
+    assert result["content"] == "debate"
+
+
+def test_viewpoint_debate_wait_false_returns_pending(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post(_VIEWPOINT_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "xyz"}},
+            )
+        )
+        content_route = router.post(_VIEWPOINT_GET_CONTENT)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).viewpoint_debate(
+                viewpoint="AI is bullish", wait=False
+            )
+        assert content_route.call_count == 0
+    assert result == {"data_id": "xyz", "status": "pending"}
+
+
+def test_viewpoint_debate_check_returns_server_response(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_VIEWPOINT_GET_CONTENT).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"content": None}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = AI(client).viewpoint_debate_check(data_id="xyz")
+    assert result == {"content": None}

@@ -4,7 +4,9 @@ from typing import Any
 
 import pandas as pd
 
+from gangtise_openapi._async_content import poll_content
 from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._errors import ApiError
 from gangtise_openapi._normalize import to_dataframe
 
 _HOT_TOPIC_DEFAULT_CATEGORIES = [
@@ -197,3 +199,93 @@ class AI:
             "discussionDimension": dimension,
         }
         return self._client._call("ai.management-discuss-earnings-call", body=body)  # type: ignore[no-any-return]
+
+    # ---- Async-polled endpoints ----
+
+    def earnings_review(
+        self,
+        *,
+        security_code: str,
+        period: str,           # e.g. "2025q3", "2025interim", "2025annual"
+        wait: bool = True,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        id_result = self._client._call(
+            "ai.earnings-review.get-id",
+            body={"securityCode": security_code, "period": period},
+        )
+        if not isinstance(id_result, dict):
+            raise ApiError(
+                "earnings-review.get-id returned unexpected shape",
+                details=id_result,
+            )
+        data_id = id_result.get("dataId")
+        if not data_id:
+            raise ApiError(
+                "earnings-review.get-id did not return a dataId",
+                details=id_result,
+            )
+        if not wait:
+            return {"data_id": data_id, "status": "pending"}
+
+        def fetch() -> Any:
+            return self._client._call(
+                "ai.earnings-review.get-content", body={"dataId": data_id}
+            )
+
+        return poll_content(fetch)  # type: ignore[no-any-return]
+
+    def earnings_review_check(
+        self,
+        *,
+        data_id: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        """Non-blocking single check. Returns whatever the server returns
+        (including `{"content": null}` for still-pending). Does NOT raise on
+        pending; callers handle that.
+        """
+        return self._client._call(  # type: ignore[no-any-return]
+            "ai.earnings-review.get-content", body={"dataId": data_id}
+        )
+
+    def viewpoint_debate(
+        self,
+        *,
+        viewpoint: str,        # max 1000 chars
+        wait: bool = True,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        id_result = self._client._call(
+            "ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint}
+        )
+        if not isinstance(id_result, dict):
+            raise ApiError(
+                "viewpoint-debate.get-id returned unexpected shape",
+                details=id_result,
+            )
+        data_id = id_result.get("dataId")
+        if not data_id:
+            raise ApiError(
+                "viewpoint-debate.get-id did not return a dataId",
+                details=id_result,
+            )
+        if not wait:
+            return {"data_id": data_id, "status": "pending"}
+
+        def fetch() -> Any:
+            return self._client._call(
+                "ai.viewpoint-debate.get-content", body={"dataId": data_id}
+            )
+
+        return poll_content(fetch)  # type: ignore[no-any-return]
+
+    def viewpoint_debate_check(
+        self,
+        *,
+        data_id: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        return self._client._call(  # type: ignore[no-any-return]
+            "ai.viewpoint-debate.get-content", body={"dataId": data_id}
+        )

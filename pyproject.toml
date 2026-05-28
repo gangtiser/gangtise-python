@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gangtise-openapi"
+dynamic = ["version"]
+description = "Python SDK for Gangtise OpenAPI"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "gangtiser" }]
+keywords = ["gangtise", "finance", "openapi", "sdk", "quote", "research"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
+]
+dependencies = [
+    "httpx>=0.27",
+    "pandas>=2.0",
+    "anyio>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/gangtiser/gangtise-python"
+Source = "https://github.com/gangtiser/gangtise-python"
+Issues = "https://github.com/gangtiser/gangtise-python/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "anyio[trio]>=4.0",
+    "respx>=0.21",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pandas-stubs",
+]
+
+[tool.hatch.version]
+path = "src/gangtise_openapi/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gangtise_openapi"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B008"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+warn_return_any = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = ["pandas.*", "respx.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "live: hits real Gangtise API (skipped by default; run with `pytest -m live`)",
+]

@@ -614,7 +614,14 @@ class Insight:
         result = self._client._call("insight.independent-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.independent-opinion.list",
+            id_field="independentOpinionId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     # ---- Download endpoints ----
 
@@ -716,7 +723,11 @@ class Insight:
             },
             output=output,
             fallback_name=f"independent-opinion-{independent_opinion_id}",
-            title_lookup=None,
+            title_lookup=(
+                "insight.independent-opinion.list",
+                "independentOpinionId",
+                independent_opinion_id,
+            ),
         )
 
 
@@ -1274,7 +1285,14 @@ class AsyncInsight:
         result = await self._client._call("insight.independent-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        rows = _extract_rows(result)
+        await self._client._record_list_titles(
+            list_endpoint_key="insight.independent-opinion.list",
+            id_field="independentOpinionId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
 
     async def summary_download(
         self,
@@ -1382,5 +1400,9 @@ class AsyncInsight:
             },
             output=output,
             fallback_name=f"independent-opinion-{independent_opinion_id}",
-            title_lookup=None,
+            title_lookup=(
+                "insight.independent-opinion.list",
+                "independentOpinionId",
+                independent_opinion_id,
+            ),
         )

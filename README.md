@@ -1,6 +1,19 @@
 # gangtise-openapi
 
-Python SDK for [Gangtise OpenAPI](https://open.gangtise.com). Feature-parity with the npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.14.2 across 73 endpoints.
+Python SDK for [Gangtise OpenAPI](https://open.gangtise.com). Feature-parity with the npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.14.2 across 73 upstream endpoints, plus local auth status helpers.
+
+## Changelog
+
+### Unreleased
+
+- Added runnable sample coverage for all public SDK methods: 74 sync examples in `sample/sync/` and 74 async examples in `sample/async/`.
+- Added complete API parameter documentation in `sample/API_PARAMETERS.md`.
+- Standardized sample output: DataFrame responses print directly, text and structured responses are saved as Markdown under `sample_outputs/`, and download samples save files under `sample_downloads/`.
+- Improved download handling so sample downloads keep the API-provided or original document name and extension where available.
+
+### 0.1.0 - 2026-05-28
+
+- Initial SDK release with sync and async APIs, DataFrame-by-default responses, retries, token self-healing, pagination helpers, async-content polling, and npm CLI-compatible token cache.
 
 ## Install
 
@@ -43,9 +56,22 @@ async def main():
 asyncio.run(main())
 ```
 
+## Samples
+
+Every public SDK method has a standalone customer-testable script.
+
+```bash
+uv run python sample/sync/quote_day_kline.py
+uv run python sample/async/quote_day_kline.py
+```
+
+DataFrame-returning samples print the DataFrame directly. Text or dict/list responses are written as standard Markdown files under `sample_outputs/`. Download samples write real files under `sample_downloads/` and preserve the server-provided or original filename when possible.
+
+See `sample/README.md` for run notes and `sample/API_PARAMETERS.md` for complete method parameter documentation.
+
 ## Endpoints
 
-The SDK exposes 73 endpoints across 9 domains:
+The SDK exposes 73 upstream endpoints across 9 domains:
 
 - `gangtise.auth.*` — login, status
 - `gangtise.lookup.*` — local lookup tables (research areas, brokers, industries, ...)
@@ -57,7 +83,7 @@ The SDK exposes 73 endpoints across 9 domains:
 - `gangtise.vault.*` — personal drive, meeting records, stock pools, WeChat
 - `gangtise.alternative.*` — economic indicators (EDB)
 
-See the [npm CLI README](https://github.com/gangtiser/gangtise-openapi-cli#readme) for endpoint-by-endpoint documentation; the Python wrappers accept the same parameters as the CLI flags (snake_case instead of `--kebab-case`).
+The Python wrappers accept the same parameters as the CLI flags, using `snake_case` instead of `--kebab-case`. For example, CLI `--start-date` maps to Python `start_date`.
 
 ## License
 

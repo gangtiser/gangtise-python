@@ -14,3 +14,8 @@ htmlcov/
 .DS_Store
 
 .claude/
+CLAUDE.md
+AGENTS.md
+docs/
+sample_downloads/
+sample_outputs/

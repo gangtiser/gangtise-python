@@ -10,6 +10,21 @@ from gangtise_openapi._errors import DownloadError
 from gangtise_openapi._transport import is_envelope, unwrap_envelope
 
 _DISPOSITION_RE = re.compile(r"filename\*?=(?:UTF-8''([^;]+)|\"?([^\";]+)\"?)")
+_MIME_EXTENSIONS = {
+    "application/pdf": ".pdf",
+    "application/zip": ".zip",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "audio/mpeg": ".mp3",
+    "text/html": ".html",
+    "text/plain": ".txt",
+    "application/octet-stream": "",
+}
+_KNOWN_EXTENSIONS = {ext for ext in _MIME_EXTENSIONS.values() if ext}
 
 
 def _parse_content_disposition(header: str | None) -> str | None:
@@ -25,12 +40,7 @@ def _extension_for(content_type: str | None) -> str:
     if not content_type:
         return ""
     lower = content_type.split(";")[0].strip().lower()
-    return {
-        "application/pdf": ".pdf",
-        "application/zip": ".zip",
-        "text/html": ".html",
-        "application/octet-stream": "",
-    }.get(lower, "")
+    return _MIME_EXTENSIONS.get(lower, "")
 
 
 TitleLookup = tuple[str, str, str]  # (list_endpoint_key, id_field, id_value)
@@ -42,6 +52,16 @@ _FORBIDDEN_FILENAME_CHARS = r'/\:*?"<>|'
 def _sanitize_filename(name: str) -> str:
     table = {ord(c): "_" for c in _FORBIDDEN_FILENAME_CHARS}
     return name.translate(table).strip()
+
+
+def _has_known_extension(name: str) -> bool:
+    return Path(name).suffix.lower() in _KNOWN_EXTENSIONS
+
+
+def _append_extension_if_needed(name: str, ext: str) -> str:
+    if not ext or name.lower().endswith(ext.lower()) or _has_known_extension(name):
+        return name
+    return f"{name}{ext}"
 
 
 def download_to_path(
@@ -141,15 +161,13 @@ def _decide_target(
         title = client._resolve_title(list_key, id_field, id_value)
         if title:
             sanitized = _sanitize_filename(title)
-            if ext_from_mime and not sanitized.lower().endswith(ext_from_mime.lower()):
-                sanitized += ext_from_mime
-            return Path.cwd() / sanitized
+            return Path.cwd() / _append_extension_if_needed(sanitized, ext_from_mime)
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return Path.cwd() / safe_name
+            return Path.cwd() / _append_extension_if_needed(safe_name, ext_from_mime)
     return Path.cwd() / f"{fallback_name}{ext_from_mime}"
 
 
@@ -244,13 +262,11 @@ async def _decide_target_async(
         title = await client._resolve_title(list_key, id_field, id_value)
         if title:
             sanitized = _sanitize_filename(title)
-            if ext_from_mime and not sanitized.lower().endswith(ext_from_mime.lower()):
-                sanitized += ext_from_mime
-            return Path.cwd() / sanitized
+            return Path.cwd() / _append_extension_if_needed(sanitized, ext_from_mime)
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return Path.cwd() / safe_name
+            return Path.cwd() / _append_extension_if_needed(safe_name, ext_from_mime)
     return Path.cwd() / f"{fallback_name}{ext_from_mime}"

@@ -293,6 +293,39 @@ def test_independent_opinion_download_writes_file(tmp_path, seeded_config):
     assert path.read_bytes() == b"data"
 
 
+def test_independent_opinion_download_uses_title_cache(tmp_path, monkeypatch, seeded_config):
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-insight/independent-opinion/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "list": [{"independentOpinionId": "io1", "title": "Independent Alpha"}],
+                    },
+                },
+            )
+        )
+        router.get("/application/open-insight/independent-opinion/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-type": "text/html"},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            insight = Insight(client)
+            insight.independent_opinion_list()
+            path = insight.independent_opinion_download(
+                independent_opinion_id="io1",
+                file_type=1,
+            )
+    assert path.name == "Independent Alpha.html"
+
+
 def test_research_download_uses_title_cache(tmp_path, monkeypatch, seeded_config):
     monkeypatch.chdir(tmp_path)
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:

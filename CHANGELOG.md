@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+- Runnable sample coverage for all public SDK methods, with separate sync and async one-file examples.
+- Complete API parameter reference in `sample/API_PARAMETERS.md`.
+- Standardized sample outputs: DataFrame stdout, Markdown text/structured outputs, and preserved filenames for downloaded documents.
+
 ## [0.1.0] — 2026-05-28
 
 ### Added

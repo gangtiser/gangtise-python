@@ -94,6 +94,53 @@ def test_day_kline_us_shard_count(tmp_path):
         assert route.call_count == 3
 
 
+def test_day_kline_us_matrix_rows_are_normalized(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline-us/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "fieldList": [
+                            "securityCode",
+                            "tradeDate",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "preClose",
+                            "pctChange",
+                            "volume",
+                            "amount",
+                        ],
+                        "list": [
+                            [
+                                "AAPL.O",
+                                "2026-05-01",
+                                278.855,
+                                287.22,
+                                278.37,
+                                280.14,
+                                271.35,
+                                3.2394,
+                                79915442,
+                                22562318199.3578,
+                            ],
+                        ],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline_us(security="AAPL.O")
+    assert df.iloc[0]["securityCode"] == "AAPL.O"
+    assert df.iloc[0]["date"] == "2026-05-01"
+    assert df.iloc[0]["close"] == 280.14
+    assert df.iloc[0]["changePct"] == 3.2394
+
+
 def test_day_kline_hk_shard_count(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         route = router.post("/application/open-quote/kline-hk/daily").mock(

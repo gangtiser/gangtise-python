@@ -52,6 +52,10 @@ _REALTIME_SCHEMA = [
     "amount",
     "changePct",
 ]
+_QUOTE_FIELD_ALIASES = {
+    "tradeDate": "date",
+    "pctChange": "changePct",
+}
 
 
 def _as_list(value: Any) -> list[Any] | None:
@@ -78,6 +82,27 @@ def _date_to_iso(value: str | dt.date | None) -> str | None:
     if isinstance(value, dt.date):
         return value.isoformat()
     return value
+
+
+def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    field_names = (
+        fields if isinstance(fields, list) and all(isinstance(f, str) for f in fields) else None
+    )
+    for row in rows:
+        if isinstance(row, dict):
+            item = dict(row)
+        elif isinstance(row, list) and field_names:
+            item = {
+                field: row[index] for index, field in enumerate(field_names) if index < len(row)
+            }
+        else:
+            continue
+        for source, target in _QUOTE_FIELD_ALIASES.items():
+            if source in item and target not in item:
+                item[target] = item[source]
+        normalized.append(item)
+    return normalized
 
 
 class Quote:
@@ -150,7 +175,10 @@ class Quote:
         result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
         if raw:
             return result_payload
-        return to_dataframe(rows, schema=_DAY_KLINE_SCHEMA)
+        return to_dataframe(
+            _normalize_quote_rows(rows, merged.get("fieldList")),
+            schema=_DAY_KLINE_SCHEMA,
+        )
 
     def day_kline(
         self,
@@ -349,7 +377,10 @@ class AsyncQuote:
         result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
         if raw:
             return result_payload
-        return to_dataframe(rows, schema=_DAY_KLINE_SCHEMA)
+        return to_dataframe(
+            _normalize_quote_rows(rows, merged.get("fieldList")),
+            schema=_DAY_KLINE_SCHEMA,
+        )
 
     async def day_kline(
         self,

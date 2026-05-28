@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from gangtise_openapi._auth import read_token_cache
-from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 
 
 class Auth:
@@ -18,6 +18,31 @@ class Auth:
 
     def status(self) -> dict[str, Any]:
         """Inspect the current token state without forcing a network call."""
+        cfg = self._client.config
+        cache = read_token_cache(cfg.token_cache_path)
+        return {
+            "has_env_token": bool(cfg.token),
+            "has_cached_token": bool(cache and cache.access_token),
+            "cache": {
+                "access_token": cache.access_token if cache else None,
+                "expires_at": cache.expires_at if cache else None,
+                "uid": cache.uid if cache else None,
+                "user_name": cache.user_name if cache else None,
+                "tenant_id": cache.tenant_id if cache else None,
+            } if cache else None,
+        }
+
+
+class AsyncAuth:
+    """Async mirror of `Auth`."""
+
+    def __init__(self, client: AsyncGangtiseClient) -> None:
+        self._client = client
+
+    async def login(self) -> dict[str, Any]:
+        return await self._client.login()
+
+    async def status(self) -> dict[str, Any]:
         cfg = self._client.config
         cache = read_token_cache(cfg.token_cache_path)
         return {

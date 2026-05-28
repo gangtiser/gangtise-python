@@ -5,9 +5,9 @@ from typing import Any
 
 import pandas as pd
 
-from gangtise_openapi._async_content import poll_content
-from gangtise_openapi._client import GangtiseClient
-from gangtise_openapi._download import download_to_path
+from gangtise_openapi._async_content import poll_content, poll_content_async
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
+from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._errors import ApiError
 from gangtise_openapi._normalize import to_dataframe
 
@@ -302,6 +302,281 @@ class AI:
         output: str | Path | None = None,
     ) -> Path:
         return download_to_path(
+            client=self._client,
+            endpoint_key="ai.knowledge-resource.download",
+            query={"resourceType": resource_type, "sourceId": source_id},
+            output=output,
+            fallback_name=f"knowledge-{source_id}",
+            title_lookup=None,
+        )
+
+
+class AsyncAI:
+    """Async mirror of `AI`."""
+
+    def __init__(self, client: AsyncGangtiseClient) -> None:
+        self._client = client
+
+    async def knowledge_batch(
+        self,
+        *,
+        query: Any,
+        top: int = 10,
+        resource_type: Any = None,
+        knowledge_name: Any = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        body = _strip_none(
+            {
+                "queries": _as_list(query),
+                "top": top,
+                "resourceTypes": _as_list(resource_type),
+                "knowledgeNames": _as_list(knowledge_name),
+                "startTime": start_time,
+                "endTime": end_time,
+            }
+        )
+        result = await self._client._call("ai.knowledge-batch", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def security_clue_list(
+        self,
+        *,
+        start_time: str,
+        end_time: str,
+        query_mode: str,
+        from_: int = 0,
+        size: int | None = None,
+        gts_code: Any = None,
+        source: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "queryMode": query_mode,
+                "gtsCodeList": _as_list(gts_code),
+                "source": _as_list(source),
+            }
+        )
+        result = await self._client._call("ai.security-clue.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def _security_only(self, endpoint_key: str, security_code: str) -> Any:
+        return await self._client._call(
+            endpoint_key, body={"securityCode": security_code}
+        )
+
+    async def one_pager(
+        self, *, security_code: str, raw: bool = False
+    ) -> dict[str, Any]:
+        return await self._security_only(  # type: ignore[no-any-return]
+            "ai.one-pager", security_code
+        )
+
+    async def investment_logic(
+        self, *, security_code: str, raw: bool = False
+    ) -> dict[str, Any]:
+        return await self._security_only(  # type: ignore[no-any-return]
+            "ai.investment-logic", security_code
+        )
+
+    async def peer_comparison(
+        self, *, security_code: str, raw: bool = False
+    ) -> dict[str, Any]:
+        return await self._security_only(  # type: ignore[no-any-return]
+            "ai.peer-comparison", security_code
+        )
+
+    async def research_outline(
+        self, *, security_code: str, raw: bool = False
+    ) -> dict[str, Any]:
+        return await self._security_only(  # type: ignore[no-any-return]
+            "ai.research-outline", security_code
+        )
+
+    async def theme_tracking(
+        self,
+        *,
+        theme_id: str,
+        date: str,
+        type_: Any = None,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        body = _strip_none(
+            {
+                "themeId": theme_id,
+                "date": date,
+                "type": _as_list(type_),
+            }
+        )
+        return await self._client._call(  # type: ignore[no-any-return]
+            "ai.theme-tracking", body=body
+        )
+
+    async def hot_topic(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        category: Any = None,
+        with_related_securities: bool = True,
+        with_close_reading: bool = True,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startDate": start_date,
+                "endDate": end_date,
+                "categoryList": _as_list(category) or _HOT_TOPIC_DEFAULT_CATEGORIES,
+                "withRelatedSecurities": True if with_related_securities else None,
+                "withCloseReading": True if with_close_reading else None,
+            }
+        )
+        result = await self._client._call("ai.hot-topic", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def management_discuss_announcement(
+        self,
+        *,
+        report_date: str,
+        security_code: str,
+        dimension: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        body = {
+            "reportDate": report_date,
+            "securityCode": security_code,
+            "discussionDimension": dimension,
+        }
+        return await self._client._call(  # type: ignore[no-any-return]
+            "ai.management-discuss-announcement", body=body
+        )
+
+    async def management_discuss_earnings_call(
+        self,
+        *,
+        report_date: str,
+        security_code: str,
+        dimension: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        body = {
+            "reportDate": report_date,
+            "securityCode": security_code,
+            "discussionDimension": dimension,
+        }
+        return await self._client._call(  # type: ignore[no-any-return]
+            "ai.management-discuss-earnings-call", body=body
+        )
+
+    async def earnings_review(
+        self,
+        *,
+        security_code: str,
+        period: str,
+        wait: bool = True,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        id_result = await self._client._call(
+            "ai.earnings-review.get-id",
+            body={"securityCode": security_code, "period": period},
+        )
+        if not isinstance(id_result, dict):
+            raise ApiError(
+                "earnings-review.get-id returned unexpected shape",
+                details=id_result,
+            )
+        data_id = id_result.get("dataId")
+        if not data_id:
+            raise ApiError(
+                "earnings-review.get-id did not return a dataId",
+                details=id_result,
+            )
+        if not wait:
+            return {"data_id": data_id, "status": "pending"}
+
+        async def fetch() -> Any:
+            return await self._client._call(
+                "ai.earnings-review.get-content", body={"dataId": data_id}
+            )
+
+        return await poll_content_async(fetch)  # type: ignore[no-any-return]
+
+    async def earnings_review_check(
+        self,
+        *,
+        data_id: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        return await self._client._call(  # type: ignore[no-any-return]
+            "ai.earnings-review.get-content", body={"dataId": data_id}
+        )
+
+    async def viewpoint_debate(
+        self,
+        *,
+        viewpoint: str,
+        wait: bool = True,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        id_result = await self._client._call(
+            "ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint}
+        )
+        if not isinstance(id_result, dict):
+            raise ApiError(
+                "viewpoint-debate.get-id returned unexpected shape",
+                details=id_result,
+            )
+        data_id = id_result.get("dataId")
+        if not data_id:
+            raise ApiError(
+                "viewpoint-debate.get-id did not return a dataId",
+                details=id_result,
+            )
+        if not wait:
+            return {"data_id": data_id, "status": "pending"}
+
+        async def fetch() -> Any:
+            return await self._client._call(
+                "ai.viewpoint-debate.get-content", body={"dataId": data_id}
+            )
+
+        return await poll_content_async(fetch)  # type: ignore[no-any-return]
+
+    async def viewpoint_debate_check(
+        self,
+        *,
+        data_id: str,
+        raw: bool = False,
+    ) -> dict[str, Any]:
+        return await self._client._call(  # type: ignore[no-any-return]
+            "ai.viewpoint-debate.get-content", body={"dataId": data_id}
+        )
+
+    async def knowledge_resource_download(
+        self,
+        *,
+        resource_type: int,
+        source_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        return await download_to_path_async(
             client=self._client,
             endpoint_key="ai.knowledge-resource.download",
             query={"resourceType": resource_type, "sourceId": source_id},

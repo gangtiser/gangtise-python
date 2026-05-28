@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from gangtise_openapi._auth import normalize_token
-from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._endpoints import lookup
 from gangtise_openapi._errors import DownloadError
 
@@ -118,6 +118,86 @@ def _decide_target(
     if title_lookup is not None:
         list_key, id_field, id_value = title_lookup
         title = client._resolve_title(list_key, id_field, id_value)
+        if title:
+            sanitized = _sanitize_filename(title)
+            if ext_from_mime and not sanitized.lower().endswith(ext_from_mime.lower()):
+                sanitized += ext_from_mime
+            return Path.cwd() / sanitized
+    disposition_name = _parse_content_disposition(content_disposition)
+    if disposition_name:
+        return Path.cwd() / disposition_name
+    return Path.cwd() / f"{fallback_name}{ext_from_mime}"
+
+
+async def download_to_path_async(
+    *,
+    client: AsyncGangtiseClient,
+    endpoint_key: str,
+    query: dict[str, str | int],
+    output: str | Path | None,
+    fallback_name: str,
+    title_lookup: TitleLookup | None = None,
+) -> Path:
+    """Async counterpart to `download_to_path` — streams a download endpoint
+    to disk using `httpx.AsyncClient`. Resolution rules match the sync version.
+    """
+    endpoint = lookup(endpoint_key)
+    if endpoint.kind != "download":
+        raise DownloadError(f"endpoint {endpoint_key} is not a download endpoint")
+
+    token = await client._get_token()
+    headers: dict[str, str] = {"Authorization": normalize_token(token)}
+
+    http = client._http_client()
+    async with http.stream(
+        endpoint.method,
+        endpoint.path,
+        params=query,
+        headers=headers,
+    ) as response:
+        if response.status_code >= 400:
+            await response.aread()
+            raise DownloadError(
+                f"download failed: HTTP {response.status_code} {response.text[:200]}"
+            )
+        content_disposition = response.headers.get("content-disposition")
+        content_type = response.headers.get("content-type")
+        target = await _decide_target_async(
+            client=client,
+            output=output,
+            fallback_name=fallback_name,
+            content_disposition=content_disposition,
+            content_type=content_type,
+            title_lookup=title_lookup,
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".part")
+        try:
+            with tmp.open("wb") as fh:
+                async for chunk in response.aiter_bytes():
+                    fh.write(chunk)
+            tmp.replace(target)
+        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+            raise DownloadError(f"failed to write to {target}: {exc}") from exc
+    return target
+
+
+async def _decide_target_async(
+    *,
+    client: AsyncGangtiseClient,
+    output: str | Path | None,
+    fallback_name: str,
+    content_disposition: str | None,
+    content_type: str | None,
+    title_lookup: TitleLookup | None,
+) -> Path:
+    if output is not None:
+        return Path(output).expanduser()
+    ext_from_mime = _extension_for(content_type)
+    if title_lookup is not None:
+        list_key, id_field, id_value = title_lookup
+        title = await client._resolve_title(list_key, id_field, id_value)
         if title:
             sanitized = _sanitize_filename(title)
             if ext_from_mime and not sanitized.lower().endswith(ext_from_mime.lower()):

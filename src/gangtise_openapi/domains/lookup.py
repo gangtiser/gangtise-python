@@ -4,7 +4,7 @@ from typing import Any
 
 import pandas as pd
 
-from gangtise_openapi._client import GangtiseClient
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
 
 _LOOKUP_ENDPOINT_BY_METHOD: dict[str, tuple[str, list[str]]] = {
@@ -58,3 +58,45 @@ class Lookup:
 
     def theme_ids(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
         return self._fetch("theme_ids", raw=raw)
+
+
+class AsyncLookup:
+    """Async mirror of `Lookup`."""
+
+    def __init__(self, client: AsyncGangtiseClient) -> None:
+        self._client = client
+
+    async def _fetch(
+        self, method_name: str, *, raw: bool
+    ) -> pd.DataFrame | list[Any]:
+        endpoint_key, schema = _LOOKUP_ENDPOINT_BY_METHOD[method_name]
+        data = await self._client._call(endpoint_key)
+        if raw:
+            return list(data)
+        return to_dataframe(data, schema=schema)
+
+    async def research_areas(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("research_areas", raw=raw)
+
+    async def broker_orgs(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("broker_orgs", raw=raw)
+
+    async def meeting_orgs(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("meeting_orgs", raw=raw)
+
+    async def industries(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("industries", raw=raw)
+
+    async def regions(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("regions", raw=raw)
+
+    async def announcement_categories(
+        self, *, raw: bool = False
+    ) -> pd.DataFrame | list[Any]:
+        return await self._fetch("announcement_categories", raw=raw)
+
+    async def industry_codes(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("industry_codes", raw=raw)
+
+    async def theme_ids(self, *, raw: bool = False) -> pd.DataFrame | list[Any]:
+        return await self._fetch("theme_ids", raw=raw)

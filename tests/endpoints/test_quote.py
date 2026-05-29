@@ -135,10 +135,23 @@ def test_day_kline_us_matrix_rows_are_normalized(tmp_path):
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Quote(client).day_kline_us(security="AAPL.O")
+    # Columns are the REAL fieldList names verbatim (no date/changePct aliasing).
+    assert list(df.columns) == [
+        "securityCode",
+        "tradeDate",
+        "open",
+        "high",
+        "low",
+        "close",
+        "preClose",
+        "pctChange",
+        "volume",
+        "amount",
+    ]
     assert df.iloc[0]["securityCode"] == "AAPL.O"
-    assert df.iloc[0]["date"] == "2026-05-01"
+    assert df.iloc[0]["tradeDate"] == "2026-05-01"
     assert df.iloc[0]["close"] == 280.14
-    assert df.iloc[0]["changePct"] == 3.2394
+    assert df.iloc[0]["pctChange"] == 3.2394
 
 
 def test_day_kline_hk_shard_count(tmp_path):

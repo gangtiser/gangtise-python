@@ -18,46 +18,6 @@ from gangtise_openapi._quote_sharding import (
 )
 from gangtise_openapi.domains._common import _as_list, _strip_none
 
-_DAY_KLINE_SCHEMA = [
-    "securityCode",
-    "date",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "amount",
-    "preClose",
-    "changePct",
-    "turnover",
-]
-_MINUTE_KLINE_SCHEMA = [
-    "securityCode",
-    "datetime",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "amount",
-]
-_REALTIME_SCHEMA = [
-    "securityCode",
-    "name",
-    "price",
-    "open",
-    "high",
-    "low",
-    "preClose",
-    "volume",
-    "amount",
-    "changePct",
-]
-_QUOTE_FIELD_ALIASES = {
-    "tradeDate": "date",
-    "pctChange": "changePct",
-}
-
 
 def _parse_date(value: str | dt.date) -> dt.date:
     if isinstance(value, dt.date):
@@ -74,6 +34,14 @@ def _date_to_iso(value: str | dt.date | None) -> str | None:
 
 
 def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
+    """Transpose K-line / realtime rows against the response ``fieldList``.
+
+    The quote endpoints return a columnar matrix ``{fieldList, list:[[...]]}``;
+    each array row is zipped with ``fieldList`` into a dict keyed by the real
+    field names. Rows that are already dicts pass through unchanged. The real
+    field names are returned verbatim (no schema, no aliases), so the DataFrame
+    columns stay in lockstep with the API.
+    """
     normalized: list[dict[str, Any]] = []
     field_names = (
         fields if isinstance(fields, list) and all(isinstance(f, str) for f in fields) else None
@@ -87,11 +55,18 @@ def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
             }
         else:
             continue
-        for source, target in _QUOTE_FIELD_ALIASES.items():
-            if source in item and target not in item:
-                item[target] = item[source]
         normalized.append(item)
     return normalized
+
+
+def _quote_rows_and_fields(result: Any) -> tuple[list[Any], Any]:
+    """Pull (rows, fieldList) out of a single quote response payload."""
+    if isinstance(result, dict):
+        rows = result.get("list")
+        return (rows if isinstance(rows, list) else []), result.get("fieldList")
+    if isinstance(result, list):
+        return result, None
+    return [], None
 
 
 class Quote:
@@ -166,7 +141,7 @@ class Quote:
             return result_payload
         return to_dataframe(
             _normalize_quote_rows(rows, merged.get("fieldList")),
-            schema=_DAY_KLINE_SCHEMA,
+            schema=None,
         )
 
     def day_kline(
@@ -271,8 +246,8 @@ class Quote:
         result = self._client._call("quote.minute-kline", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        rows: list[Any] = result.get("list", []) if isinstance(result, dict) else result
-        return to_dataframe(rows, schema=_MINUTE_KLINE_SCHEMA)
+        rows, fields = _quote_rows_and_fields(result)
+        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
 
     def realtime(
         self,
@@ -290,8 +265,8 @@ class Quote:
         result = self._client._call("quote.realtime", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        rows: list[Any] = result if isinstance(result, list) else result.get("list", [])
-        return to_dataframe(rows, schema=_REALTIME_SCHEMA)
+        rows, fields = _quote_rows_and_fields(result)
+        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
 
 
 class AsyncQuote:
@@ -368,7 +343,7 @@ class AsyncQuote:
             return result_payload
         return to_dataframe(
             _normalize_quote_rows(rows, merged.get("fieldList")),
-            schema=_DAY_KLINE_SCHEMA,
+            schema=None,
         )
 
     async def day_kline(
@@ -473,8 +448,8 @@ class AsyncQuote:
         result = await self._client._call("quote.minute-kline", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        rows: list[Any] = result.get("list", []) if isinstance(result, dict) else result
-        return to_dataframe(rows, schema=_MINUTE_KLINE_SCHEMA)
+        rows, fields = _quote_rows_and_fields(result)
+        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
 
     async def realtime(
         self,
@@ -492,5 +467,5 @@ class AsyncQuote:
         result = await self._client._call("quote.realtime", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        rows: list[Any] = result if isinstance(result, list) else result.get("list", [])
-        return to_dataframe(rows, schema=_REALTIME_SCHEMA)
+        rows, fields = _quote_rows_and_fields(result)
+        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)

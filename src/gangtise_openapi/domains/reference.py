@@ -8,16 +8,6 @@ from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi.domains._common import _as_list, _strip_none
 
-_SCHEMA_SECURITIES_SEARCH = [
-    "code",
-    "name",
-    "market",
-    "category",
-    "industry",
-    "industryCode",
-    "pinyin",
-]
-
 
 class Reference:
     """`gangtise.reference.*` — reference data lookups."""
@@ -52,7 +42,7 @@ class Reference:
             rows = result.get("list", [])
         else:
             rows = []
-        return to_dataframe(rows, schema=_SCHEMA_SECURITIES_SEARCH)
+        return to_dataframe(rows, schema=None)
 
 
 class AsyncReference:
@@ -85,4 +75,4 @@ class AsyncReference:
             rows = result.get("list", [])
         else:
             rows = []
-        return to_dataframe(rows, schema=_SCHEMA_SECURITIES_SEARCH)
+        return to_dataframe(rows, schema=None)

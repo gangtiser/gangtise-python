@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-05-29
+
+### Fixed
+- **`quote.realtime` and `quote.minute_kline` returned all-None DataFrames.**
+  Both endpoints return a columnar matrix `{fieldList, list:[[...]]}` but the
+  rows were tabulated against a hardcoded schema whose names did not match the
+  API, so every cell came out null. They now transpose each row against the
+  response `fieldList` (shared `_quote_rows_and_fields` helper).
+- **`quote.day_kline` column names corrected.** The hardcoded schema invented
+  `turnover` / `changePct` and dropped real fields; A-share day K-line has no
+  `turnover` column — the real fields are `pctChange` and `adjustFactor`.
+- **`reference.securities_search` returned mostly-None columns.** The schema
+  used `code/name/market/...` but the API returns
+  `gtsCode/gtsName/category/matchScore/matchType`.
+- All three hardcoded quote schemas and the field-alias remap removed; quote and
+  securities-search now return the API's field names verbatim (`schema=None`),
+  matching the columnar fix shipped for the fundamental endpoints in 0.1.2.
+
 ## [0.1.2] - 2026-05-29
 
 ### Fixed

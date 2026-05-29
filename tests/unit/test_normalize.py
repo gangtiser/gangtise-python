@@ -1,6 +1,6 @@
 import pytest
 
-from gangtise_openapi._normalize import to_dataframe
+from gangtise_openapi._normalize import normalize_rows, to_dataframe
 
 
 def test_empty_list_returns_empty_frame_with_schema():
@@ -39,3 +39,48 @@ def test_no_schema_returns_all_columns():
 def test_non_list_input_raises():
     with pytest.raises(TypeError):
         to_dataframe({"not": "a list"}, schema=["x"])
+
+
+# ---- normalize_rows ----
+
+
+def test_normalize_rows_transposes_fieldlist_matrix():
+    payload = {"fieldList": ["a", "b", "c"], "list": [[1, 2, 3], [4, 5, 6]]}
+    assert normalize_rows(payload) == [
+        {"a": 1, "b": 2, "c": 3},
+        {"a": 4, "b": 5, "c": 6},
+    ]
+
+
+def test_normalize_rows_matrix_preserves_metadata():
+    payload = {"indicator": "peTtm", "fieldList": ["x"], "list": [[1]]}
+    assert normalize_rows(payload) == {"indicator": "peTtm", "list": [{"x": 1}]}
+
+
+def test_normalize_rows_short_row_pads_with_none():
+    assert normalize_rows({"fieldList": ["a", "b", "c"], "list": [[1]]}) == [
+        {"a": 1, "b": None, "c": None}
+    ]
+
+
+def test_normalize_rows_list_of_dicts_passthrough():
+    payload = {"holdType": "top10", "list": [{"rank": 1}]}
+    assert normalize_rows(payload) == {"holdType": "top10", "list": [{"rank": 1}]}
+
+
+def test_normalize_rows_bare_list_unchanged():
+    assert normalize_rows([{"a": 1}]) == [{"a": 1}]
+
+
+def test_normalize_rows_chatroomlist_aliased():
+    assert normalize_rows({"chatRoomList": [{"id": 1}]}) == [{"id": 1}]
+
+
+def test_normalize_rows_single_object_unchanged():
+    payload = {"securityCode": "000001.SZ", "updateList": [1, 2]}
+    assert normalize_rows(payload) == payload
+
+
+def test_normalize_rows_non_dict_unchanged():
+    assert normalize_rows("text") == "text"
+    assert normalize_rows(None) is None

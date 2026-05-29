@@ -8,6 +8,9 @@ import anyio
 
 from gangtise_openapi._endpoints import EndpointDef
 from gangtise_openapi._errors import ValidationError
+from gangtise_openapi._logging import get_logger
+
+logger = get_logger()
 
 MAX_PAGES = 1000
 
@@ -85,6 +88,12 @@ def collect_paginated(
         remaining_requests.append({**initial, "from": next_from, "size": size})
         next_from += size
     if len(remaining_requests) + 1 > MAX_PAGES:
+        logger.warning(
+            "pagination capped at MAX_PAGES=%d for %s; dropping %d page(s) of results",
+            MAX_PAGES,
+            endpoint.key,
+            len(remaining_requests) + 1 - MAX_PAGES,
+        )
         remaining_requests = remaining_requests[: MAX_PAGES - 1]
 
     if remaining_requests:
@@ -146,6 +155,12 @@ async def collect_paginated_async(
         remaining_requests.append({**initial, "from": next_from, "size": size})
         next_from += size
     if len(remaining_requests) + 1 > MAX_PAGES:
+        logger.warning(
+            "pagination capped at MAX_PAGES=%d for %s; dropping %d page(s) of results",
+            MAX_PAGES,
+            endpoint.key,
+            len(remaining_requests) + 1 - MAX_PAGES,
+        )
         remaining_requests = remaining_requests[: MAX_PAGES - 1]
 
     pages: list[Any | None] = [None] * len(remaining_requests)

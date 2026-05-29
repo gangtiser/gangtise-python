@@ -241,19 +241,91 @@ def test_top_holders(tmp_path):
     assert df.iloc[0]["holderName"] == "X"
 
 
-def test_earning_forecast(tmp_path):
+def _earning_forecast_response() -> httpx.Response:
+    # Real shape: nested {securityCode, securityName, updateList:[{date, fieldList:[{...}]}]}
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {
+                "securityCode": "000001.SZ",
+                "securityName": "PAB",
+                "updateList": [
+                    {
+                        "date": "2026-01-15",
+                        "fieldList": [
+                            {"forecastYear": "2025E", "netIncome": 100.0, "eps": 1.0},
+                            {"forecastYear": "2026E", "netIncome": 110.0, "eps": 1.1},
+                        ],
+                    },
+                    {
+                        "date": "2026-02-28",
+                        "fieldList": [
+                            {"forecastYear": "2025E", "netIncome": 105.0, "eps": 1.05},
+                            {"forecastYear": "2026E", "netIncome": 115.0, "eps": 1.15},
+                        ],
+                    },
+                ],
+            },
+        },
+    )
+
+
+def test_earning_forecast_flattened(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-fundamental/earning-forecast").mock(
-            return_value=_row_response(
-                {"securityCode": "000001.SZ", "netIncome": 500.0, "eps": 1.23}
-            ),
+            return_value=_earning_forecast_response(),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Fundamental(client).earning_forecast(
-                security_code="000001.SZ", consensus=["netIncome", "eps"]
+                security_code="000001.SZ", consensus=["netIncome", "eps"], latest=False
             )
         body = route.calls.last.request.read().replace(b" ", b"")
-        # No fieldList; consensus is sent as consensusList.
-        assert b"fieldList" not in body
         assert b'"consensusList":["netIncome","eps"]' in body
-    assert df.iloc[0]["eps"] == 1.23
+    # latest=False -> 2 update dates x 2 forecast years = 4 rows.
+    assert df.shape[0] == 4
+    assert list(df.columns)[:4] == ["securityCode", "securityName", "date", "forecastYear"]
+    assert set(df["date"]) == {"2026-01-15", "2026-02-28"}
+
+
+def test_earning_forecast_default_is_latest(tmp_path):
+    # Default behavior (no latest arg) keeps only the most recent update date.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/earning-forecast").mock(
+            return_value=_earning_forecast_response(),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).earning_forecast(security_code="000001.SZ")
+    # Only the most recent update date (2026-02-28) survives -> 2 rows.
+    assert df.shape[0] == 2
+    assert set(df["date"]) == {"2026-02-28"}
+    assert df[df["forecastYear"] == "2025E"].iloc[0]["netIncome"] == 105.0
+
+
+def test_statement_matrix_shape_is_transposed(tmp_path):
+    # Financial-report endpoints return a columnar matrix
+    # {"fieldList": [...], "list": [[...]]} rather than a list of dicts;
+    # normalize_rows must transpose it into named columns (otherwise the
+    # DataFrame ends up with integer column names or empty).
+    matrix = {
+        "code": "000000",
+        "status": True,
+        "data": {
+            "fieldList": ["securityCode", "endDate", "revenue"],
+            "list": [
+                ["000001.SZ", "2025-12-31", 100.0],
+                ["000001.SZ", "2024-12-31", 90.0],
+            ],
+        },
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(
+            "/application/open-fundamental/financial-report/income-statement/accumulated"
+        ).mock(return_value=httpx.Response(200, json=matrix))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).income_statement(security_code="000001.SZ")
+    assert list(df.columns) == ["securityCode", "endDate", "revenue"]
+    assert df.shape == (2, 3)
+    assert df.iloc[0]["revenue"] == 100.0
+    assert df.iloc[1]["endDate"] == "2024-12-31"

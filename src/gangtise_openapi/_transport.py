@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import random
 import time
 from typing import Any
@@ -12,8 +11,9 @@ from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef
 from gangtise_openapi._errors import ApiError
+from gangtise_openapi._logging import get_logger
 
-logger = logging.getLogger("gangtise_openapi")
+logger = get_logger()
 
 RETRYABLE_HTTP_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 RETRYABLE_API_CODES: frozenset[str] = frozenset({"999999"})
@@ -79,7 +79,6 @@ def _backoff_delay(attempt: int, base_ms: float = 400.0, max_ms: float = 4000.0)
 
 def _do_request(
     http: httpx.Client,
-    config: Config,
     endpoint: EndpointDef,
     body: Any,
     *,
@@ -125,7 +124,6 @@ def _do_request(
 
 def request_json(
     http: httpx.Client,
-    config: Config,
     endpoint: EndpointDef,
     *,
     body: Any = None,
@@ -136,9 +134,7 @@ def request_json(
     attempt = 0
     while True:
         try:
-            status_code, parsed = _do_request(
-                http, config, endpoint, body, token=token, query=query
-            )
+            status_code, parsed = _do_request(http, endpoint, body, token=token, query=query)
             if status_code >= 400:
                 if is_envelope(parsed):
                     code = parsed.get("code")

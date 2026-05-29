@@ -6,39 +6,46 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-
-_VALUATION_ANALYSIS_SCHEMA = [
-    "securityCode",
-    "indicator",
-    "date",
-    "value",
-    "percentileRank",
-    "average",
-    "median",
-    "upper1Std",
-    "lower1Std",
-]
+from gangtise_openapi.domains._common import _as_list, _extract_rows, _strip_none
 
 
-def _as_list(value: Any) -> list[Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    return [value]
+def _flatten_earning_forecast(result: Any, *, latest: bool) -> list[dict[str, Any]]:
+    """Flatten the nested earning-forecast payload into a flat row list.
 
-
-def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in body.items() if v is not None}
-
-
-def _extract_rows(result: Any) -> list[Any]:
-    if isinstance(result, dict):
-        rows = result.get("list", [])
-        return rows if isinstance(rows, list) else []
-    if isinstance(result, list):
-        return result
-    return []
+    The endpoint returns
+    ``{securityCode, securityName, updateList: [{date, fieldList: [{...}]}]}``;
+    this produces one row per (update date x forecast year), prefixed with
+    ``securityCode`` / ``securityName`` / ``date``. With ``latest=True`` only the
+    most recent update date is kept.
+    """
+    if not isinstance(result, dict):
+        return []
+    security_code = result.get("securityCode")
+    security_name = result.get("securityName")
+    updates = result.get("updateList")
+    if not isinstance(updates, list):
+        return []
+    valid = [u for u in updates if isinstance(u, dict)]
+    if latest and valid:
+        # ISO date strings sort lexically; newest = max.
+        valid = [max(valid, key=lambda u: u.get("date") or "")]
+    rows: list[dict[str, Any]] = []
+    for upd in valid:
+        forecasts = upd.get("fieldList")
+        if not isinstance(forecasts, list):
+            continue
+        for forecast in forecasts:
+            if not isinstance(forecast, dict):
+                continue
+            rows.append(
+                {
+                    "securityCode": security_code,
+                    "securityName": security_name,
+                    "date": upd.get("date"),
+                    **forecast,
+                }
+            )
+    return rows
 
 
 class Fundamental:
@@ -336,7 +343,7 @@ class Fundamental:
                 and r.get("value") is not None
                 and r.get("percentileRank") is not None
             ]
-        return to_dataframe(rows, schema=_VALUATION_ANALYSIS_SCHEMA)
+        return to_dataframe(rows, schema=None)
 
     # ---- top-holders ----
 
@@ -375,6 +382,7 @@ class Fundamental:
         start_date: str | None = None,
         end_date: str | None = None,
         consensus: Any = None,
+        latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         body = _strip_none(
@@ -388,7 +396,7 @@ class Fundamental:
         result = self._client._call("fundamental.earning-forecast", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return to_dataframe(_flatten_earning_forecast(result, latest=latest), schema=None)
 
 
 class AsyncFundamental:
@@ -678,7 +686,7 @@ class AsyncFundamental:
                 and r.get("value") is not None
                 and r.get("percentileRank") is not None
             ]
-        return to_dataframe(rows, schema=_VALUATION_ANALYSIS_SCHEMA)
+        return to_dataframe(rows, schema=None)
 
     async def top_holders(
         self,
@@ -713,6 +721,7 @@ class AsyncFundamental:
         start_date: str | None = None,
         end_date: str | None = None,
         consensus: Any = None,
+        latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         body = _strip_none(
@@ -726,4 +735,4 @@ class AsyncFundamental:
         result = await self._client._call("fundamental.earning-forecast", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return to_dataframe(_flatten_earning_forecast(result, latest=latest), schema=None)

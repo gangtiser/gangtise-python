@@ -6,18 +6,7 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-
-
-def _as_list(value: Any) -> list[Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    return [value]
-
-
-def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in body.items() if v is not None}
+from gangtise_openapi.domains._common import _as_list, _strip_none
 
 
 class Alternative:

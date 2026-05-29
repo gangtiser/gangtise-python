@@ -30,7 +30,7 @@ async def test_request_json_async_success(respx_mock, cfg):
         return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": {"v": 1}})
     )
     async with build_async_client(cfg) as http:
-        out = await request_json_async(http, cfg, _endpoint(), body={}, token="tok")
+        out = await request_json_async(http, _endpoint(), body={}, token="tok")
     assert out == {"v": 1}
 
 
@@ -43,5 +43,5 @@ async def test_request_json_async_500_then_success(respx_mock, cfg):
         ]
     )
     async with build_async_client(cfg) as http:
-        out = await request_json_async(http, cfg, _endpoint(), body={}, token="tok")
+        out = await request_json_async(http, _endpoint(), body={}, token="tok")
     assert out == {"v": 2}

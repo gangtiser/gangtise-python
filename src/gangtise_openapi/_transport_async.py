@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import random
+import time
 from typing import Any
 
 import anyio
@@ -11,23 +11,21 @@ from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef
 from gangtise_openapi._errors import ApiError
+from gangtise_openapi._logging import get_logger
 from gangtise_openapi._transport import (
+    _backoff_delay,
     is_envelope,
     is_retryable_error,
     unwrap_envelope,
 )
+
+logger = get_logger()
 
 
 def build_async_client(config: Config) -> httpx.AsyncClient:
     timeout = httpx.Timeout(config.timeout_ms / 1000.0)
     limits = httpx.Limits(max_connections=16, max_keepalive_connections=16, keepalive_expiry=60)
     return httpx.AsyncClient(base_url=config.base_url, timeout=timeout, limits=limits)
-
-
-def _backoff_delay(attempt: int, base_ms: float = 400.0, max_ms: float = 4000.0) -> float:
-    jitter = random.random() * base_ms
-    raw_ms: float = base_ms * float(2**attempt) + jitter
-    return min(max_ms, raw_ms) / 1000.0
 
 
 async def _do_request(
@@ -41,12 +39,22 @@ async def _do_request(
     headers: dict[str, str] = {"content-type": "application/json"}
     if token is not None:
         headers["Authorization"] = normalize_token(token)
+    started = time.monotonic()
     response = await http.request(
         endpoint.method,
         endpoint.path,
         params=query,
         headers=headers,
         content=None if endpoint.method == "GET" else json.dumps(body or {}).encode("utf8"),
+    )
+    elapsed_ms = (time.monotonic() - started) * 1000.0
+    logger.debug(
+        "[gangtise] %5.0fms %s %s (status=%s, bytes=%s)",
+        elapsed_ms,
+        endpoint.method,
+        endpoint.path,
+        response.status_code,
+        len(response.content),
     )
     try:
         parsed = response.json()
@@ -67,7 +75,6 @@ async def _do_request(
 
 async def request_json_async(
     http: httpx.AsyncClient,
-    config: Config,
     endpoint: EndpointDef,
     *,
     body: Any = None,

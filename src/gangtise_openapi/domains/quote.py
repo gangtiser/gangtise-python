@@ -16,6 +16,7 @@ from gangtise_openapi._quote_sharding import (
     needs_limit_injection,
     plan_shards,
 )
+from gangtise_openapi.domains._common import _as_list, _strip_none
 
 _DAY_KLINE_SCHEMA = [
     "securityCode",
@@ -56,18 +57,6 @@ _QUOTE_FIELD_ALIASES = {
     "tradeDate": "date",
     "pctChange": "changePct",
 }
-
-
-def _as_list(value: Any) -> list[Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    return [value]
-
-
-def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in body.items() if v is not None}
 
 
 def _parse_date(value: str | dt.date) -> dt.date:

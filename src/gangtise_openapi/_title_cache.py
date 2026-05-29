@@ -59,7 +59,18 @@ class TitleCache:
             return {}
         if not isinstance(parsed, dict):
             return {}
-        return parsed
+        # Drop endpoint entries past the TTL so the on-disk cache self-bounds
+        # instead of growing without limit (it had reached tens of MB). Stale
+        # entries are pruned from memory now and from disk on the next flush.
+        now_ms = int(time.time() * 1000)
+        pruned: dict[str, dict[str, Any]] = {}
+        for key, entry in parsed.items():
+            if not isinstance(entry, dict):
+                continue
+            ts = entry.get("ts")
+            if isinstance(ts, int) and (now_ms - ts) <= TITLE_CACHE_TTL_MS:
+                pruned[key] = entry
+        return pruned
 
     def lookup(self, endpoint_key: str, id_value: str) -> str | None:
         with self._lock:

@@ -1,23 +1,42 @@
 # Changelog
 
-All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and follows [Semantic Versioning](https://semver.org/).
 
-## [0.1.1] — 2026-05-28
+## [0.1.2] - 2026-05-29
+
+### Fixed
+- **DataFrame conversion for columnar responses.** Many data endpoints (fundamental
+  income-statement / balance-sheet / cash-flow, valuation-analysis, main-business)
+  return a columnar matrix `{fieldList, list:[[...]]}`. A new `normalize_rows`
+  (ported from the TS CLI) transposes it into named columns; previously these
+  produced an empty DataFrame or one with integer column names.
+- `fundamental.valuation_analysis` column schema corrected to the real fields
+  (`tradeDate, value, percentileRank, average, median, upper1Std, lower1Std`).
+- `GANGTISE_VERBOSE` now actually emits debug logs — a stderr handler is attached
+  for both sync and async transport (previously the level was set but no handler
+  existed, so records were dropped). `Config.verbose` is honored by the client.
+- Async client no longer blocks the event loop on token / title-cache disk I/O
+  (offloaded via `anyio.to_thread`).
+- Title cache prunes entries past its TTL on load, bounding on-disk growth.
+- Sample `fundamental_valuation_analysis` used an invalid indicator
+  (`pe_ttm` → `peTtm`).
 
 ### Added
-- Runnable sample coverage for all public SDK methods, with separate sync and async one-file examples.
-- Complete API parameter reference in `sample/API_PARAMETERS.md`.
-- Standardized sample outputs: DataFrame stdout, Markdown text/structured outputs, and preserved filenames for downloaded documents.
+- `fundamental.earning_forecast` now returns a DataFrame (flattened analyst
+  consensus, one row per update date × forecast year). Defaults to the latest
+  update snapshot; pass `latest=False` for the full history or `raw=True` for the
+  nested payload.
+- Async transport now logs request timing, mirroring the sync path.
 
-## [0.1.0] — 2026-05-28
+### Changed
+- Domain helpers (`_as_list`, `_strip_none`, `_extract_rows`) consolidated into
+  `domains/_common.py` (previously duplicated across every domain module).
+- Pagination logs a warning when results are truncated at `MAX_PAGES`.
+- Dropped an unused `config` parameter from the transport request functions.
 
-### Added
-- Initial release.
-- 73 endpoints from gangtise-openapi-cli v0.14.2.
-- Sync (`gangtise`) and async (`gangtise.async_`) APIs.
-- DataFrame-by-default returns with `raw=True` escape hatch.
-- Auto-pagination concurrency, retry + token self-heal, K-line full-market date sharding, transparent async-content polling.
-- Token cache shared with the npm CLI at `~/.config/gangtise/token.json`.
-- Initial scaffold (pyproject, tooling, CI).
+## [0.1.1] - 2026-05-28
+
+## [0.1.0] - 2026-05-28

@@ -9,18 +9,7 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._normalize import to_dataframe
-
-
-def _as_list(value: Any) -> list[Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    return [value]
-
-
-def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in body.items() if v is not None}
+from gangtise_openapi.domains._common import _as_list, _extract_rows, _strip_none
 
 
 def _to_unix_ms(value: int | str | None) -> int | None:
@@ -32,14 +21,6 @@ def _to_unix_ms(value: int | str | None) -> int | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return int(parsed.timestamp() * 1000)
-
-
-def _extract_rows(result: Any) -> list[Any]:
-    if isinstance(result, dict):
-        rows = result.get("list", [])
-        if isinstance(rows, list):
-            return rows
-    return []
 
 
 class Insight:

@@ -77,7 +77,7 @@ def test_request_json_success(respx_mock, config: Config):
         return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": {"v": 1}})
     )
     with build_sync_client(config) as http:
-        out = request_json(http, config, _endpoint("/p"), body={"k": "v"}, token="tok")
+        out = request_json(http, _endpoint("/p"), body={"k": "v"}, token="tok")
     assert out == {"v": 1}
 
 
@@ -86,7 +86,7 @@ def test_request_json_envelope_error_raises(respx_mock, config: Config):
         return_value=httpx.Response(200, json={"code": "999997", "status": False, "msg": "no perm"})
     )
     with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
-        request_json(http, config, _endpoint("/p"), body={}, token="tok")
+        request_json(http, _endpoint("/p"), body={}, token="tok")
     assert exc.value.code == "999997"
 
 
@@ -98,7 +98,7 @@ def test_request_json_http_500_retries_then_succeeds(respx_mock, config: Config)
         ]
     )
     with build_sync_client(config) as http:
-        out = request_json(http, config, _endpoint("/p"), body={}, token="tok")
+        out = request_json(http, _endpoint("/p"), body={}, token="tok")
     assert out == {"v": 2}
     assert route.call_count == 2
 
@@ -106,7 +106,7 @@ def test_request_json_http_500_retries_then_succeeds(respx_mock, config: Config)
 def test_request_json_http_500_exhausts_retries_raises(respx_mock, config: Config):
     respx_mock.post("/p").mock(return_value=httpx.Response(500, text="oops"))
     with build_sync_client(config) as http, pytest.raises(ApiError):
-        request_json(http, config, _endpoint("/p"), body={}, token="tok")
+        request_json(http, _endpoint("/p"), body={}, token="tok")
 
 
 def test_request_json_attaches_authorization_header(respx_mock, config: Config):
@@ -114,5 +114,5 @@ def test_request_json_attaches_authorization_header(respx_mock, config: Config):
         return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": {}})
     )
     with build_sync_client(config) as http:
-        request_json(http, config, _endpoint("/p"), body={}, token="tok")
+        request_json(http, _endpoint("/p"), body={}, token="tok")
     assert route.calls.last.request.headers["Authorization"] == "Bearer tok"

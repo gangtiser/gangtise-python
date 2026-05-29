@@ -7,6 +7,7 @@ from typing import Any
 
 import anyio
 import httpx
+from anyio import to_thread
 
 from gangtise_openapi._auth import (
     TokenCache,
@@ -19,6 +20,7 @@ from gangtise_openapi._auth import (
 from gangtise_openapi._config import Config, load_config
 from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import ApiError
+from gangtise_openapi._logging import configure_logging
 from gangtise_openapi._lookup import LOOKUP_LOADERS
 from gangtise_openapi._pagination import collect_paginated, collect_paginated_async
 from gangtise_openapi._title_cache import (
@@ -69,6 +71,7 @@ class GangtiseClient:
             if overrides:
                 cfg = Config(**{**asdict(cfg), **overrides})
         self._config = cfg
+        configure_logging(cfg.verbose)
         self._http: httpx.Client | None = None
         self._memo_cache: TokenCache | None = None
         self._lock = threading.Lock()
@@ -126,7 +129,7 @@ class GangtiseClient:
         )
         endpoint = lookup("auth.login")
         body = {"accessKey": access_key, "secretKey": secret_key}
-        result = request_json(self._http_client(), self._config, endpoint, body=body, token=None)
+        result = request_json(self._http_client(), endpoint, body=body, token=None)
         access_token: str = result["accessToken"]
         expires_in = int(result.get("expiresIn", 0))
         cache = TokenCache(
@@ -222,14 +225,7 @@ class GangtiseClient:
     ) -> Any:
         try:
             token = self._get_token()
-            return request_json(
-                self._http_client(),
-                self._config,
-                endpoint,
-                body=body,
-                token=token,
-                query=query,
-            )
+            return request_json(self._http_client(), endpoint, body=body, token=token, query=query)
         except ApiError as error:
             if (
                 error.code in AUTH_RETRY_CODES
@@ -239,12 +235,7 @@ class GangtiseClient:
                 self._memo_cache = None
                 token = self._get_token(force_refresh=True)
                 return request_json(
-                    self._http_client(),
-                    self._config,
-                    endpoint,
-                    body=body,
-                    token=token,
-                    query=query,
+                    self._http_client(), endpoint, body=body, token=token, query=query
                 )
             raise
 
@@ -280,6 +271,7 @@ class AsyncGangtiseClient:
             if overrides:
                 cfg = Config(**{**asdict(cfg), **overrides})
         self._config = cfg
+        configure_logging(cfg.verbose)
         self._http: httpx.AsyncClient | None = None
         self._memo_cache: TokenCache | None = None
         self._lock = anyio.Lock()
@@ -318,7 +310,7 @@ class AsyncGangtiseClient:
             if is_cache_valid(self._memo_cache):
                 assert self._memo_cache is not None
                 return self._memo_cache.access_token
-            disk = read_token_cache(self._config.token_cache_path)
+            disk = await to_thread.run_sync(read_token_cache, self._config.token_cache_path)
             if is_cache_valid(disk):
                 self._memo_cache = disk
                 assert disk is not None
@@ -335,9 +327,7 @@ class AsyncGangtiseClient:
         )
         endpoint = lookup("auth.login")
         body = {"accessKey": access_key, "secretKey": secret_key}
-        result = await request_json_async(
-            self._http_client(), self._config, endpoint, body=body, token=None
-        )
+        result = await request_json_async(self._http_client(), endpoint, body=body, token=None)
         access_token: str = result["accessToken"]
         expires_in = int(result.get("expiresIn", 0))
         cache = TokenCache(
@@ -350,12 +340,14 @@ class AsyncGangtiseClient:
             tenant_id=result.get("tenantId"),
         )
         self._memo_cache = cache
-        write_token_cache(self._config.token_cache_path, cache)
+        await to_thread.run_sync(write_token_cache, self._config.token_cache_path, cache)
         return access_token
 
     async def login(self) -> dict[str, Any]:
         token = await self._get_token()
-        cache = self._memo_cache or read_token_cache(self._config.token_cache_path)
+        cache = self._memo_cache or await to_thread.run_sync(
+            read_token_cache, self._config.token_cache_path
+        )
         return {
             "authorization": normalize_token(token),
             "cache": asdict(cache) if cache else None,
@@ -372,7 +364,7 @@ class AsyncGangtiseClient:
         titles = extract_titles(rows, id_field=id_field, title_field=title_field)
         if titles:
             self._title_cache.set_titles(list_endpoint_key, titles)
-            self._title_cache.flush()
+            await to_thread.run_sync(self._title_cache.flush)
 
     async def _resolve_title(
         self,
@@ -396,7 +388,7 @@ class AsyncGangtiseClient:
         titles = extract_titles(rows, id_field=id_field, title_field=title_field)
         if titles:
             self._title_cache.set_titles(list_endpoint_key, titles)
-            self._title_cache.flush()
+            await to_thread.run_sync(self._title_cache.flush)
         return titles.get(str(id_value))
 
     async def _call(
@@ -430,12 +422,7 @@ class AsyncGangtiseClient:
         try:
             token = await self._get_token()
             return await request_json_async(
-                self._http_client(),
-                self._config,
-                endpoint,
-                body=body,
-                token=token,
-                query=query,
+                self._http_client(), endpoint, body=body, token=token, query=query
             )
         except ApiError as error:
             if (
@@ -446,11 +433,6 @@ class AsyncGangtiseClient:
                 self._memo_cache = None
                 token = await self._get_token(force_refresh=True)
                 return await request_json_async(
-                    self._http_client(),
-                    self._config,
-                    endpoint,
-                    body=body,
-                    token=token,
-                    query=query,
+                    self._http_client(), endpoint, body=body, token=token, query=query
                 )
             raise

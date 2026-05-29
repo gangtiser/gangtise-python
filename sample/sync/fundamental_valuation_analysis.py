@@ -8,7 +8,7 @@ from gangtise_openapi import gangtise
 def main():
     result = gangtise.fundamental.valuation_analysis(
         security_code="000001.SZ",
-        indicator="pe_ttm",
+        indicator="peTtm",
         start_date="2025-01-01",
         end_date="2026-05-28",
         limit=20,

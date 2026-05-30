@@ -1,6 +1,6 @@
 # Gangtise OpenAPI Samples
 
-This directory contains runnable one-file examples for every public SDK method: 74 sync scripts in `sync/` and 74 async scripts in `async/`.
+This directory contains runnable one-file examples for every public SDK method: 76 sync scripts in `sync/` and 76 async scripts in `async/`.
 
 ## Configuration
 

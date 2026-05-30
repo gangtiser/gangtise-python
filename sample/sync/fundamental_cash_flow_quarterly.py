@@ -1,3 +1,9 @@
+"""fundamental.cash_flow_quarterly — A股现金流量表（单季口径），返回 DataFrame。
+
+通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+异步用法相同, 路径为 gangtise.async_.fundamental.cash_flow_quarterly(...)。
+"""
+
 from __future__ import annotations
 
 from _utils import show_result
@@ -6,12 +12,36 @@ from gangtise_openapi import gangtise
 
 
 def main():
-    result = gangtise.fundamental.cash_flow_quarterly(
-        security_code="000001.SZ",
-        start_date="2025-01-01",
-        end_date="2026-05-28",
+    # 示例 1 · 最简调用: 仅传必填证券代码
+    show_result(
+        gangtise.fundamental.cash_flow_quarterly(security_code="000001.SZ"),  # 单个证券代码
+        __file__,
     )
-    show_result(result, __file__)
+
+    # 示例 2 · 时间窗 + 单季报告期过滤
+    show_result(
+        gangtise.fundamental.cash_flow_quarterly(
+            security_code="600519.SH",  # 单个证券代码, 如 000001.SZ/600519.SH
+            start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
+            end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
+            period=["q1", "q2"],  # 单季报告期: q1/q2/q3/q4/latest, 支持单值或列表
+            fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表
+        ),
+        __file__,
+    )
+
+    # 示例 3 · 指定字段 + 原始返回
+    show_result(
+        gangtise.fundamental.cash_flow_quarterly(
+            security_code="000001.SZ",
+            period="latest",  # latest=最新单季
+            field=["netOperateCashFlow"],  # 返回字段, 支持单值或列表; 省略则用服务端默认字段
+            raw=True,  # True=返回服务端原始 data, 不转 DataFrame
+        ),
+        __file__,
+    )
+    # 其余可选参数:
+    #   report_type=<报告类型>   报告类型过滤, 支持单值或列表（cli.ts 未列举具体取值）
 
 
 if __name__ == "__main__":

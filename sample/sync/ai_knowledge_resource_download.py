@@ -1,3 +1,11 @@
+"""ai.knowledge_resource_download — 下载知识库资源文件（返回保存路径 Path）。
+
+需要真实 sourceId, 通过环境变量 GANGTISE_SAMPLE_KNOWLEDGE_SOURCE_ID 传入;
+资源类型默认 1, 可用 GANGTISE_SAMPLE_KNOWLEDGE_RESOURCE_TYPE 覆盖。
+先 chdir 到 sample_downloads 再下载, 文件名由标题/响应头/fallback 自动生成。
+异步用法相同, 路径为 gangtise.async_.ai.knowledge_resource_download(...)。
+"""
+
 from __future__ import annotations
 
 import os
@@ -19,8 +27,9 @@ def main():
     try:
         os.chdir(output_dir)
         result = gangtise.ai.knowledge_resource_download(
-            resource_type=int(resource_type),
-            source_id=source_id,
+            resource_type=int(resource_type),  # 知识资源类型代码(必填)
+            source_id=source_id,  # 知识资源源 ID(必填)
+            # output=Path("custom-name.pdf"),  # 可选: 显式保存路径; 省略则自动生成文件名
         )
     finally:
         os.chdir(previous_cwd)

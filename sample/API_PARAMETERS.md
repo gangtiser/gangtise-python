@@ -1,6 +1,6 @@
 # API Parameter Reference
 
-本文档按当前 Python SDK wrapper 自动整理，覆盖 74 个公开 SDK 方法（对应 73 个上游 OpenAPI endpoint，另含 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
+本文档按当前 Python SDK wrapper 自动整理，覆盖 76 个公开 SDK 方法（对应 75 个上游 OpenAPI endpoint，另含 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
 
 运行示例前请配置：
 
@@ -89,6 +89,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `vault` | `my_conference_download` | [vault_my_conference_download.py](sync/vault_my_conference_download.py) | [vault_my_conference_download.py](async/vault_my_conference_download.py) |
 | `alternative` | `edb_search` | [alternative_edb_search.py](sync/alternative_edb_search.py) | [alternative_edb_search.py](async/alternative_edb_search.py) |
 | `alternative` | `edb_data` | [alternative_edb_data.py](sync/alternative_edb_data.py) | [alternative_edb_data.py](async/alternative_edb_data.py) |
+| `alternative` | `concept_info` | [alternative_concept_info.py](sync/alternative_concept_info.py) | [alternative_concept_info.py](async/alternative_concept_info.py) |
+| `alternative` | `concept_securities` | [alternative_concept_securities.py](sync/alternative_concept_securities.py) | [alternative_concept_securities.py](async/alternative_concept_securities.py) |
 
 ## Authentication (`gangtise.auth`)
 
@@ -1298,3 +1300,27 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `start_date` | `str` | 是 | - | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str` | 是 | - | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `alternative.concept_info`
+
+- Endpoint: `alternative.concept-info` `POST /application/open-alternative/concept/info` - Query latest concept (theme index) profile by conceptId
+- Sync sample: `sample/sync/alternative_concept_info.py`
+- Async sample: `sample/async/alternative_concept_info.py`
+- Return annotation: `dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；与 `ai.theme_tracking` 共用题材 ID 体系，可用 lookup.theme_ids 按名查询（机器人=121000130）。 |
+| `raw` | `bool` | 否 | `False` | `False` | 该接口返回最新截面画像对象，始终为 dict（定义/投资逻辑/行业空间/竞争格局/keyEvents），不支持历史回溯。 |
+
+### `alternative.concept_securities`
+
+- Endpoint: `alternative.concept-securities` `POST /application/open-alternative/concept/securities` - Query concept (theme index) constituent securities, grouped
+- Sync sample: `sample/sync/alternative_concept_securities.py`
+- Async sample: `sample/async/alternative_concept_securities.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；见 lookup.theme_ids（机器人=121000130）。 |
+| `raw` | `bool` | 否 | `False` | `False` | 默认返回扁平化 DataFrame（每行一只成分股，列含 groupName/securityCode/securityName/isKey/inclusionReason）；True 返回嵌套分组 dict。 |

@@ -1,53 +1,44 @@
 # gangtise-openapi
 
-Python SDK for [Gangtise OpenAPI](https://open.gangtise.com). Feature-parity with the npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.15.0 across 75 upstream endpoints, plus local auth status helpers.
+[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.15.0 功能对齐，覆盖 75 个上游接口，并提供本地鉴权状态辅助工具。
 
-## Changelog
+## 更新日志
 
-### 0.1.1 - 2026-05-28
+完整版本记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
-- Added runnable sample coverage for all public SDK methods: 74 sync examples in `sample/sync/` and 74 async examples in `sample/async/`.
-- Added complete API parameter documentation in `sample/API_PARAMETERS.md`.
-- Standardized sample output: DataFrame responses print directly, text and structured responses are saved as Markdown under `sample_outputs/`, and download samples save files under `sample_downloads/`.
-- Improved download handling so sample downloads keep the API-provided or original document name and extension where available.
-
-### 0.1.0 - 2026-05-28
-
-- Initial SDK release with sync and async APIs, DataFrame-by-default responses, retries, token self-healing, pagination helpers, async-content polling, and npm CLI-compatible token cache.
-
-## Install
+## 安装
 
 ```bash
 pip install gangtise-openapi
 ```
 
-Requires Python 3.10+.
+需要 Python 3.10+。
 
-## Configure
+## 配置
 
 ```bash
 export GANGTISE_ACCESS_KEY=ak_xxx
 export GANGTISE_SECRET_KEY=sk_xxx
 ```
 
-(Or pass `access_key=` and `secret_key=` explicitly to `GangtiseClient`.) The token cache file at `~/.config/gangtise/token.json` is shared with the npm CLI.
+（也可在创建 `GangtiseClient` 时直接传入 `access_key=` 和 `secret_key=`。）令牌缓存文件位于 `~/.config/gangtise/token.json`，与 npm CLI 共用同一份。
 
-## Quickstart
+## 快速开始
 
 ```python
 from gangtise_openapi import gangtise
 
-# Tabular endpoints return a pandas DataFrame
+# 表格类接口返回 pandas DataFrame
 df = gangtise.quote.day_kline(
     security="000001.SH",
     start_date="2026-01-01",
     end_date="2026-01-31",
 )
 
-# Use raw=True to get the underlying dict/list
+# 传 raw=True 获取底层 dict/list
 result = gangtise.insight.opinion_list(industry=1, size=20, raw=True)
 
-# Async
+# 异步
 import asyncio
 
 async def main():
@@ -56,35 +47,35 @@ async def main():
 asyncio.run(main())
 ```
 
-## Samples
+## 示例
 
-Every public SDK method has a standalone customer-testable script.
+每个公开的 SDK 方法都配有可独立运行、便于客户自测的脚本。
 
 ```bash
 uv run python sample/sync/quote_day_kline.py
 uv run python sample/async/quote_day_kline.py
 ```
 
-DataFrame-returning samples print the DataFrame directly. Text or dict/list responses are written as standard Markdown files under `sample_outputs/`. Download samples write real files under `sample_downloads/` and preserve the server-provided or original filename when possible.
+返回 DataFrame 的示例会直接打印 DataFrame；文本或 dict/list 响应会以标准 Markdown 文件写入 `sample_outputs/`；下载类示例会把真实文件写入 `sample_downloads/`，并尽量保留服务端提供或原始的文件名与扩展名。
 
-See `sample/README.md` for run notes and `sample/API_PARAMETERS.md` for complete method parameter documentation.
+运行说明见 `sample/README.md`，完整的方法参数文档见 `sample/API_PARAMETERS.md`。
 
-## Endpoints
+## 接口
 
-The SDK exposes 75 upstream endpoints across 9 domains:
+SDK 覆盖 9 个领域下的 75 个上游接口：
 
-- `gangtise.auth.*` — login, status
-- `gangtise.lookup.*` — local lookup tables (research areas, brokers, industries, ...)
-- `gangtise.reference.*` — securities search (GTS codes)
-- `gangtise.insight.*` — opinions, research reports, announcements, schedules
-- `gangtise.quote.*` — K-line, real-time quotes
-- `gangtise.fundamental.*` — financial statements, valuation, holders, forecasts
-- `gangtise.ai.*` — AI-generated insights (one-pager, peer comparison, earnings reviews, ...)
-- `gangtise.vault.*` — personal drive, meeting records, stock pools, WeChat
-- `gangtise.alternative.*` — economic indicators (EDB), concept (theme) index profile + constituents
+- `gangtise.auth.*` — 登录、状态
+- `gangtise.lookup.*` — 本地查表（研究领域、券商、行业等）
+- `gangtise.reference.*` — 证券搜索（GTS 代码）
+- `gangtise.insight.*` — 观点、研报、公告、日程
+- `gangtise.quote.*` — K 线、实时行情
+- `gangtise.fundamental.*` — 财务报表、估值、股东、盈利预测
+- `gangtise.ai.*` — AI 生成的洞察（一页通、同业对比、业绩点评等）
+- `gangtise.vault.*` — 个人云盘、会议记录、股票池、微信
+- `gangtise.alternative.*` — 经济指标（EDB）、题材（概念）指数画像与成分股
 
-The Python wrappers accept the same parameters as the CLI flags, using `snake_case` instead of `--kebab-case`. For example, CLI `--start-date` maps to Python `start_date`.
+Python 封装接受与 CLI 参数相同的入参，只是用 `snake_case` 代替 `--kebab-case`。例如 CLI 的 `--start-date` 对应 Python 的 `start_date`。
 
-## License
+## 许可证
 
 MIT

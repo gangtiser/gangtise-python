@@ -10,6 +10,22 @@ from typing import Any
 
 TITLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 TITLE_LOOKUP_SIZE = 200
+# Hard cap on titles retained per endpoint. The cache merges every list call's
+# titles forever; without a cap a hot endpoint (e.g. insight.announcement.list)
+# grew past 300k entries / tens of MB — re-parsed on every client init and
+# rewritten on every list call. Keep only the most-recently-seen N.
+TITLE_CACHE_MAX_PER_ENDPOINT = 10_000
+
+
+def _cap_titles(titles: dict[str, str]) -> dict[str, str]:
+    """Trim a per-endpoint titles dict to the most-recent ``MAX`` entries.
+
+    Dicts preserve insertion order, so the tail holds the most recently added
+    ids — exactly the ones a download is most likely to resolve next.
+    """
+    if len(titles) <= TITLE_CACHE_MAX_PER_ENDPOINT:
+        return titles
+    return dict(list(titles.items())[-TITLE_CACHE_MAX_PER_ENDPOINT:])
 
 
 def extract_titles(
@@ -69,6 +85,9 @@ class TitleCache:
                 continue
             ts = entry.get("ts")
             if isinstance(ts, int) and (now_ms - ts) <= TITLE_CACHE_TTL_MS:
+                titles = entry.get("titles")
+                if isinstance(titles, dict) and len(titles) > TITLE_CACHE_MAX_PER_ENDPOINT:
+                    entry = {**entry, "titles": _cap_titles(titles)}
                 pruned[key] = entry
         return pruned
 
@@ -91,7 +110,12 @@ class TitleCache:
             return
         with self._lock:
             existing = self._data.get(endpoint_key, {}).get("titles", {})
-            merged = {**existing, **titles}
+            # Skip the write when the call surfaces nothing new — most repeat
+            # list calls re-report ids already cached, and a full-file flush for
+            # a no-op is the dominant cost.
+            if all(existing.get(k) == v for k, v in titles.items()):
+                return
+            merged = _cap_titles({**existing, **titles})
             self._data[endpoint_key] = {
                 "titles": merged,
                 "ts": int(time.time() * 1000),

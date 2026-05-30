@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-Python SDK for [Gangtise OpenAPI](https://open.gangtise.com). Feature-parity with the npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.14.2 across 73 upstream endpoints, plus local auth status helpers.
+Python SDK for [Gangtise OpenAPI](https://open.gangtise.com). Feature-parity with the npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.15.0 across 75 upstream endpoints, plus local auth status helpers.
 
 ## Changelog
 
@@ -71,7 +71,7 @@ See `sample/README.md` for run notes and `sample/API_PARAMETERS.md` for complete
 
 ## Endpoints
 
-The SDK exposes 73 upstream endpoints across 9 domains:
+The SDK exposes 75 upstream endpoints across 9 domains:
 
 - `gangtise.auth.*` — login, status
 - `gangtise.lookup.*` — local lookup tables (research areas, brokers, industries, ...)
@@ -81,7 +81,7 @@ The SDK exposes 73 upstream endpoints across 9 domains:
 - `gangtise.fundamental.*` — financial statements, valuation, holders, forecasts
 - `gangtise.ai.*` — AI-generated insights (one-pager, peer comparison, earnings reviews, ...)
 - `gangtise.vault.*` — personal drive, meeting records, stock pools, WeChat
-- `gangtise.alternative.*` — economic indicators (EDB)
+- `gangtise.alternative.*` — economic indicators (EDB), concept (theme) index profile + constituents
 
 The Python wrappers accept the same parameters as the CLI flags, using `snake_case` instead of `--kebab-case`. For example, CLI `--start-date` maps to Python `start_date`.
 

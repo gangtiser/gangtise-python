@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 73
+    assert len(ENDPOINTS) == 75
 
 
 def test_lookup_known_endpoint():
@@ -153,5 +153,7 @@ def test_all_endpoint_keys_match_ts_source():
         "vault.stock-pool.stocks",
         "alternative.edb-search",
         "alternative.edb-data",
+        "alternative.concept-info",
+        "alternative.concept-securities",
     }
     assert set(ENDPOINTS.keys()) == expected

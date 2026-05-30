@@ -1,7 +1,12 @@
 import json
 import time
 
-from gangtise_openapi._title_cache import TITLE_CACHE_TTL_MS, TitleCache, extract_titles
+from gangtise_openapi._title_cache import (
+    TITLE_CACHE_MAX_PER_ENDPOINT,
+    TITLE_CACHE_TTL_MS,
+    TitleCache,
+    extract_titles,
+)
 
 
 def test_set_and_lookup_roundtrip(tmp_path):
@@ -57,3 +62,41 @@ def test_set_titles_merges():
     assert cache.lookup("ep", "a") == "1"
     assert cache.lookup("ep", "b") == "B"
     assert cache.lookup("ep", "c") == "3"
+
+
+def test_set_titles_skips_rewrite_when_unchanged(tmp_path):
+    cache = TitleCache(tmp_path / "titles.json")
+    cache.set_titles("ep", {"a": "1"})
+    cache.flush()
+    assert cache._dirty is False
+    # Re-recording identical titles must not dirty the cache — a list call that
+    # surfaces nothing new should not trigger a full-file rewrite.
+    cache.set_titles("ep", {"a": "1"})
+    assert cache._dirty is False
+    # A genuinely new title still dirties it.
+    cache.set_titles("ep", {"b": "2"})
+    assert cache._dirty is True
+
+
+def test_set_titles_caps_per_endpoint():
+    cache = TitleCache(None)
+    n = TITLE_CACHE_MAX_PER_ENDPOINT
+    cache.set_titles("ep", {str(i): f"t{i}" for i in range(n + 50)})
+    stored = cache._data["ep"]["titles"]
+    assert len(stored) == n
+    # Keeps the most-recently-seen titles, evicts the earliest.
+    assert cache.lookup("ep", str(n + 49)) == f"t{n + 49}"
+    assert cache.lookup("ep", "0") is None
+
+
+def test_load_caps_oversized_entry(tmp_path):
+    path = tmp_path / "titles.json"
+    n = TITLE_CACHE_MAX_PER_ENDPOINT
+    fresh_ts = int(time.time() * 1000)
+    big = {str(i): f"t{i}" for i in range(n + 100)}
+    path.write_text(json.dumps({"ep": {"titles": big, "ts": fresh_ts}}), encoding="utf8")
+    cache = TitleCache(path)
+    stored = cache._data["ep"]["titles"]
+    assert len(stored) == n
+    assert cache.lookup("ep", str(n + 99)) == f"t{n + 99}"
+    assert cache.lookup("ep", "0") is None

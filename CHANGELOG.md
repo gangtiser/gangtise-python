@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-05-30
+
+### Added
+- **`alternative.concept_info`** — latest profile of a concept (theme index):
+  definition, investment logic, industry space, competitive landscape, and a
+  `keyEvents` list. Queried by `concept_id`; returns the single latest
+  cross-section object as a dict (no history).
+  (`POST /application/open-alternative/concept/info`)
+- **`alternative.concept_securities`** — constituent securities of a concept
+  (theme index, F8), grouped. Each security carries `isKey` (key-stock flag)
+  and `inclusionReason`. The default DataFrame flattens the groups
+  one-row-per-security with a `groupName` column; `raw=True` returns the nested
+  grouped payload. A concept with no constituents returns an empty DataFrame
+  with the same columns. (`POST /application/open-alternative/concept/securities`)
+- `concept_id` shares the theme-id namespace used by `ai.theme_tracking` —
+  discover IDs by name via `gangtise.lookup.theme_ids_list()` (e.g. 机器人 →
+  `121000130`). Both sync and async wrappers were added.
+
+### Changed
+- `quote.index_day_kline` now surfaces the upstream-added `securityName` column
+  (e.g. "上证指数"). No wrapper change was required — the dynamic-schema path
+  shipped in 0.1.3 passes through every field the API returns.
+
+### Performance
+- **Title cache no longer grows without bound.** The cache (used to resolve
+  download filenames) merged every list call's titles forever and re-stamped
+  the entry's `ts` on each merge, so the 24h TTL never pruned hot endpoints — on
+  disk it had reached ~58 MB / 600k+ titles, re-parsed on every client init
+  (~900 ms) and fully rewritten on every non-`raw` list call (~360 ms). Titles
+  are now capped per endpoint (`TITLE_CACHE_MAX_PER_ENDPOINT`, 10k most-recent),
+  oversized entries are trimmed on load, and a list call that surfaces no new
+  titles no longer marks the cache dirty (no rewrite). On a real 58 MB cache the
+  next write shrinks to ~1.7 MB, with client-init parse time cut proportionally.
+
 ## [0.1.3] - 2026-05-29
 
 ### Fixed

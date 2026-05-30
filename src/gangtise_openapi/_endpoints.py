@@ -517,6 +517,18 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-alternative/EDB/getData",
         "Get industry indicator time-series data by indicator ID list",
     ),
+    "alternative.concept-info": _ep(
+        "alternative.concept-info",
+        "POST",
+        "/application/open-alternative/concept/info",
+        "Query latest concept (theme index) profile by conceptId",
+    ),
+    "alternative.concept-securities": _ep(
+        "alternative.concept-securities",
+        "POST",
+        "/application/open-alternative/concept/securities",
+        "Query concept (theme index) constituent securities, grouped",
+    ),
 }
 
 

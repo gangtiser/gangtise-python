@@ -190,6 +190,42 @@ def test_index_day_kline_30_day_shards(tmp_path):
         assert route.call_count == 3
 
 
+def test_index_day_kline_passes_through_security_name(tmp_path):
+    # index-day-kline returns a list of dicts (not a columnar matrix); the v0.1.3
+    # dynamic-schema path keeps every field the API sends, so the added
+    # `securityName` column flows through with no wrapper change. Lock that.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/index/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "list": [
+                            {
+                                "securityCode": "000001.SH",
+                                "securityName": "上证指数",
+                                "tradeDate": "2026-05-26",
+                                "close": 4145.373,
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            # Single security + dates does NOT shard, so exactly one call is made.
+            df = Quote(client).index_day_kline(
+                security="000001.SH",
+                start_date="2026-05-26",
+                end_date="2026-05-26",
+            )
+    assert "securityName" in df.columns
+    assert df.iloc[0]["securityName"] == "上证指数"
+
+
 def test_minute_kline(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-quote/kline/minute").mock(

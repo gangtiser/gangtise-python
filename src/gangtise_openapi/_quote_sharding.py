@@ -7,6 +7,8 @@ from typing import Any
 
 import anyio
 
+from gangtise_openapi._pagination import first_leaf_exception
+
 SHARD_DAYS: dict[str, int] = {
     "quote.day-kline": 1,
     "quote.day-kline-hk": 2,
@@ -57,12 +59,39 @@ def fetch_shards(
     *,
     fetch: ShardFetcher,
     concurrency: int,
-) -> list[Any]:
+) -> tuple[list[Any], list[tuple[dt.date, dt.date]]]:
+    """Fetch every shard, tolerating partial failures (TS quoteSharding parity).
+
+    Returns ``(results, failed_windows)``: a failing shard contributes a
+    ``None`` sentinel to ``results`` and its window to ``failed_windows`` so
+    the surviving shards still complete. Only when every shard fails is the
+    first error re-raised.
+    """
     if not shards:
-        return []
+        return [], []
     workers = max(1, min(concurrency, len(shards)))
+
+    def run_one(window: tuple[dt.date, dt.date]) -> tuple[Any, Exception | None]:
+        try:
+            return fetch(window), None
+        except Exception as exc:
+            return None, exc
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(fetch, shards))
+        outcomes = list(pool.map(run_one, shards))
+
+    results: list[Any] = []
+    failed: list[tuple[dt.date, dt.date]] = []
+    first_error: Exception | None = None
+    for window, (value, error) in zip(shards, outcomes, strict=True):
+        results.append(value)
+        if error is not None:
+            failed.append(window)
+            if first_error is None:
+                first_error = error
+    if first_error is not None and len(failed) == len(shards):
+        raise first_error
+    return results, failed
 
 
 AsyncShardFetcher = Callable[[tuple[dt.date, dt.date]], Any]
@@ -73,18 +102,35 @@ async def fetch_shards_async(
     *,
     fetch: AsyncShardFetcher,
     concurrency: int,
-) -> list[Any]:
+) -> tuple[list[Any], list[tuple[dt.date, dt.date]]]:
+    """Async mirror of `fetch_shards` (same partial-failure contract)."""
     if not shards:
-        return []
+        return [], []
     workers = max(1, min(concurrency, len(shards)))
     semaphore = anyio.Semaphore(workers)
     results: list[Any] = [None] * len(shards)
+    errors: list[Exception | None] = [None] * len(shards)
 
     async def run_one(idx: int, window: tuple[dt.date, dt.date]) -> None:
         async with semaphore:
-            results[idx] = await fetch(window)
+            try:
+                results[idx] = await fetch(window)
+            except Exception as exc:
+                errors[idx] = exc
 
-    async with anyio.create_task_group() as tg:
-        for idx, window in enumerate(shards):
-            tg.start_soon(run_one, idx, window)
-    return results
+    try:
+        async with anyio.create_task_group() as tg:
+            for idx, window in enumerate(shards):
+                tg.start_soon(run_one, idx, window)
+    except BaseException as eg:
+        leaf = first_leaf_exception(eg)
+        if leaf is eg:
+            raise
+        # Unwrap anyio's exception group so callers see the bare error.
+        raise leaf from eg
+
+    failed = [window for window, error in zip(shards, errors, strict=True) if error is not None]
+    if failed and len(failed) == len(shards):
+        first_error = next(error for error in errors if error is not None)
+        raise first_error
+    return results, failed

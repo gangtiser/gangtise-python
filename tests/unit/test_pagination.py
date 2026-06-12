@@ -1,7 +1,7 @@
 import pytest
 
 from gangtise_openapi._endpoints import EndpointDef, Pagination
-from gangtise_openapi._errors import ValidationError
+from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._pagination import collect_paginated
 
 
@@ -84,6 +84,20 @@ def test_invalid_size_raises():
 
     with pytest.raises(ValidationError):
         collect_paginated(_ep(), body={"size": 0}, fetch=fetch, concurrency=3)
+
+
+def test_fanout_page_failure_raises_bare_api_error():
+    # A non-first page failing in the thread-pool fan-out must surface as the
+    # bare ApiError (sync/async parity contract; async sibling in
+    # test_pagination_async.py).
+    def fetch(body):
+        if body["from"] == 0:
+            return {"total": 12, "list": [{"i": j} for j in range(5)]}
+        raise ApiError("boom on page 2", code="100001")
+
+    with pytest.raises(ApiError) as excinfo:
+        collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
+    assert excinfo.value.code == "100001"
 
 
 def test_max_pages_cap():

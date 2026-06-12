@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pandas as pd
 import pytest
@@ -7,6 +9,7 @@ import respx
 
 from gangtise_openapi._client import AsyncGangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ApiError
 from gangtise_openapi.domains.quote import AsyncQuote
 
 
@@ -62,6 +65,62 @@ async def test_async_day_kline_us_shard_count(tmp_path):
             )
         # 1-day shards x 3 days
         assert route.call_count == 3
+
+
+def _partial_failure_responder(request):
+    """Mon-Wed shards: the Tuesday shard fails with a business error."""
+    body = json.loads(request.read())
+    if body["startDate"] == "2026-01-06":
+        return httpx.Response(200, json={"code": "100001", "status": False, "msg": "boom"})
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {
+                "fieldList": ["securityCode", "tradeDate", "close"],
+                "list": [["000001.SH", body["startDate"], 1.0]],
+            },
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_partial_shard_failure_sets_flags(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_partial_failure_responder
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="1/3 kline shards failed"):
+                out = await AsyncQuote(client).day_kline(
+                    security="all",
+                    start_date="2026-01-05",  # Mon
+                    end_date="2026-01-07",  # Wed
+                    raw=True,
+                )
+    assert out["partial"] is True
+    assert out["failedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
+    assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_all_shards_failed_raises_bare_api_error(tmp_path):
+    # `except ApiError` must work on the async fan-out path too (no ExceptionGroup).
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200, json={"code": "100001", "status": False, "msg": "boom"}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ApiError) as excinfo:
+                await AsyncQuote(client).day_kline(
+                    security="all",
+                    start_date="2026-01-05",  # Mon
+                    end_date="2026-01-06",  # Tue
+                )
+    assert excinfo.value.code == "100001"
 
 
 @pytest.mark.anyio

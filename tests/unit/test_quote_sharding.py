@@ -2,9 +2,11 @@ import datetime as dt
 
 import pytest
 
+from gangtise_openapi._errors import ApiError
 from gangtise_openapi._quote_sharding import (
     SHARD_DAYS,
     fetch_shards,
+    fetch_shards_async,
     needs_limit_injection,
     plan_shards,
 )
@@ -102,10 +104,68 @@ def test_fetch_shards_calls_each_shard_in_order():
         s, _ = window
         return s.isoformat()
 
-    results = fetch_shards(shards, fetch=fetch, concurrency=2)
+    results, failed = fetch_shards(shards, fetch=fetch, concurrency=2)
 
     # Order-preservation contract: pool.map returns results in input order
     assert results == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert failed == []
     # Each shard invoked exactly once
     assert sorted(called) == sorted(shards)
     assert len(called) == 3
+
+
+_THREE_SHARDS = [
+    (dt.date(2026, 1, 5), dt.date(2026, 1, 5)),
+    (dt.date(2026, 1, 6), dt.date(2026, 1, 6)),
+    (dt.date(2026, 1, 7), dt.date(2026, 1, 7)),
+]
+
+
+def test_fetch_shards_tolerates_partial_failure():
+    def fetch(window: tuple[dt.date, dt.date]):
+        s, _ = window
+        if s == dt.date(2026, 1, 6):
+            raise ApiError("shard boom", code="100001")
+        return s.isoformat()
+
+    results, failed = fetch_shards(_THREE_SHARDS, fetch=fetch, concurrency=2)
+
+    # Failing shard yields a None sentinel; survivors keep their slot.
+    assert results == ["2026-01-05", None, "2026-01-07"]
+    assert failed == [(dt.date(2026, 1, 6), dt.date(2026, 1, 6))]
+
+
+def test_fetch_shards_all_failed_raises_first_error():
+    def fetch(window: tuple[dt.date, dt.date]):
+        s, _ = window
+        raise ApiError(f"boom {s.isoformat()}", code="100001")
+
+    with pytest.raises(ApiError) as excinfo:
+        fetch_shards(_THREE_SHARDS, fetch=fetch, concurrency=2)
+    assert str(excinfo.value).startswith("boom 2026-01-05")
+
+
+@pytest.mark.anyio
+async def test_fetch_shards_async_tolerates_partial_failure():
+    async def fetch(window: tuple[dt.date, dt.date]):
+        s, _ = window
+        if s == dt.date(2026, 1, 6):
+            raise ApiError("shard boom", code="100001")
+        return s.isoformat()
+
+    results, failed = await fetch_shards_async(_THREE_SHARDS, fetch=fetch, concurrency=2)
+
+    assert results == ["2026-01-05", None, "2026-01-07"]
+    assert failed == [(dt.date(2026, 1, 6), dt.date(2026, 1, 6))]
+
+
+@pytest.mark.anyio
+async def test_fetch_shards_async_all_failed_raises_bare_api_error():
+    # Bare ApiError (not an ExceptionGroup): sync/async parity for `except ApiError`.
+    async def fetch(window: tuple[dt.date, dt.date]):
+        s, _ = window
+        raise ApiError(f"boom {s.isoformat()}", code="100001")
+
+    with pytest.raises(ApiError) as excinfo:
+        await fetch_shards_async(_THREE_SHARDS, fetch=fetch, concurrency=2)
+    assert str(excinfo.value).startswith("boom 2026-01-05")

@@ -17,6 +17,23 @@ MAX_PAGES = 1000
 PageFetcher = Callable[[dict[str, Any]], Any]
 
 
+def first_leaf_exception(exc: BaseException) -> BaseException:
+    """Descend (possibly nested) exception groups to the first leaf exception.
+
+    anyio>=4 task groups wrap task failures in a ``BaseExceptionGroup``, which
+    would break callers' ``except ApiError`` on the async path while the sync
+    path raises the bare error. The check is structural (an ``exceptions``
+    tuple of exceptions) because ``BaseExceptionGroup`` is not a builtin on
+    Python 3.10.
+    """
+    while True:
+        nested = getattr(exc, "exceptions", None)
+        if isinstance(nested, tuple) and nested and isinstance(nested[0], BaseException):
+            exc = nested[0]
+        else:
+            return exc
+
+
 def _is_paginated_response(value: Any) -> bool:
     return (
         isinstance(value, dict)
@@ -171,9 +188,16 @@ async def collect_paginated_async(
             async with semaphore:
                 pages[idx] = await fetch(req)
 
-        async with anyio.create_task_group() as tg:
-            for idx, req in enumerate(remaining_requests):
-                tg.start_soon(run_one, idx, req)
+        try:
+            async with anyio.create_task_group() as tg:
+                for idx, req in enumerate(remaining_requests):
+                    tg.start_soon(run_one, idx, req)
+        except BaseException as eg:
+            leaf = first_leaf_exception(eg)
+            if leaf is eg:
+                raise
+            # Mirror the sync path (pool.map raises the bare first error).
+            raise leaf from eg
 
     for page in pages:
         if page is not None and _is_paginated_response(page) and page["list"]:

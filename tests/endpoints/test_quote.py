@@ -1,9 +1,13 @@
+import json
+
 import httpx
 import pandas as pd
+import pytest
 import respx
 
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ApiError
 from gangtise_openapi.domains.quote import Quote
 
 
@@ -92,6 +96,64 @@ def test_day_kline_us_shard_count(tmp_path):
             )
         # 1-day shards x 3 days
         assert route.call_count == 3
+
+
+def _partial_failure_responder(request):
+    """Mon-Wed shards: the Tuesday shard fails with a business error."""
+    body = json.loads(request.read())
+    if body["startDate"] == "2026-01-06":
+        return httpx.Response(200, json={"code": "100001", "status": False, "msg": "boom"})
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {
+                "fieldList": ["securityCode", "tradeDate", "close"],
+                "list": [["000001.SH", body["startDate"], 1.0]],
+            },
+        },
+    )
+
+
+def test_day_kline_partial_shard_failure_sets_flags(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_partial_failure_responder
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.warns(UserWarning, match="1/3 kline shards failed"),
+        ):
+            out = Quote(client).day_kline(
+                security="all",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-07",  # Wed
+                raw=True,
+            )
+    # TS quoteSharding parity: surviving shards merge, failure is flagged.
+    assert out["partial"] is True
+    assert out["failedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
+    assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
+
+
+def test_day_kline_all_shards_failed_raises_api_error(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200, json={"code": "100001", "status": False, "msg": "boom"}
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as excinfo,
+        ):
+            Quote(client).day_kline(
+                security="all",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-06",  # Tue
+            )
+    assert excinfo.value.code == "100001"
 
 
 def test_day_kline_us_matrix_rows_are_normalized(tmp_path):

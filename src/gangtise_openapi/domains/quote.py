@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import warnings
 from typing import Any
 
 import pandas as pd
@@ -112,8 +113,9 @@ class Quote:
             )
             return self._client._call(endpoint_key, body=body)
 
+        failed_shards: list[tuple[dt.date, dt.date]] = []
         if shards:
-            page_results = fetch_shards(
+            page_results, failed_shards = fetch_shards(
                 shards, fetch=fetch_shard, concurrency=self._client.config.page_concurrency
             )
         else:
@@ -137,6 +139,17 @@ class Quote:
             elif isinstance(result, list):
                 rows.extend(result)
         result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
+        if failed_shards:
+            # Mirror TS quoteSharding partial-failure flags (camelCase).
+            result_payload["partial"] = True
+            result_payload["failedShards"] = [
+                {"startDate": s.isoformat(), "endDate": e.isoformat()} for s, e in failed_shards
+            ]
+            warnings.warn(
+                f"{len(failed_shards)}/{len(shards)} kline shards failed; results are partial "
+                "(see failedShards in raw output)",
+                stacklevel=3,
+            )
         if raw:
             return result_payload
         return to_dataframe(
@@ -312,8 +325,9 @@ class AsyncQuote:
             )
             return await self._client._call(endpoint_key, body=body)
 
+        failed_shards: list[tuple[dt.date, dt.date]] = []
         if shards:
-            page_results = await fetch_shards_async(
+            page_results, failed_shards = await fetch_shards_async(
                 shards,
                 fetch=fetch_shard,
                 concurrency=self._client.config.page_concurrency,
@@ -339,6 +353,17 @@ class AsyncQuote:
             elif isinstance(result, list):
                 rows.extend(result)
         result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
+        if failed_shards:
+            # Mirror TS quoteSharding partial-failure flags (camelCase).
+            result_payload["partial"] = True
+            result_payload["failedShards"] = [
+                {"startDate": s.isoformat(), "endDate": e.isoformat()} for s, e in failed_shards
+            ]
+            warnings.warn(
+                f"{len(failed_shards)}/{len(shards)} kline shards failed; results are partial "
+                "(see failedShards in raw output)",
+                stacklevel=3,
+            )
         if raw:
             return result_payload
         return to_dataframe(

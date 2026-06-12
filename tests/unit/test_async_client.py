@@ -60,7 +60,7 @@ async def test_async_call_uses_env_token(async_cfg):
 @pytest.mark.anyio
 async def test_async_lookup_returns_local_data(async_cfg):
     async with AsyncGangtiseClient(_config=async_cfg) as client:
-        rows = await client._call("lookup.research-areas.list")
+        rows = await client._call("lookup.broker-orgs.list")
     assert isinstance(rows, list)
     assert len(rows) > 0
 

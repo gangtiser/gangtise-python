@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.15.0 功能对齐，覆盖 75 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.16.0 功能对齐，覆盖 74 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
@@ -86,11 +86,11 @@ uv run python sample/async/quote_day_kline.py
 
 ## 接口
 
-SDK 覆盖 9 个领域下的 75 个上游接口：
+SDK 覆盖 9 个领域下的 74 个上游接口：
 
 - `gangtise.auth.*` — 登录、状态
-- `gangtise.lookup.*` — 本地查表（研究领域、券商、行业等）
-- `gangtise.reference.*` — 证券搜索（GTS 代码）
+- `gangtise.lookup.*` — 本地查表（券商机构、会议机构）
+- `gangtise.reference.*` — 证券搜索（GTS 代码）、常量分类与常量值（行业/城市/公告分类/区域）、题材 ID 搜索、板块 ID 搜索与成分股
 - `gangtise.insight.*` — 观点、研报、公告、日程
 - `gangtise.quote.*` — K 线、实时行情
 - `gangtise.fundamental.*` — 财务报表、估值、股东、盈利预测

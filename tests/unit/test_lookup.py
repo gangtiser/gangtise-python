@@ -3,16 +3,12 @@ import pytest
 from gangtise_openapi._lookup import LOOKUP_LOADERS, get_lookup
 
 
-def test_all_eight_lookup_keys_present():
+def test_only_api_uncovered_lookup_keys_remain():
+    # v0.16.0: research-areas/industries/regions/announcement-categories/
+    # industry-codes/theme-ids retired in favour of reference.* APIs.
     assert set(LOOKUP_LOADERS.keys()) == {
-        "lookup.research-areas.list",
         "lookup.broker-orgs.list",
         "lookup.meeting-orgs.list",
-        "lookup.industries.list",
-        "lookup.regions.list",
-        "lookup.announcement-categories.list",
-        "lookup.industry-codes.list",
-        "lookup.theme-ids.list",
     }
 
 

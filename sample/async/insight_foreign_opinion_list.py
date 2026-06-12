@@ -36,7 +36,7 @@ async def main():
     show_result(
         await gangtise.async_.insight.foreign_opinion_list(
             security=["UBER.N"],  # 证券代码, 支持单值或列表
-            industry=[1],  # 申万行业 ID, 支持单值或列表（见 lookup.industries）
+            industry=[1],  # 申万行业 ID（见 reference.constant_list(category="swIndustry")）
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

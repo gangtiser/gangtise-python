@@ -50,7 +50,7 @@ async def main():
         ),
         __file__,
     )
-    # 参数说明: gts_code 在 byIndustry 模式下可改传申万行业代码(见 lookup.industry_codes)。
+    # 参数说明: gts_code 在 byIndustry 模式下可改传申万行业代码(见 reference.sector_constituents(sector_id="2000000014"))。
 
 
 if __name__ == "__main__":

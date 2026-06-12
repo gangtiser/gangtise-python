@@ -16,16 +16,39 @@ def _cfg(tmp_path) -> Config:
     )
 
 
-def test_research_areas_returns_dataframe(tmp_path):
+def test_broker_orgs_returns_dataframe(tmp_path):
     with GangtiseClient(_config=_cfg(tmp_path)) as client:
-        df = Lookup(client).research_areas()
+        df = Lookup(client).broker_orgs()
     assert isinstance(df, pd.DataFrame)
     assert {"id", "name"}.issubset(df.columns)
     assert len(df) > 0
 
 
-def test_research_areas_raw_returns_list(tmp_path):
+def test_broker_orgs_raw_returns_list(tmp_path):
     with GangtiseClient(_config=_cfg(tmp_path)) as client:
-        rows = Lookup(client).research_areas(raw=True)
+        rows = Lookup(client).broker_orgs(raw=True)
     assert isinstance(rows, list)
     assert isinstance(rows[0], dict)
+
+
+def test_meeting_orgs_returns_dataframe(tmp_path):
+    with GangtiseClient(_config=_cfg(tmp_path)) as client:
+        df = Lookup(client).meeting_orgs()
+    assert isinstance(df, pd.DataFrame)
+    assert {"id", "name"}.issubset(df.columns)
+    assert len(df) > 0
+
+
+def test_retired_lookups_removed(tmp_path):
+    # v0.16.0: API-covered tables moved to reference.* — wrappers must be gone.
+    with GangtiseClient(_config=_cfg(tmp_path)) as client:
+        lookup = Lookup(client)
+    for retired in (
+        "research_areas",
+        "industries",
+        "regions",
+        "announcement_categories",
+        "industry_codes",
+        "theme_ids",
+    ):
+        assert not hasattr(lookup, retired), retired

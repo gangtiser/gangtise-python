@@ -50,12 +50,6 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Get access token",
     ),
     # ─── lookup (served from local data, not HTTP) ───
-    "lookup.research-areas.list": _ep(
-        "lookup.research-areas.list",
-        "GET",
-        "/guide/research-area-local",
-        "List research areas from local docs",
-    ),
     "lookup.broker-orgs.list": _ep(
         "lookup.broker-orgs.list",
         "GET",
@@ -67,36 +61,6 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "GET",
         "/guide/meeting-orgs-local",
         "List meeting orgs from local docs",
-    ),
-    "lookup.industries.list": _ep(
-        "lookup.industries.list",
-        "GET",
-        "/guide/industries-local",
-        "List industries from local docs",
-    ),
-    "lookup.regions.list": _ep(
-        "lookup.regions.list",
-        "GET",
-        "/guide/regions-local",
-        "List regions from local docs",
-    ),
-    "lookup.announcement-categories.list": _ep(
-        "lookup.announcement-categories.list",
-        "GET",
-        "/guide/announcement-categories-local",
-        "List announcement categories from local docs",
-    ),
-    "lookup.industry-codes.list": _ep(
-        "lookup.industry-codes.list",
-        "GET",
-        "/guide/industry-codes-local",
-        "List Shenwan industry codes from local docs",
-    ),
-    "lookup.theme-ids.list": _ep(
-        "lookup.theme-ids.list",
-        "GET",
-        "/guide/theme-ids-local",
-        "List theme IDs from local docs",
     ),
     # ─── insight ───
     "insight.opinion.list": _ep(
@@ -231,6 +195,36 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-reference/securities/search",
         "Search GTS codes (securities)",
+    ),
+    "reference.constant-category": _ep(
+        "reference.constant-category",
+        "GET",
+        "/application/open-reference/constants/category",
+        "List constant categories and their API usage scopes",
+    ),
+    "reference.constant-list": _ep(
+        "reference.constant-list",
+        "POST",
+        "/application/open-reference/constants/getList",
+        "List all constant values of a category",
+    ),
+    "reference.concept-search": _ep(
+        "reference.concept-search",
+        "POST",
+        "/application/open-reference/concepts/search",
+        "Search concept (theme) IDs by keyword",
+    ),
+    "reference.sector-search": _ep(
+        "reference.sector-search",
+        "POST",
+        "/application/open-reference/sectors/search",
+        "Search sector IDs by keyword",
+    ),
+    "reference.sector-constituents": _ep(
+        "reference.sector-constituents",
+        "POST",
+        "/application/open-reference/sectors/constituents",
+        "List constituent securities of a sector",
     ),
     # ─── quote ───
     "quote.day-kline": _ep(

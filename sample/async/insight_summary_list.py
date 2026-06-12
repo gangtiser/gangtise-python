@@ -37,14 +37,14 @@ async def main():
     show_result(
         await gangtise.async_.insight.summary_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            category=["stock"],  # 分类, 支持单值或列表; 取值参考 lookup 接口
+            category=["stock"],  # 分类, 支持单值或列表; 取值 earningsCall/strategyMeeting 等
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,
     )
     # 其余可选过滤参数:
     #   source=<来源类型编号>         数字列表, 支持单值或列表（请求字段 sourceList, 为数字编码）
-    #   research_area=<研究领域ID>    见 lookup.research_areas; 支持单值或列表
+    #   research_area=<研究领域ID>    见 reference.constant_list(category="citicIndustry"); 支持单值或列表
     #   institution=<机构ID>          机构过滤, 支持单值或列表
     #   participant_role=<参与方角色> 参与方角色名称过滤, 支持单值或列表
 

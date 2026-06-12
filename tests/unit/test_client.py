@@ -152,7 +152,7 @@ def test_login_returns_authorization_and_cache(client_config):
 
 def test_call_lookup_endpoint_returns_local_data(client_config):
     with GangtiseClient(_config=client_config) as client:
-        out = client._call("lookup.research-areas.list")
+        out = client._call("lookup.broker-orgs.list")
     assert isinstance(out, list)
     assert len(out) > 0
 

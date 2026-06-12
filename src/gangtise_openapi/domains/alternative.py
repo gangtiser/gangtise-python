@@ -124,7 +124,7 @@ class Alternative:
     def concept_info(self, *, concept_id: str, raw: bool = False) -> dict[str, Any]:
         """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局/keyEvents（alternative.concept-info）。
 
-        concept_id 与题材 ID 共用体系，可用 lookup.theme_ids() 按名查询（机器人=121000130）。
+        concept_id 与题材 ID 共用体系，可用 reference.concept_search() 按名查询（机器人=121000130）。
         返回最新截面对象 dict（raw 仅为签名统一，返回相同）。
         """
         return self._client._call(  # type: ignore[no-any-return]
@@ -137,7 +137,7 @@ class Alternative:
         """查询概念（题材指数）成分股，按分组返回（alternative.concept-securities）。
 
         默认扁平化为每行一只成分股的 DataFrame（含 groupName/isKey/inclusionReason 列）；
-        raw=True 返回嵌套分组原始 payload。concept_id 见 lookup.theme_ids()。
+        raw=True 返回嵌套分组原始 payload。concept_id 见 reference.concept_search()。
         """
         result = self._client._call(
             "alternative.concept-securities", body={"conceptId": concept_id}
@@ -218,7 +218,7 @@ class AsyncAlternative:
     async def concept_info(self, *, concept_id: str, raw: bool = False) -> dict[str, Any]:
         """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局/keyEvents（alternative.concept-info）。
 
-        concept_id 与题材 ID 共用体系，可用 lookup.theme_ids() 按名查询（机器人=121000130）。
+        concept_id 与题材 ID 共用体系，可用 reference.concept_search() 按名查询（机器人=121000130）。
         返回最新截面对象 dict（raw 仅为签名统一，返回相同）。
         """
         return await self._client._call(  # type: ignore[no-any-return]
@@ -231,7 +231,7 @@ class AsyncAlternative:
         """查询概念（题材指数）成分股，按分组返回（alternative.concept-securities）。
 
         默认扁平化为每行一只成分股的 DataFrame（含 groupName/isKey/inclusionReason 列）；
-        raw=True 返回嵌套分组原始 payload。concept_id 见 lookup.theme_ids()。
+        raw=True 返回嵌套分组原始 payload。concept_id 见 reference.concept_search()。
         """
         result = await self._client._call(
             "alternative.concept-securities", body={"conceptId": concept_id}

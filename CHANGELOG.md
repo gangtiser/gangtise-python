@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Sync with upstream CLI v0.16.0 (`f2d2a00`, `041fc60`).
+
+### Added
+- **`reference` constant/concept/sector APIs** (5 new endpoints, sync + async):
+  - `reference.constant_category()` — list constant categories and which API
+    params accept them (`GET /application/open-reference/constants/category`).
+  - `reference.constant_list(category=...)` — all constant values of a
+    category (citicIndustry / swIndustry / gangtiseIndustry / domesticCity /
+    aShareAnnouncementCategory / hkShareAnnouncementCategory / regionCategory).
+    The API's `constants` array is normalized to `list` (TS `normalizeRows`
+    parity); tree categories keep `children` nested — use `raw=True` to recurse.
+  - `reference.concept_search(keyword=..., top=10)` — theme/concept ID search
+    (IDs shared with `alternative.concept_*` and `ai.theme_tracking`).
+  - `reference.sector_search(keyword=None, top=10)` — sector ID search with
+    `hierarchy` disambiguation.
+  - `reference.sector_constituents(sector_id=...)` — full constituent list of
+    a sector (`gtsCode`/`gtsName`).
+- **`location` filter** on the four schedule lists (`insight.roadshow_list` /
+  `site_visit_list` / `strategy_list` / `forum_list`): city/province ID from
+  `reference.constant_list(category="domesticCity")`, sent as `locationList`.
+
+### Removed
+- **Six API-covered local lookup tables** (TS v0.16.0 parity):
+  `lookup.research_areas` / `industries` / `regions` /
+  `announcement_categories` / `industry_codes` / `theme_ids` and their bundled
+  data files. Those IDs are now served live by `reference.constant_list`,
+  `reference.concept_search`, and `reference.sector_constituents`. Only
+  `lookup.broker_orgs` and `lookup.meeting_orgs` remain local. Endpoint
+  registry goes from 75 to 74 entries.
+
 ## [0.1.5] - 2026-06-12
 
 ### Fixed

@@ -25,7 +25,7 @@ def main():
             keyword="biotech",  # 关键词
             rank_type=2,  # 排序: 1=综合 2=时间倒序
             security="GSK.N",  # 证券代码（美股如 GSK.N）, 支持单值或列表
-            industry=1,  # 申万行业 ID, 支持单值或列表（见 lookup.industries）
+            industry=1,  # 申万行业 ID, 支持单值或列表（见 reference.constant_list(category="swIndustry")）
         ),
         __file__,
     )

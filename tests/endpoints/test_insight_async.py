@@ -143,6 +143,7 @@ async def test_async_roadshow_list_body_shape(tmp_path):
                 broker_type=2,
                 object_="company",
                 permission=1,
+                location="156440000",
             )
         body = route.calls.last.request.read().replace(b" ", b"")
         assert b'"researchAreaList":["medicine"]' in body
@@ -154,6 +155,7 @@ async def test_async_roadshow_list_body_shape(tmp_path):
         assert b'"brokerTypeList":[2]' in body
         assert b'"objectList":["company"]' in body
         assert b'"permission":[1]' in body
+        assert b'"locationList":["156440000"]' in body
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "r1"
 

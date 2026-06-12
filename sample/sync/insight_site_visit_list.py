@@ -40,9 +40,9 @@ def main():
         __file__,
     )
     # 其余可选过滤参数:
-    #   research_area=<研究领域ID>    见 lookup.research_areas; 支持单值或列表
+    #   research_area=<研究领域ID>    见 reference.constant_list(category="citicIndustry"); 支持单值或列表
     #   institution=<机构ID>          机构过滤, 支持单值或列表
-    #   category=<分类>               分类名称过滤, 支持单值或列表; 取值参考 lookup 接口
+    #   category=<分类>               分类名称过滤, 支持单值或列表; 取值 single 单场/series 系列
     #   participant_role=<参与方角色> 参与方角色名称过滤, 支持单值或列表
     #   broker_type=<券商类型>        券商类型名称过滤, 支持单值或列表
 

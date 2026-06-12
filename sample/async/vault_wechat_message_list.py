@@ -40,7 +40,7 @@ async def main():
     show_result(
         await gangtise.async_.vault.wechat_message_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            industry=1,  # 申万行业 ID, 支持单值或列表（见 lookup.industries）
+            industry=1,  # 申万行业 ID, 支持单值或列表（见 reference.constant_list(category="swIndustry")）
             category=["documents", "url"],  # 消息类型, 支持单值或列表
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),

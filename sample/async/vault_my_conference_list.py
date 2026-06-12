@@ -43,7 +43,7 @@ async def main():
         __file__,
     )
     # 其余可选过滤参数（均支持单值或列表, 需传入真实 ID）:
-    #   research_area=<研究领域ID>   见 lookup.research_areas
+    #   research_area=<研究领域ID>   见 reference.constant_list(category="citicIndustry")
     #   institution=<机构ID>         见 lookup.broker_orgs
 
 

@@ -76,6 +76,36 @@ def test_normalize_rows_chatroomlist_aliased():
     assert normalize_rows({"chatRoomList": [{"id": 1}]}) == [{"id": 1}]
 
 
+def test_normalize_rows_constants_aliased_preserving_metadata():
+    # Mirrors normalize.test.ts "unwraps constants rows preserving category metadata".
+    result = normalize_rows(
+        {
+            "category": "citicIndustry",
+            "structureType": "flat",
+            "maxLevel": 1,
+            "constantCount": 2,
+            "constants": [
+                {"constantId": "100800121", "constantName": "银行"},
+                {"constantId": "100800122", "constantName": "房地产"},
+            ],
+        }
+    )
+    assert result == {
+        "category": "citicIndustry",
+        "structureType": "flat",
+        "maxLevel": 1,
+        "constantCount": 2,
+        "list": [
+            {"constantId": "100800121", "constantName": "银行"},
+            {"constantId": "100800122", "constantName": "房地产"},
+        ],
+    }
+
+
+def test_normalize_rows_bare_constants_returns_list():
+    assert normalize_rows({"constants": [{"constantId": "1"}]}) == [{"constantId": "1"}]
+
+
 def test_normalize_rows_single_object_unchanged():
     payload = {"securityCode": "000001.SZ", "updateList": [1, 2]}
     assert normalize_rows(payload) == payload

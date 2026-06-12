@@ -1,6 +1,6 @@
 # API Parameter Reference
 
-本文档按当前 Python SDK wrapper 自动整理，覆盖 76 个公开 SDK 方法（对应 75 个上游 OpenAPI endpoint，另含 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
+本文档按当前 Python SDK wrapper 自动整理，覆盖 75 个公开 SDK 方法（对应 74 个上游 OpenAPI endpoint，另含 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
 
 运行示例前请配置：
 
@@ -17,15 +17,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- |
 | `auth` | `login` | [auth_login.py](sync/auth_login.py) | [auth_login.py](async/auth_login.py) |
 | `auth` | `status` | [auth_status.py](sync/auth_status.py) | [auth_status.py](async/auth_status.py) |
-| `lookup` | `research_areas` | [lookup_research_areas.py](sync/lookup_research_areas.py) | [lookup_research_areas.py](async/lookup_research_areas.py) |
 | `lookup` | `broker_orgs` | [lookup_broker_orgs.py](sync/lookup_broker_orgs.py) | [lookup_broker_orgs.py](async/lookup_broker_orgs.py) |
 | `lookup` | `meeting_orgs` | [lookup_meeting_orgs.py](sync/lookup_meeting_orgs.py) | [lookup_meeting_orgs.py](async/lookup_meeting_orgs.py) |
-| `lookup` | `industries` | [lookup_industries.py](sync/lookup_industries.py) | [lookup_industries.py](async/lookup_industries.py) |
-| `lookup` | `regions` | [lookup_regions.py](sync/lookup_regions.py) | [lookup_regions.py](async/lookup_regions.py) |
-| `lookup` | `announcement_categories` | [lookup_announcement_categories.py](sync/lookup_announcement_categories.py) | [lookup_announcement_categories.py](async/lookup_announcement_categories.py) |
-| `lookup` | `industry_codes` | [lookup_industry_codes.py](sync/lookup_industry_codes.py) | [lookup_industry_codes.py](async/lookup_industry_codes.py) |
-| `lookup` | `theme_ids` | [lookup_theme_ids.py](sync/lookup_theme_ids.py) | [lookup_theme_ids.py](async/lookup_theme_ids.py) |
 | `reference` | `securities_search` | [reference_securities_search.py](sync/reference_securities_search.py) | [reference_securities_search.py](async/reference_securities_search.py) |
+| `reference` | `constant_category` | [reference_constant_category.py](sync/reference_constant_category.py) | [reference_constant_category.py](async/reference_constant_category.py) |
+| `reference` | `constant_list` | [reference_constant_list.py](sync/reference_constant_list.py) | [reference_constant_list.py](async/reference_constant_list.py) |
+| `reference` | `concept_search` | [reference_concept_search.py](sync/reference_concept_search.py) | [reference_concept_search.py](async/reference_concept_search.py) |
+| `reference` | `sector_search` | [reference_sector_search.py](sync/reference_sector_search.py) | [reference_sector_search.py](async/reference_sector_search.py) |
+| `reference` | `sector_constituents` | [reference_sector_constituents.py](sync/reference_sector_constituents.py) | [reference_sector_constituents.py](async/reference_sector_constituents.py) |
 | `quote` | `day_kline` | [quote_day_kline.py](sync/quote_day_kline.py) | [quote_day_kline.py](async/quote_day_kline.py) |
 | `quote` | `day_kline_hk` | [quote_day_kline_hk.py](sync/quote_day_kline_hk.py) | [quote_day_kline_hk.py](async/quote_day_kline_hk.py) |
 | `quote` | `day_kline_us` | [quote_day_kline_us.py](sync/quote_day_kline_us.py) | [quote_day_kline_us.py](async/quote_day_kline_us.py) |
@@ -119,17 +118,6 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 ## Local lookup tables (`gangtise.lookup`)
 
-### `lookup.research_areas`
-
-- Endpoint: `lookup.research-areas.list` `GET /guide/research-area-local` - List research areas from local docs
-- Sync sample: `sample/sync/lookup_research_areas.py`
-- Async sample: `sample/async/lookup_research_areas.py`
-- Return annotation: `pd.DataFrame | list[Any]`
-
-| Parameter | Type | Required | Default | Example | Description |
-| --- | --- | --- | --- | --- | --- |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
-
 ### `lookup.broker_orgs`
 
 - Endpoint: `lookup.broker-orgs.list` `GET /guide/broker-orgs-local` - List broker orgs from local docs
@@ -152,61 +140,6 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
-### `lookup.industries`
-
-- Endpoint: `lookup.industries.list` `GET /guide/industries-local` - List industries from local docs
-- Sync sample: `sample/sync/lookup_industries.py`
-- Async sample: `sample/async/lookup_industries.py`
-- Return annotation: `pd.DataFrame | list[Any]`
-
-| Parameter | Type | Required | Default | Example | Description |
-| --- | --- | --- | --- | --- | --- |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
-
-### `lookup.regions`
-
-- Endpoint: `lookup.regions.list` `GET /guide/regions-local` - List regions from local docs
-- Sync sample: `sample/sync/lookup_regions.py`
-- Async sample: `sample/async/lookup_regions.py`
-- Return annotation: `pd.DataFrame | list[Any]`
-
-| Parameter | Type | Required | Default | Example | Description |
-| --- | --- | --- | --- | --- | --- |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
-
-### `lookup.announcement_categories`
-
-- Endpoint: `lookup.announcement-categories.list` `GET /guide/announcement-categories-local` - List announcement categories from local docs
-- Sync sample: `sample/sync/lookup_announcement_categories.py`
-- Async sample: `sample/async/lookup_announcement_categories.py`
-- Return annotation: `pd.DataFrame | list[Any]`
-
-| Parameter | Type | Required | Default | Example | Description |
-| --- | --- | --- | --- | --- | --- |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
-
-### `lookup.industry_codes`
-
-- Endpoint: `lookup.industry-codes.list` `GET /guide/industry-codes-local` - List Shenwan industry codes from local docs
-- Sync sample: `sample/sync/lookup_industry_codes.py`
-- Async sample: `sample/async/lookup_industry_codes.py`
-- Return annotation: `pd.DataFrame | list[Any]`
-
-| Parameter | Type | Required | Default | Example | Description |
-| --- | --- | --- | --- | --- | --- |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
-
-### `lookup.theme_ids`
-
-- Endpoint: `lookup.theme-ids.list` `GET /guide/theme-ids-local` - List theme IDs from local docs
-- Sync sample: `sample/sync/lookup_theme_ids.py`
-- Async sample: `sample/async/lookup_theme_ids.py`
-- Return annotation: `pd.DataFrame | list[Any]`
-
-| Parameter | Type | Required | Default | Example | Description |
-| --- | --- | --- | --- | --- | --- |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
-
 
 ## Reference data (`gangtise.reference`)
 
@@ -220,8 +153,69 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `keyword` | `str` | 是 | - | `"平安银行"` | 搜索关键词。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 stock / dr / index / fund。 |
 | `top` | `int` | 否 | `10` | `3` | 每个查询返回的最大候选数。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.constant_category`
+
+- Endpoint: `reference.constant-category` `GET /application/open-reference/constants/category` - List constant categories and their API usage scopes
+- Sync sample: `sample/sync/reference_constant_category.py`
+- Async sample: `sample/async/reference_constant_category.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.constant_list`
+
+- Endpoint: `reference.constant-list` `POST /application/open-reference/constants/getList` - List all constant values of a category
+- Sync sample: `sample/sync/reference_constant_list.py`
+- Async sample: `sample/async/reference_constant_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `category` | `str` | 是 | - | `"citicIndustry"` | 分类编码，取值见 reference.constant_category，如 citicIndustry=中信一级行业 / swIndustry=申万一级行业 / gangtiseIndustry=Gangtise行业 / domesticCity=国内城市 / aShareAnnouncementCategory=A股公告分类（树形）/ hkShareAnnouncementCategory=港股公告分类（树形）/ regionCategory=区域分类。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。树形分类的 children 层级需 raw=True 自行递归。 |
+
+### `reference.concept_search`
+
+- Endpoint: `reference.concept-search` `POST /application/open-reference/concepts/search` - Search concept (theme) IDs by keyword
+- Sync sample: `sample/sync/reference_concept_search.py`
+- Async sample: `sample/async/reference_concept_search.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"机器人"` | 搜索关键词，支持中文名/拼音/首字母（如 jqr）/分组名。结果的 conceptId 供 alternative.concept_info / concept_securities 与 ai.theme_tracking 共用（机器人=121000130）。 |
+| `top` | `int` | 否 | `10` | `5` | 返回的最大候选数，上限 10。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.sector_search`
+
+- Endpoint: `reference.sector-search` `POST /application/open-reference/sectors/search` - Search sector IDs by keyword
+- Sync sample: `sample/sync/reference_sector_search.py`
+- Async sample: `sample/async/reference_sector_search.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str | None` | 否 | `None` | `"半导体"` | 搜索关键词，支持名称/拼音；可省略。结果的 sectorId 供 reference.sector_constituents 使用；同名板块可能出现在多个层级，用 hierarchy 字段区分。 |
+| `top` | `int` | 否 | `10` | `10` | 返回的最大候选数，上限 10。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.sector_constituents`
+
+- Endpoint: `reference.sector-constituents` `POST /application/open-reference/sectors/constituents` - List constituent securities of a sector
+- Sync sample: `sample/sync/reference_sector_constituents.py`
+- Async sample: `sample/async/reference_sector_constituents.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `sector_id` | `str` | 是 | - | `"2000000014"` | 板块 ID，必须来自 reference.sector_search（题材 conceptId 与板块 sectorId 是两套 ID，不通用；2000000014=申万一级行业指数）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 
@@ -368,7 +362,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall 业绩会 / strategyMeeting 策略会 / fundRoadshow 基金路演 / shareholdersMeeting 股东大会 / maMeeting 并购会议 / specialMeeting 特别会议 / companyAnalysis 公司分析 / industryAnalysis 行业分析 / other。 |
 | `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -390,12 +384,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall / strategyMeeting / companyAnalysis / industryAnalysis / fundRoadshow。 |
 | `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
 | `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.site_visit_list`
@@ -415,12 +410,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 single 单场 / series 系列。 |
 | `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
 | `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.strategy_list`
@@ -440,12 +436,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表。 |
 | `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
 | `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.forum_list`
@@ -465,12 +462,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表。 |
 | `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
 | `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.research_list`
@@ -492,7 +490,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 macro / strategy / industry / company / bond / quant / morningNotes / fund / forex / futures / options / warrants / market / wealthManagement / other。 |
 | `llm_tag` | `Any` | 否 | `None` | `None` | LLM 标签过滤，支持单值或列表。 |
 | `rating` | `Any` | 否 | `None` | `None` | 评级过滤，支持单值或列表。 |
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
@@ -519,7 +517,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `region` | `Any` | 否 | `None` | `"US"` | 区域过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 macro / strategy / industry / company / bond / quant / morningNotes / fund / forex / futures / options / warrants / market / wealthManagement / other。 |
 | `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
 | `llm_tag` | `Any` | 否 | `None` | `None` | LLM 标签过滤，支持单值或列表。 |
@@ -547,7 +545,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `announcement_type` | `Any` | 否 | `None` | `None` | 公告类型过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 栏目 ID，支持单值或列表，常用 103910200 财务报告 / 103910201 业绩预告 / 103910700 股权股本。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.announcement_hk_list`
@@ -568,7 +566,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `announcement_type` | `Any` | 否 | `None` | `None` | 公告类型过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 港股公告类型 ID，支持单值或列表，见 reference.constant_list(category="hkShareAnnouncementCategory")。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.foreign_opinion_list`
@@ -1001,7 +999,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `theme_id` | `str` | 是 | - | `"121000342"` | 主题 ID，可通过 lookup.theme_ids 查询。 |
+| `theme_id` | `str` | 是 | - | `"121000342"` | 主题 ID，可通过 reference.concept_search 按关键词查询。 |
 | `date` | `str` | 是 | - | `"2026-05-28"` | 业务日期，格式通常为 YYYY-MM-DD。 |
 | `type_` | `Any` | 否 | `None` | `"news"` | 类型过滤；Python 参数名 type_ 会映射为 type。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1019,7 +1017,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 morningBriefing / noonBriefing / afternoonFlash / eveningBriefing。 |
 | `with_related_securities` | `bool` | 否 | `True` | `True` | 热点主题是否返回关联证券。 |
 | `with_close_reading` | `bool` | 否 | `True` | `True` | 热点主题是否返回精读内容。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1151,7 +1149,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
 | `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
 | `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 upload / link / mobile / gtNote / pc / share。 |
 | `space_type` | `Any` | 否 | `None` | `None` | 空间类型过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1172,7 +1170,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall / strategyMeeting / fundRoadshow / shareholdersMeeting / maMeeting / specialMeeting / companyAnalysis / industryAnalysis / other。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `vault.wechat_message_list`
@@ -1192,7 +1190,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `wechat_group_id` | `Any` | 否 | `None` | `None` | 微信群 ID，支持单值或列表。 |
 | `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，具体取值参考 lookup 接口。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 text / image / documents / url。 |
 | `tag` | `Any` | 否 | `None` | `None` | 标签过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1310,7 +1308,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；与 `ai.theme_tracking` 共用题材 ID 体系，可用 lookup.theme_ids 按名查询（机器人=121000130）。 |
+| `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；与 `ai.theme_tracking` 共用题材 ID 体系，可用 reference.concept_search 按名查询（机器人=121000130）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 该接口返回最新截面画像对象，始终为 dict（定义/投资逻辑/行业空间/竞争格局/keyEvents），不支持历史回溯。 |
 
 ### `alternative.concept_securities`
@@ -1322,5 +1320,5 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；见 lookup.theme_ids（机器人=121000130）。 |
+| `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；见 reference.concept_search（机器人=121000130）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 默认返回扁平化 DataFrame（每行一只成分股，列含 groupName/securityCode/securityName/isKey/inclusionReason）；True 返回嵌套分组 dict。 |

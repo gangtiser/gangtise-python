@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 75
+    assert len(ENDPOINTS) == 74
 
 
 def test_lookup_known_endpoint():
@@ -59,17 +59,38 @@ def test_download_endpoints_have_kind_download():
 
 
 def test_local_lookup_endpoints_marked():
-    for key in [
-        "lookup.research-areas.list",
+    # v0.16.0: only the two API-uncovered local tables remain.
+    lookup_keys = sorted(k for k in ENDPOINTS if k.startswith("lookup."))
+    assert lookup_keys == [
         "lookup.broker-orgs.list",
         "lookup.meeting-orgs.list",
-        "lookup.industries.list",
-        "lookup.regions.list",
-        "lookup.announcement-categories.list",
-        "lookup.industry-codes.list",
-        "lookup.theme-ids.list",
-    ]:
+    ]
+    for key in lookup_keys:
         assert ENDPOINTS[key].path.startswith("/guide/")
+
+
+def test_reference_constant_concept_sector_endpoints():
+    # Translated 1:1 from gangtise-openapi-cli v0.16.0 endpoints.ts.
+    category = ENDPOINTS["reference.constant-category"]
+    assert category.method == "GET"
+    assert category.path == "/application/open-reference/constants/category"
+    assert category.kind == "json"
+
+    constants = ENDPOINTS["reference.constant-list"]
+    assert constants.method == "POST"
+    assert constants.path == "/application/open-reference/constants/getList"
+
+    concepts = ENDPOINTS["reference.concept-search"]
+    assert concepts.method == "POST"
+    assert concepts.path == "/application/open-reference/concepts/search"
+
+    sectors = ENDPOINTS["reference.sector-search"]
+    assert sectors.method == "POST"
+    assert sectors.path == "/application/open-reference/sectors/search"
+
+    constituents = ENDPOINTS["reference.sector-constituents"]
+    assert constituents.method == "POST"
+    assert constituents.path == "/application/open-reference/sectors/constituents"
 
 
 def test_dataclass_equality():
@@ -81,14 +102,8 @@ def test_dataclass_equality():
 def test_all_endpoint_keys_match_ts_source():
     expected = {
         "auth.login",
-        "lookup.research-areas.list",
         "lookup.broker-orgs.list",
         "lookup.meeting-orgs.list",
-        "lookup.industries.list",
-        "lookup.regions.list",
-        "lookup.announcement-categories.list",
-        "lookup.industry-codes.list",
-        "lookup.theme-ids.list",
         "insight.opinion.list",
         "insight.summary.list",
         "insight.summary.download",
@@ -108,6 +123,11 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.independent-opinion.list",
         "insight.independent-opinion.download",
         "reference.securities-search",
+        "reference.constant-category",
+        "reference.constant-list",
+        "reference.concept-search",
+        "reference.sector-search",
+        "reference.sector-constituents",
         "quote.day-kline",
         "quote.day-kline-hk",
         "quote.day-kline-us",

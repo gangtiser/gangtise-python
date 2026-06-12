@@ -17,7 +17,7 @@ async def main():
     # 主题跟踪日报: 必填主题 ID + 业务日期
     show_result(
         await gangtise.async_.ai.theme_tracking(
-            theme_id="121000130",  # 主题/题材 ID(如 机器人=121000130; 见 lookup.theme_ids)
+            theme_id="121000130",  # 主题/题材 ID(如 机器人=121000130; 见 reference.concept_search(keyword=...))
             date="2026-05-28",  # 业务日期 YYYY-MM-dd
             type_="morning",  # 报告类型: morning=早报, night=晚报; 支持单值或列表
         ),

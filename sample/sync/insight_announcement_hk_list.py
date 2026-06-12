@@ -41,7 +41,7 @@ def main():
     )
     # 其余可选过滤参数（均支持单值或列表）:
     #   announcement_type=<公告类型> 公告类型过滤, 取值参考接口文档
-    #   category=<分类ID>            分类 ID 过滤, 取值参考 lookup 接口
+    #   category=<分类ID>            港股公告类型, 见 constant_list(category="hkShareAnnouncementCategory")
 
 
 if __name__ == "__main__":

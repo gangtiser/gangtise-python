@@ -46,7 +46,7 @@ async def main():
     )
     # 其余可选过滤参数（均支持单值或列表）:
     #   announcement_type=<公告类型> 公告类型过滤, 取值参考接口文档
-    #   category=<分类ID>            分类 ID 过滤, 取值参考 lookup 接口
+    #   category=<分类ID>            栏目 ID, 常用 103910200 财务报告/103910201 业绩预告/103910700 股权股本
 
 
 if __name__ == "__main__":

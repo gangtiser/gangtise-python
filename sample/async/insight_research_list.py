@@ -38,14 +38,14 @@ async def main():
     show_result(
         await gangtise.async_.insight.research_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            industry=[1],  # 申万行业 ID, 支持单值或列表（见 lookup.industries）
+            industry=[1],  # 申万行业 ID（见 reference.constant_list(category="swIndustry")）
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,
     )
     # 其余可选过滤参数（均支持单值或列表）:
     #   broker=<券商/机构ID>     见 lookup.broker_orgs
-    #   category=<研报分类>      研报分类名称, 取值参考 lookup 接口
+    #   category=<研报分类>      研报分类名称, 取值 macro/strategy/industry/company 等
     #   llm_tag=<语义标签>       LLM 语义标签过滤
     #   rating=<评级名称>        如 买入/增持 等; 取值参考接口文档
     #   rating_change=<评级变动> 评级变动名称过滤

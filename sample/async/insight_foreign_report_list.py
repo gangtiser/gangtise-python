@@ -44,8 +44,8 @@ async def main():
         __file__,
     )
     # 其余可选过滤参数（均支持单值或列表）:
-    #   category=<研报分类>      研报分类名称, 取值参考 lookup 接口
-    #   industry=<行业ID>        见 lookup.industries
+    #   category=<研报分类>      研报分类名称, 取值 macro/strategy/industry/company 等
+    #   industry=<行业ID>        见 reference.constant_list(category="swIndustry")
     #   broker=<券商/机构ID>     见 lookup.broker_orgs
     #   llm_tag=<语义标签>       LLM 语义标签过滤
     #   rating=<评级名称>        评级名称过滤

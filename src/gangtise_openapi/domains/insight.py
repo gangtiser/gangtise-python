@@ -164,6 +164,7 @@ class Insight:
         broker_type: Any,
         object_: Any,
         permission: Any,
+        location: Any,
         raw: bool,
     ) -> pd.DataFrame | dict[str, Any]:
         body = _strip_none(
@@ -182,6 +183,7 @@ class Insight:
                 "brokerTypeList": _as_list(broker_type),
                 "objectList": _as_list(object_),
                 "permission": _as_list(permission),
+                "locationList": _as_list(location),
             }
         )
         result = self._client._call(endpoint_key, body=body)
@@ -206,11 +208,13 @@ class Insight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询路演日程列表（insight.roadshow.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return self._schedule_list(
             "insight.roadshow.list",
@@ -228,6 +232,7 @@ class Insight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -248,11 +253,13 @@ class Insight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询调研/实地走访日程列表（insight.site-visit.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return self._schedule_list(
             "insight.site-visit.list",
@@ -270,6 +277,7 @@ class Insight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -290,11 +298,13 @@ class Insight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询策略会日程列表（insight.strategy.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return self._schedule_list(
             "insight.strategy.list",
@@ -312,6 +322,7 @@ class Insight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -332,11 +343,13 @@ class Insight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询论坛/电话会日程列表（insight.forum.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return self._schedule_list(
             "insight.forum.list",
@@ -354,6 +367,7 @@ class Insight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -914,6 +928,7 @@ class AsyncInsight:
         broker_type: Any,
         object_: Any,
         permission: Any,
+        location: Any,
         raw: bool,
     ) -> pd.DataFrame | dict[str, Any]:
         body = _strip_none(
@@ -932,6 +947,7 @@ class AsyncInsight:
                 "brokerTypeList": _as_list(broker_type),
                 "objectList": _as_list(object_),
                 "permission": _as_list(permission),
+                "locationList": _as_list(location),
             }
         )
         result = await self._client._call(endpoint_key, body=body)
@@ -956,11 +972,13 @@ class AsyncInsight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询路演日程列表（insight.roadshow.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return await self._schedule_list(
             "insight.roadshow.list",
@@ -978,6 +996,7 @@ class AsyncInsight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -998,11 +1017,13 @@ class AsyncInsight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询调研/实地走访日程列表（insight.site-visit.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return await self._schedule_list(
             "insight.site-visit.list",
@@ -1020,6 +1041,7 @@ class AsyncInsight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -1040,11 +1062,13 @@ class AsyncInsight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询策略会日程列表（insight.strategy.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return await self._schedule_list(
             "insight.strategy.list",
@@ -1062,6 +1086,7 @@ class AsyncInsight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 
@@ -1082,11 +1107,13 @@ class AsyncInsight:
         broker_type: Any = None,
         object_: Any = None,
         permission: Any = None,
+        location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询论坛/电话会日程列表（insight.forum.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
+        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
         """
         return await self._schedule_list(
             "insight.forum.list",
@@ -1104,6 +1131,7 @@ class AsyncInsight:
             broker_type=broker_type,
             object_=object_,
             permission=permission,
+            location=location,
             raw=raw,
         )
 

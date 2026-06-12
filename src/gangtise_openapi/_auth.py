@@ -76,8 +76,10 @@ def write_token_cache(path: Path, cache: TokenCache) -> None:
         "userName": cache.user_name,
         "tenantId": cache.tenant_id,
     }
-    # Atomic write: temp file + rename to avoid partial reads.
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # Atomic write: temp file + rename to avoid partial reads. The tmp name
+    # carries pid + timestamp so concurrent writers (token.json is shared with
+    # the npm CLI and other processes) never clobber each other's temp file.
+    tmp = path.with_suffix(path.suffix + f".tmp-{os.getpid()}-{int(time.time() * 1000)}")
     tmp.write_text(json.dumps(payload, indent=2), encoding="utf8")
     os.chmod(tmp, 0o600)
     tmp.replace(path)

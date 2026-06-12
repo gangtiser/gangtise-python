@@ -20,7 +20,7 @@ from gangtise_openapi._auth import (
 from gangtise_openapi._config import Config, load_config
 from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import ApiError
-from gangtise_openapi._logging import configure_logging
+from gangtise_openapi._logging import configure_logging, get_logger
 from gangtise_openapi._lookup import LOOKUP_LOADERS
 from gangtise_openapi._pagination import collect_paginated, collect_paginated_async
 from gangtise_openapi._title_cache import (
@@ -38,6 +38,8 @@ from gangtise_openapi._transport_async import (
 )
 
 AUTH_RETRY_CODES = frozenset({"8000014", "8000015"})
+
+logger = get_logger()
 
 
 class GangtiseClient:
@@ -74,6 +76,7 @@ class GangtiseClient:
         configure_logging(cfg.verbose)
         self._http: httpx.Client | None = None
         self._memo_cache: TokenCache | None = None
+        self._env_token_rejected = False
         self._lock = threading.Lock()
         self._title_cache = TitleCache(cfg.title_cache_path)
 
@@ -82,7 +85,7 @@ class GangtiseClient:
         return self._config
 
     def __enter__(self) -> GangtiseClient:
-        self._http = build_sync_client(self._config)
+        self._http_client()
         return self
 
     def __exit__(
@@ -105,8 +108,8 @@ class GangtiseClient:
 
     # ---- Auth ----
 
-    def _get_token(self, force_refresh: bool = False) -> str:
-        if self._config.token and not force_refresh:
+    def _get_token(self, force_refresh: bool = False, *, stale_token: str | None = None) -> str:
+        if self._config.token and not force_refresh and not self._env_token_rejected:
             return self._config.token
         if not force_refresh:
             if is_cache_valid(self._memo_cache):
@@ -118,9 +121,14 @@ class GangtiseClient:
                 assert disk is not None
                 return disk.access_token
         with self._lock:
-            if not force_refresh and is_cache_valid(self._memo_cache):
+            if is_cache_valid(self._memo_cache):
                 assert self._memo_cache is not None
-                return self._memo_cache.access_token
+                memo_token = self._memo_cache.access_token
+                # A concurrent caller may have refreshed while we waited on
+                # the lock; reuse its token unless it is the one that just
+                # got rejected upstream (mirrors the TS refreshPromise dedup).
+                if not force_refresh or (stale_token is not None and memo_token != stale_token):
+                    return memo_token
             return self._refresh_token()
 
     def _refresh_token(self) -> str:
@@ -142,7 +150,10 @@ class GangtiseClient:
             tenant_id=result.get("tenantId"),
         )
         self._memo_cache = cache
-        write_token_cache(self._config.token_cache_path, cache)
+        try:
+            write_token_cache(self._config.token_cache_path, cache)
+        except OSError:
+            logger.debug("Failed to persist token cache; using in-memory token", exc_info=True)
         return access_token
 
     # ---- Public surface used by domain wrappers ----
@@ -188,7 +199,10 @@ class GangtiseClient:
         titles = extract_titles(rows, id_field=id_field, title_field=title_field)
         if titles:
             self._title_cache.set_titles(list_endpoint_key, titles)
-            self._title_cache.flush()
+            try:
+                self._title_cache.flush()
+            except OSError:
+                logger.debug("Failed to persist title cache", exc_info=True)
 
     def _resolve_title(
         self,
@@ -223,8 +237,8 @@ class GangtiseClient:
         body: Any,
         query: dict[str, str | int] | None,
     ) -> Any:
+        token = self._get_token()
         try:
-            token = self._get_token()
             return request_json(self._http_client(), endpoint, body=body, token=token, query=query)
         except ApiError as error:
             if (
@@ -232,8 +246,11 @@ class GangtiseClient:
                 and self._config.access_key
                 and self._config.secret_key
             ):
-                self._memo_cache = None
-                token = self._get_token(force_refresh=True)
+                if token == self._config.token:
+                    # The env-provided token was rejected upstream; stop
+                    # preferring it over refreshed tokens from now on.
+                    self._env_token_rejected = True
+                token = self._get_token(force_refresh=True, stale_token=token)
                 return request_json(
                     self._http_client(), endpoint, body=body, token=token, query=query
                 )
@@ -274,6 +291,7 @@ class AsyncGangtiseClient:
         configure_logging(cfg.verbose)
         self._http: httpx.AsyncClient | None = None
         self._memo_cache: TokenCache | None = None
+        self._env_token_rejected = False
         self._lock = anyio.Lock()
         self._title_cache = TitleCache(cfg.title_cache_path)
 
@@ -282,7 +300,7 @@ class AsyncGangtiseClient:
         return self._config
 
     async def __aenter__(self) -> AsyncGangtiseClient:
-        self._http = build_async_client(self._config)
+        self._http_client()
         return self
 
     async def __aexit__(
@@ -303,8 +321,10 @@ class AsyncGangtiseClient:
             self._http = build_async_client(self._config)
         return self._http
 
-    async def _get_token(self, force_refresh: bool = False) -> str:
-        if self._config.token and not force_refresh:
+    async def _get_token(
+        self, force_refresh: bool = False, *, stale_token: str | None = None
+    ) -> str:
+        if self._config.token and not force_refresh and not self._env_token_rejected:
             return self._config.token
         if not force_refresh:
             if is_cache_valid(self._memo_cache):
@@ -316,9 +336,14 @@ class AsyncGangtiseClient:
                 assert disk is not None
                 return disk.access_token
         async with self._lock:
-            if not force_refresh and is_cache_valid(self._memo_cache):
+            if is_cache_valid(self._memo_cache):
                 assert self._memo_cache is not None
-                return self._memo_cache.access_token
+                memo_token = self._memo_cache.access_token
+                # A concurrent caller may have refreshed while we waited on
+                # the lock; reuse its token unless it is the one that just
+                # got rejected upstream (mirrors the TS refreshPromise dedup).
+                if not force_refresh or (stale_token is not None and memo_token != stale_token):
+                    return memo_token
             return await self._refresh_token()
 
     async def _refresh_token(self) -> str:
@@ -340,7 +365,10 @@ class AsyncGangtiseClient:
             tenant_id=result.get("tenantId"),
         )
         self._memo_cache = cache
-        await to_thread.run_sync(write_token_cache, self._config.token_cache_path, cache)
+        try:
+            await to_thread.run_sync(write_token_cache, self._config.token_cache_path, cache)
+        except OSError:
+            logger.debug("Failed to persist token cache; using in-memory token", exc_info=True)
         return access_token
 
     async def login(self) -> dict[str, Any]:
@@ -364,7 +392,10 @@ class AsyncGangtiseClient:
         titles = extract_titles(rows, id_field=id_field, title_field=title_field)
         if titles:
             self._title_cache.set_titles(list_endpoint_key, titles)
-            await to_thread.run_sync(self._title_cache.flush)
+            try:
+                await to_thread.run_sync(self._title_cache.flush)
+            except OSError:
+                logger.debug("Failed to persist title cache", exc_info=True)
 
     async def _resolve_title(
         self,
@@ -419,8 +450,8 @@ class AsyncGangtiseClient:
         body: Any,
         query: dict[str, str | int] | None,
     ) -> Any:
+        token = await self._get_token()
         try:
-            token = await self._get_token()
             return await request_json_async(
                 self._http_client(), endpoint, body=body, token=token, query=query
             )
@@ -430,8 +461,11 @@ class AsyncGangtiseClient:
                 and self._config.access_key
                 and self._config.secret_key
             ):
-                self._memo_cache = None
-                token = await self._get_token(force_refresh=True)
+                if token == self._config.token:
+                    # The env-provided token was rejected upstream; stop
+                    # preferring it over refreshed tokens from now on.
+                    self._env_token_rejected = True
+                token = await self._get_token(force_refresh=True, stale_token=token)
                 return await request_json_async(
                     self._http_client(), endpoint, body=body, token=token, query=query
                 )

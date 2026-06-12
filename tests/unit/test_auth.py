@@ -1,5 +1,7 @@
 import json
+import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -71,6 +73,35 @@ def test_read_token_cache_partial_schema(tmp_path):
     path = tmp_path / "tok.json"
     path.write_text(json.dumps({"accessToken": "x"}), encoding="utf8")
     assert read_token_cache(path) is None
+
+
+def test_write_token_cache_tmp_name_unique_per_writer(tmp_path, monkeypatch):
+    # token.json is shared across processes (npm CLI included); the temp
+    # file name must differ per writer so concurrent refreshes never race
+    # on the same tmp path.
+    path = tmp_path / "tok.json"
+    cache = _make_cache(expires_at=int(time.time()) + 1000)
+    real_pid = os.getpid()
+    tmp_names: list[str] = []
+    original_write_text = Path.write_text
+
+    def spy(self, *args, **kwargs):
+        tmp_names.append(self.name)
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", spy)
+    write_token_cache(path, cache)
+    # Simulate a second process by faking a different pid.
+    monkeypatch.setattr(os, "getpid", lambda: real_pid + 1)
+    write_token_cache(path, cache)
+
+    assert len(tmp_names) == 2
+    assert tmp_names[0] != tmp_names[1]
+    assert f".tmp-{real_pid}-" in tmp_names[0]
+    assert f".tmp-{real_pid + 1}-" in tmp_names[1]
+    # No leftover tmp files and the final file is still readable.
+    assert list(tmp_path.iterdir()) == [path]
+    assert read_token_cache(path) == cache
 
 
 def test_require_credentials_missing():

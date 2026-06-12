@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese
+# strings that intentionally use fullwidth punctuation.)
 from __future__ import annotations
 
 from pathlib import Path
@@ -29,6 +32,10 @@ class Vault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询个人网盘文件列表（vault.drive.list）。
+
+        space_type 取值: 1=我的文件, 2=租户文件; 支持单值或列表。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -64,6 +71,11 @@ class Vault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询录音转写记录列表（vault.record.list）。
+
+        category 录音来源: upload/link/mobile/gtNote/pc/share;
+        space_type 取值: 1=我的记录, 2=租户记录; 均支持单值或列表。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -101,6 +113,7 @@ class Vault:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询我的会议列表（vault.my-conference.list）。"""
         body = _strip_none(
             {
                 "from": from_,
@@ -141,6 +154,12 @@ class Vault:
         tag: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询微信群消息列表（vault.wechat-message.list）。
+
+        category 消息类型: text/image/documents/url; tag 标签: roadShow=路演,
+        research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
+        industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -168,6 +187,10 @@ class Vault:
         room_name: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
+
+        room_name 支持单值或列表; 请求时会拼成逗号分隔字符串。
+        """
         names = _as_list(room_name) or []
         body = _strip_none(
             {
@@ -182,6 +205,7 @@ class Vault:
         return to_dataframe(_extract_rows(result), schema=None)
 
     def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
+        """查询用户股票池 ID 与名称列表（vault.stock-pool.list）。"""
         result = self._client._call("vault.stock-pool.list", body={})
         if raw:
             return result  # type: ignore[no-any-return]
@@ -201,6 +225,10 @@ class Vault:
         pool_id: Any = "all",
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询股票池内的证券列表（vault.stock-pool.stocks）。
+
+        pool_id 默认 "all" 表示全部股票池; 真实 ID 见 stock_pool_list。
+        """
         body = {"poolIdList": _as_list(pool_id)}
         result = self._client._call("vault.stock-pool.stocks", body=body)
         if raw:
@@ -215,6 +243,10 @@ class Vault:
         file_id: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载网盘文件（vault.drive.download）。
+
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="vault.drive.download",
@@ -231,6 +263,11 @@ class Vault:
         content_type: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载录音转写文件（vault.record.download）。
+
+        content_type 取值: original=原始音频, asr=语音转写, summary=纪要。
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="vault.record.download",
@@ -247,6 +284,11 @@ class Vault:
         content_type: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载会议资源文件（vault.my-conference.download）。
+
+        content_type 取值: asr=语音转写, summary=纪要。
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="vault.my-conference.download",
@@ -275,6 +317,10 @@ class AsyncVault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询个人网盘文件列表（vault.drive.list）。
+
+        space_type 取值: 1=我的文件, 2=租户文件; 支持单值或列表。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -310,6 +356,11 @@ class AsyncVault:
         space_type: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询录音转写记录列表（vault.record.list）。
+
+        category 录音来源: upload/link/mobile/gtNote/pc/share;
+        space_type 取值: 1=我的记录, 2=租户记录; 均支持单值或列表。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -347,6 +398,7 @@ class AsyncVault:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询我的会议列表（vault.my-conference.list）。"""
         body = _strip_none(
             {
                 "from": from_,
@@ -387,6 +439,12 @@ class AsyncVault:
         tag: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询微信群消息列表（vault.wechat-message.list）。
+
+        category 消息类型: text/image/documents/url; tag 标签: roadShow=路演,
+        research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
+        industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -414,6 +472,10 @@ class AsyncVault:
         room_name: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
+
+        room_name 支持单值或列表; 请求时会拼成逗号分隔字符串。
+        """
         names = _as_list(room_name) or []
         body = _strip_none(
             {
@@ -428,6 +490,7 @@ class AsyncVault:
         return to_dataframe(_extract_rows(result), schema=None)
 
     async def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
+        """查询用户股票池 ID 与名称列表（vault.stock-pool.list）。"""
         result = await self._client._call("vault.stock-pool.list", body={})
         if raw:
             return result  # type: ignore[no-any-return]
@@ -446,6 +509,10 @@ class AsyncVault:
         pool_id: Any = "all",
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询股票池内的证券列表（vault.stock-pool.stocks）。
+
+        pool_id 默认 "all" 表示全部股票池; 真实 ID 见 stock_pool_list。
+        """
         body = {"poolIdList": _as_list(pool_id)}
         result = await self._client._call("vault.stock-pool.stocks", body=body)
         if raw:
@@ -458,6 +525,10 @@ class AsyncVault:
         file_id: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载网盘文件（vault.drive.download）。
+
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="vault.drive.download",
@@ -474,6 +545,11 @@ class AsyncVault:
         content_type: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载录音转写文件（vault.record.download）。
+
+        content_type 取值: original=原始音频, asr=语音转写, summary=纪要。
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="vault.record.download",
@@ -490,6 +566,11 @@ class AsyncVault:
         content_type: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载会议资源文件（vault.my-conference.download）。
+
+        content_type 取值: asr=语音转写, summary=纪要。
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="vault.my-conference.download",

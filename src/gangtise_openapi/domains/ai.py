@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese
+# strings that intentionally use fullwidth punctuation.)
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,6 +42,10 @@ class AI:
         end_time: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """知识库批量检索（ai.knowledge-batch）。
+
+        start_time/end_time 为毫秒时间戳。
+        """
         body = _strip_none(
             {
                 "queries": _as_list(query),
@@ -68,6 +75,10 @@ class AI:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 AI 证券线索列表（ai.security-clue.list）。
+
+        query_mode 取值: bySecurity=按证券, byIndustry=按行业。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -90,15 +101,19 @@ class AI:
         return self._client._call(endpoint_key, body={"securityCode": security_code})
 
     def one_pager(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """生成个股一页通（ai.one-pager）。"""
         return self._security_only("ai.one-pager", security_code)  # type: ignore[no-any-return]
 
     def investment_logic(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """生成个股投资逻辑（ai.investment-logic）。"""
         return self._security_only("ai.investment-logic", security_code)  # type: ignore[no-any-return]
 
     def peer_comparison(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """生成个股同业对比（ai.peer-comparison）。"""
         return self._security_only("ai.peer-comparison", security_code)  # type: ignore[no-any-return]
 
     def research_outline(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """获取个股调研提纲（ai.research-outline）。"""
         return self._security_only("ai.research-outline", security_code)  # type: ignore[no-any-return]
 
     # ---- theme-tracking ----
@@ -111,6 +126,10 @@ class AI:
         type_: Any = None,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """获取主题/题材跟踪日报（ai.theme-tracking）。
+
+        type_ 取值: morning=早报, night=晚报; 支持单值或列表。
+        """
         body = _strip_none(
             {
                 "themeId": theme_id,
@@ -134,6 +153,11 @@ class AI:
         with_close_reading: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 AI 热点主题报告列表（ai.hot-topic）。
+
+        category 取值: morningBriefing=早报 / noonBriefing=午报
+        / afternoonFlash=午后快讯 / eveningBriefing=晚报; 支持单值或列表。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -160,6 +184,11 @@ class AI:
         dimension: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """从定期报告(半年报/年报)提取管理层讨论（ai.management-discuss-announcement）。
+
+        dimension 取值: all=全部 / businessOperation=经营情况
+        / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
+        """
         body = {
             "reportDate": report_date,
             "securityCode": security_code,
@@ -175,6 +204,11 @@ class AI:
         dimension: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """从业绩说明会提取管理层讨论（ai.management-discuss-earnings-call）。
+
+        dimension 取值: all=全部 / businessOperation=经营情况
+        / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
+        """
         body = {
             "reportDate": report_date,
             "securityCode": security_code,
@@ -192,6 +226,12 @@ class AI:
         wait: bool = True,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """AI 财报点评, 异步生成（ai.earnings-review.get-id / get-content）。
+
+        period 取值: 如 2025annual=年报, 2025interim=中报, 2025q3=三季报。
+        wait=True 阻塞轮询至内容完成(退避 5→30 秒, 最多 14 次, 最长约 3 分钟);
+        wait=False 立即返回 {data_id, status}, 后续用 earnings_review_check 取结果。
+        """
         id_result = self._client._call(
             "ai.earnings-review.get-id",
             body={"securityCode": security_code, "period": period},
@@ -221,9 +261,9 @@ class AI:
         data_id: str,
         raw: bool = False,
     ) -> dict[str, Any]:
-        """Non-blocking single check. Returns whatever the server returns
-        (including `{"content": null}` for still-pending). Does NOT raise on
-        pending; callers handle that.
+        """非阻塞单次查询财报点评结果（ai.earnings-review.get-content）。
+
+        content 为 null 表示仍在生成(pending), 不抛错, 由调用方自行处理。
         """
         return self._client._call(  # type: ignore[no-any-return]
             "ai.earnings-review.get-content", body={"dataId": data_id}
@@ -236,6 +276,12 @@ class AI:
         wait: bool = True,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """AI 观点辩论/PK, 异步生成（ai.viewpoint-debate.get-id / get-content）。
+
+        viewpoint 为待辩论的投资观点文本, 建议不超过 1000 字。
+        wait=True 阻塞轮询至内容完成(退避 5→30 秒, 最多 14 次, 最长约 3 分钟);
+        wait=False 立即返回 {data_id, status}, 后续用 viewpoint_debate_check 取结果。
+        """
         id_result = self._client._call("ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint})
         if not isinstance(id_result, dict):
             raise ApiError(
@@ -262,6 +308,10 @@ class AI:
         data_id: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """非阻塞单次查询观点辩论结果（ai.viewpoint-debate.get-content）。
+
+        content 为 null 表示仍在生成(pending), 不抛错, 由调用方自行处理。
+        """
         return self._client._call(  # type: ignore[no-any-return]
             "ai.viewpoint-debate.get-content", body={"dataId": data_id}
         )
@@ -275,6 +325,10 @@ class AI:
         source_id: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载知识库资源文件（ai.knowledge-resource.download）。
+
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="ai.knowledge-resource.download",
@@ -302,6 +356,10 @@ class AsyncAI:
         end_time: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """知识库批量检索（ai.knowledge-batch）。
+
+        start_time/end_time 为毫秒时间戳。
+        """
         body = _strip_none(
             {
                 "queries": _as_list(query),
@@ -329,6 +387,10 @@ class AsyncAI:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 AI 证券线索列表（ai.security-clue.list）。
+
+        query_mode 取值: bySecurity=按证券, byIndustry=按行业。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -349,21 +411,25 @@ class AsyncAI:
         return await self._client._call(endpoint_key, body={"securityCode": security_code})
 
     async def one_pager(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """生成个股一页通（ai.one-pager）。"""
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.one-pager", security_code
         )
 
     async def investment_logic(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """生成个股投资逻辑（ai.investment-logic）。"""
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.investment-logic", security_code
         )
 
     async def peer_comparison(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """生成个股同业对比（ai.peer-comparison）。"""
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.peer-comparison", security_code
         )
 
     async def research_outline(self, *, security_code: str, raw: bool = False) -> dict[str, Any]:
+        """获取个股调研提纲（ai.research-outline）。"""
         return await self._security_only(  # type: ignore[no-any-return]
             "ai.research-outline", security_code
         )
@@ -376,6 +442,10 @@ class AsyncAI:
         type_: Any = None,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """获取主题/题材跟踪日报（ai.theme-tracking）。
+
+        type_ 取值: morning=早报, night=晚报; 支持单值或列表。
+        """
         body = _strip_none(
             {
                 "themeId": theme_id,
@@ -399,6 +469,11 @@ class AsyncAI:
         with_close_reading: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 AI 热点主题报告列表（ai.hot-topic）。
+
+        category 取值: morningBriefing=早报 / noonBriefing=午报
+        / afternoonFlash=午后快讯 / eveningBriefing=晚报; 支持单值或列表。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -423,6 +498,11 @@ class AsyncAI:
         dimension: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """从定期报告(半年报/年报)提取管理层讨论（ai.management-discuss-announcement）。
+
+        dimension 取值: all=全部 / businessOperation=经营情况
+        / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
+        """
         body = {
             "reportDate": report_date,
             "securityCode": security_code,
@@ -440,6 +520,11 @@ class AsyncAI:
         dimension: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """从业绩说明会提取管理层讨论（ai.management-discuss-earnings-call）。
+
+        dimension 取值: all=全部 / businessOperation=经营情况
+        / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
+        """
         body = {
             "reportDate": report_date,
             "securityCode": security_code,
@@ -457,6 +542,12 @@ class AsyncAI:
         wait: bool = True,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """AI 财报点评, 异步生成（ai.earnings-review.get-id / get-content）。
+
+        period 取值: 如 2025annual=年报, 2025interim=中报, 2025q3=三季报。
+        wait=True 阻塞轮询至内容完成(退避 5→30 秒, 最多 14 次, 最长约 3 分钟);
+        wait=False 立即返回 {data_id, status}, 后续用 earnings_review_check 取结果。
+        """
         id_result = await self._client._call(
             "ai.earnings-review.get-id",
             body={"securityCode": security_code, "period": period},
@@ -488,6 +579,10 @@ class AsyncAI:
         data_id: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """非阻塞单次查询财报点评结果（ai.earnings-review.get-content）。
+
+        content 为 null 表示仍在生成(pending), 不抛错, 由调用方自行处理。
+        """
         return await self._client._call(  # type: ignore[no-any-return]
             "ai.earnings-review.get-content", body={"dataId": data_id}
         )
@@ -499,6 +594,12 @@ class AsyncAI:
         wait: bool = True,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """AI 观点辩论/PK, 异步生成（ai.viewpoint-debate.get-id / get-content）。
+
+        viewpoint 为待辩论的投资观点文本, 建议不超过 1000 字。
+        wait=True 阻塞轮询至内容完成(退避 5→30 秒, 最多 14 次, 最长约 3 分钟);
+        wait=False 立即返回 {data_id, status}, 后续用 viewpoint_debate_check 取结果。
+        """
         id_result = await self._client._call(
             "ai.viewpoint-debate.get-id", body={"viewpoint": viewpoint}
         )
@@ -529,6 +630,10 @@ class AsyncAI:
         data_id: str,
         raw: bool = False,
     ) -> dict[str, Any]:
+        """非阻塞单次查询观点辩论结果（ai.viewpoint-debate.get-content）。
+
+        content 为 null 表示仍在生成(pending), 不抛错, 由调用方自行处理。
+        """
         return await self._client._call(  # type: ignore[no-any-return]
             "ai.viewpoint-debate.get-content", body={"dataId": data_id}
         )
@@ -540,6 +645,10 @@ class AsyncAI:
         source_id: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载知识库资源文件（ai.knowledge-resource.download）。
+
+        未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="ai.knowledge-resource.download",

@@ -1,11 +1,33 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._config import Config, load_config
 from gangtise_openapi._errors import ConfigError
+
+if TYPE_CHECKING:
+    from gangtise_openapi.domains import (
+        AI,
+        Alternative,
+        AsyncAI,
+        AsyncAlternative,
+        AsyncAuth,
+        AsyncFundamental,
+        AsyncInsight,
+        AsyncLookup,
+        AsyncQuote,
+        AsyncReference,
+        AsyncVault,
+        Auth,
+        Fundamental,
+        Insight,
+        Lookup,
+        Quote,
+        Reference,
+        Vault,
+    )
 
 _CONFIG_FIELDS_FOR_EQUALITY = (
     "base_url",
@@ -38,6 +60,17 @@ class _Facade:
         "vault": "gangtise_openapi.domains.vault:Vault",
     }
     # mapping populated in Phase 5: additional domains added as wrappers land.
+
+    if TYPE_CHECKING:
+        ai: AI
+        alternative: Alternative
+        auth: Auth
+        fundamental: Fundamental
+        insight: Insight
+        lookup: Lookup
+        quote: Quote
+        reference: Reference
+        vault: Vault
 
     def __init__(self) -> None:
         self._client: GangtiseClient | None = None
@@ -118,12 +151,15 @@ class _Facade:
             self._domains[name] = cls(self._ensure_client())
         return self._domains[name]
 
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | set(self._DOMAIN_FACTORIES))
+
     # ---- Async mirror ----
 
     @property
     def async_(self) -> _AsyncFacade:
         if not hasattr(self, "_async_facade"):
-            self._async_facade = _AsyncFacade()
+            self._async_facade = _AsyncFacade(parent=self)
         return self._async_facade
 
 
@@ -142,13 +178,26 @@ class _AsyncFacade:
         "alternative": "gangtise_openapi.domains.alternative:AsyncAlternative",
     }
 
-    def __init__(self) -> None:
+    if TYPE_CHECKING:
+        ai: AsyncAI
+        alternative: AsyncAlternative
+        auth: AsyncAuth
+        fundamental: AsyncFundamental
+        insight: AsyncInsight
+        lookup: AsyncLookup
+        quote: AsyncQuote
+        reference: AsyncReference
+        vault: AsyncVault
+
+    def __init__(self, parent: _Facade) -> None:
+        self._parent = parent
         self._client: AsyncGangtiseClient | None = None
         self._domains: dict[str, Any] = {}
 
     def _ensure_client(self) -> AsyncGangtiseClient:
         if self._client is None:
-            cfg = load_config()
+            parent_client = self._parent._client
+            cfg = parent_client.config if parent_client is not None else load_config()
             self._client = AsyncGangtiseClient(_config=cfg)
         return self._client
 
@@ -163,6 +212,9 @@ class _AsyncFacade:
             cls = getattr(module, class_name)
             self._domains[name] = cls(self._ensure_client())
         return self._domains[name]
+
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | set(self._DOMAIN_FACTORIES))
 
 
 gangtise = _Facade()

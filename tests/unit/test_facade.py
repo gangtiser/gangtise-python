@@ -61,3 +61,19 @@ def test_lazy_default_client_on_attribute_access(monkeypatch):
     f = _Facade()
     client = f._ensure_client()
     assert client.config.base_url == "https://lazy.test"
+
+
+@pytest.mark.parametrize("name", sorted(_Facade._DOMAIN_FACTORIES))
+def test_domain_registry_resolves_to_declared_class(name):
+    f = _Facade()
+    expected_class = _Facade._DOMAIN_FACTORIES[name].split(":")[1]
+    assert type(getattr(f, name)).__name__ == expected_class
+
+
+def test_dir_lists_domains_and_public_attrs():
+    f = _Facade()
+    listed = dir(f)
+    assert set(_Facade._DOMAIN_FACTORIES) <= set(listed)
+    assert "configure" in listed
+    assert "reset" in listed
+    assert "async_" in listed

@@ -20,7 +20,7 @@ and follows [Semantic Versioning](https://semver.org/).
   grouped payload. A concept with no constituents returns an empty DataFrame
   with the same columns. (`POST /application/open-alternative/concept/securities`)
 - `concept_id` shares the theme-id namespace used by `ai.theme_tracking` —
-  discover IDs by name via `gangtise.lookup.theme_ids_list()` (e.g. 机器人 →
+  discover IDs by name via `gangtise.lookup.theme_ids()` (e.g. 机器人 →
   `121000130`). Both sync and async wrappers were added.
 
 ### Changed

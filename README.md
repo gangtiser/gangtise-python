@@ -4,10 +4,10 @@
 
 ## 更新日志
 
-最近 5 个版本（完整记录见 [`CHANGELOG.md`](CHANGELOG.md)）：
+最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
 ### 0.1.4 - 2026-05-30
-- 新增 `alternative.concept_info` / `alternative.concept_securities`：题材（概念）指数画像与成分股；`concept_id` 与 `ai.theme_tracking` 共用题材 ID 体系，可经 `gangtise.lookup.theme_ids_list()` 按名称查询。
+- 新增 `alternative.concept_info` / `alternative.concept_securities`：题材（概念）指数画像与成分股；`concept_id` 与 `ai.theme_tracking` 共用题材 ID 体系，可经 `gangtise.lookup.theme_ids()` 按名称查询。
 - `quote.index_day_kline` 透传上游新增的 `securityName` 列（如「上证指数」）。
 - title 缓存优化：单端点标题数封顶、无新增内容时不再重写——此前会无限增长至约 58 MB，现单次写入约 1.7 MB。
 
@@ -40,7 +40,7 @@ export GANGTISE_ACCESS_KEY=ak_xxx
 export GANGTISE_SECRET_KEY=sk_xxx
 ```
 
-（也可在创建 `GangtiseClient` 时直接传入 `access_key=` 和 `secret_key=`。）令牌缓存文件位于 `~/.config/gangtise/token.json`，与 npm CLI 共用同一份。
+（也可在创建 `GangtiseClient` 时直接传入 `access_key=` 和 `secret_key=`；直接构造的 client 需配合域封装类调用接口：`from gangtise_openapi.domains import Quote; Quote(client).day_kline(...)`。）令牌缓存文件位于 `~/.config/gangtise/token.json`，与 npm CLI 共用同一份。
 
 ## 快速开始
 

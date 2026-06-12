@@ -121,7 +121,7 @@ class Alternative:
         logic, industry space, competitive landscape, and ``keyEvents``.
 
         ``concept_id`` shares the theme-id namespace — discover it by name via
-        ``gangtise.lookup.theme_ids_list()`` (e.g. 机器人 → ``121000130``). The
+        ``gangtise.lookup.theme_ids()`` (e.g. 机器人 → ``121000130``). The
         response is a single cross-section object, so it is returned as a dict
         (``raw`` is accepted for signature uniformity; the return is the same).
         """

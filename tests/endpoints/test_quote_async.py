@@ -10,7 +10,8 @@ import respx
 from gangtise_openapi._client import AsyncGangtiseClient
 from gangtise_openapi._config import Config
 from gangtise_openapi._errors import ApiError
-from gangtise_openapi.domains.quote import AsyncQuote
+from gangtise_openapi._normalize import to_dataframe
+from gangtise_openapi.domains.quote import AsyncQuote, _normalize_quote_rows
 
 
 def _cfg(tmp_path) -> Config:
@@ -60,11 +61,56 @@ async def test_async_day_kline_us_shard_count(tmp_path):
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             await AsyncQuote(client).day_kline_us(
                 security="all",
-                start_date="2026-01-01",
-                end_date="2026-01-03",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-07",  # Wed
             )
-        # 1-day shards x 3 days
+        # 1-day shards x 3 weekdays
         assert route.call_count == 3
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_all_weekend_range_makes_no_requests(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"list": []}},
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncQuote(client).day_kline(
+                security="all",
+                start_date="2026-01-03",  # Sat
+                end_date="2026-01-04",  # Sun
+            )
+        assert route.call_count == 0
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_matrix_fast_path_matches_normalize_path(tmp_path):
+    fields = ["securityCode", "tradeDate", "open", "close", "volume"]
+    rows = [
+        ["000001.SH", "2026-01-05", 10.0, 10.5, 1000],
+        ["000002.SZ", "2026-01-05", 5.0, 5.2, 2000],
+    ]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"fieldList": fields, "list": rows},
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncQuote(client).day_kline(security=["000001.SH", "000002.SZ"])
+    expected = to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+    pd.testing.assert_frame_equal(df, expected)
+    assert list(df.columns) == fields
 
 
 def _partial_failure_responder(request):

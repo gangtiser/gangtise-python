@@ -41,6 +41,26 @@ def plan_shards(
     return shards
 
 
+def drop_weekend_shards(
+    shards: Sequence[tuple[dt.date, dt.date]],
+) -> list[tuple[dt.date, dt.date]]:
+    """Drop shards whose entire window falls on Saturday/Sunday.
+
+    Markets are closed on weekends, so an all-weekend window is guaranteed to
+    return an empty list; skipping it saves the request (~29% of a 1-year
+    day-kline plan). Only 1- and 2-day windows can be all-weekend. Deliberate
+    deviation from the TS CLI, which requests these shards anyway; holidays
+    are left alone (calendar-dependent).
+    """
+    return [
+        (start, end)
+        for start, end in shards
+        if not all(
+            (start + dt.timedelta(days=i)).weekday() >= 5 for i in range((end - start).days + 1)
+        )
+    ]
+
+
 def is_all_market(security: Any) -> bool:
     if security == "all":
         return True

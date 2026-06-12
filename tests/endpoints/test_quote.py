@@ -8,7 +8,8 @@ import respx
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
 from gangtise_openapi._errors import ApiError
-from gangtise_openapi.domains.quote import Quote
+from gangtise_openapi._normalize import to_dataframe
+from gangtise_openapi.domains.quote import Quote, _normalize_quote_rows
 
 
 def _cfg(tmp_path) -> Config:
@@ -91,10 +92,10 @@ def test_day_kline_us_shard_count(tmp_path):
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             Quote(client).day_kline_us(
                 security="all",
-                start_date="2026-01-01",
-                end_date="2026-01-03",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-07",  # Wed
             )
-        # 1-day shards x 3 days
+        # 1-day shards x 3 weekdays
         assert route.call_count == 3
 
 
@@ -216,6 +217,59 @@ def test_day_kline_us_matrix_rows_are_normalized(tmp_path):
     assert df.iloc[0]["pctChange"] == 3.2394
 
 
+def test_day_kline_matrix_fast_path_matches_normalize_path(tmp_path):
+    # The direct pd.DataFrame(matrix, columns=fieldList) fast path must be
+    # byte-for-byte equivalent to the dict-per-row normalize path.
+    fields = ["securityCode", "tradeDate", "open", "close", "volume"]
+    rows = [
+        ["000001.SH", "2026-01-05", 10.0, 10.5, 1000],
+        ["000002.SZ", "2026-01-05", 5.0, 5.2, 2000],
+    ]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"fieldList": fields, "list": rows},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
+    expected = to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+    pd.testing.assert_frame_equal(df, expected)
+    assert list(df.columns) == fields
+
+
+def test_day_kline_ragged_matrix_rows_fall_back_to_normalize(tmp_path):
+    # Ragged rows must NOT take the fast path: the normalize path silently
+    # drops extra elements and leaves missing trailing fields as NaN.
+    fields = ["securityCode", "tradeDate", "close"]
+    rows = [
+        ["000001.SH", "2026-01-05", 1.0, "EXTRA"],  # too long -> extra dropped
+        ["000002.SZ", "2026-01-05"],  # too short -> close missing
+    ]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"fieldList": fields, "list": rows},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
+    assert list(df.columns) == fields
+    assert df.shape == (2, 3)
+    assert df.iloc[0]["close"] == 1.0
+    assert pd.isna(df.iloc[1]["close"])
+
+
 def test_day_kline_hk_shard_count(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         route = router.post("/application/open-quote/kline-hk/daily").mock(
@@ -227,11 +281,57 @@ def test_day_kline_hk_shard_count(tmp_path):
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             Quote(client).day_kline_hk(
                 security="all",
-                start_date="2026-01-01",
-                end_date="2026-01-05",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-09",  # Fri
             )
-        # 2-day shards x 5 days -> 3 shards
+        # 2-day shards x 5 weekdays -> 3 shards
         assert route.call_count == 3
+
+
+def test_day_kline_shards_skip_all_weekend_windows(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"list": []}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Quote(client).day_kline(
+                security="all",
+                start_date="2026-01-01",  # Thu
+                end_date="2026-01-05",  # Mon
+            )
+        # 5 daily shards, Sat 01-03 + Sun 01-04 skipped -> 3 requests
+        assert route.call_count == 3
+        sent_dates = sorted(json.loads(call.request.read())["startDate"] for call in route.calls)
+        assert sent_dates == ["2026-01-01", "2026-01-02", "2026-01-05"]
+
+
+def test_day_kline_all_weekend_range_makes_no_requests(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"list": []}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline(
+                security="all",
+                start_date="2026-01-03",  # Sat
+                end_date="2026-01-04",  # Sun
+            )
+            out = Quote(client).day_kline(
+                security="all",
+                start_date="2026-01-03",
+                end_date="2026-01-04",
+                raw=True,
+            )
+        assert route.call_count == 0
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty
+    assert out == {"list": []}
 
 
 def test_index_day_kline_30_day_shards(tmp_path):

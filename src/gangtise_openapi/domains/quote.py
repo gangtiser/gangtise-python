@@ -11,6 +11,7 @@ from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi._quote_sharding import (
     DEFAULT_FULL_MARKET_LIMIT,
     SHARD_DAYS,
+    drop_weekend_shards,
     fetch_shards,
     fetch_shards_async,
     is_all_market,
@@ -60,6 +61,27 @@ def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _kline_dataframe(rows: list[Any], fields: Any) -> pd.DataFrame:
+    """Build the K-line DataFrame, preferring direct columnar construction.
+
+    When ``fields`` is a list of column names and every row is a list of
+    exactly ``len(fields)`` values, ``pd.DataFrame(rows, columns=fields)``
+    skips the dict-per-row transpose (2-3x faster, ~half the peak memory at
+    full-market scale). Any other shape — dict rows, ragged rows, missing or
+    non-string ``fieldList`` — falls back to the normalize path, preserving
+    its pad/drop behavior for ragged rows.
+    """
+    if (
+        isinstance(fields, list)
+        and fields
+        and all(isinstance(f, str) for f in fields)
+        and rows
+        and all(isinstance(r, list) and len(r) == len(fields) for r in rows)
+    ):
+        return pd.DataFrame(rows, columns=fields)
+    return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+
+
 def _quote_rows_and_fields(result: Any) -> tuple[list[Any], Any]:
     """Pull (rows, fieldList) out of a single quote response payload."""
     if isinstance(result, dict):
@@ -91,11 +113,15 @@ class Quote:
         if needs_limit_injection(security=security, explicit_limit=limit):
             limit = DEFAULT_FULL_MARKET_LIMIT
 
+        sharded = False
         if is_all_market(security) and start_date and end_date:
-            shards = plan_shards(
-                start_date=_parse_date(start_date),
-                end_date=_parse_date(end_date),
-                days_per_shard=days_per_shard,
+            sharded = True
+            shards = drop_weekend_shards(
+                plan_shards(
+                    start_date=_parse_date(start_date),
+                    end_date=_parse_date(end_date),
+                    days_per_shard=days_per_shard,
+                )
             )
         else:
             shards = []
@@ -114,7 +140,9 @@ class Quote:
             return self._client._call(endpoint_key, body=body)
 
         failed_shards: list[tuple[dt.date, dt.date]] = []
-        if shards:
+        if sharded:
+            # An all-weekend range filters down to zero shards -> zero requests
+            # and an empty result via the merge path below.
             page_results, failed_shards = fetch_shards(
                 shards, fetch=fetch_shard, concurrency=self._client.config.page_concurrency
             )
@@ -152,10 +180,7 @@ class Quote:
             )
         if raw:
             return result_payload
-        return to_dataframe(
-            _normalize_quote_rows(rows, merged.get("fieldList")),
-            schema=None,
-        )
+        return _kline_dataframe(rows, merged.get("fieldList"))
 
     def day_kline(
         self,
@@ -303,11 +328,15 @@ class AsyncQuote:
         if needs_limit_injection(security=security, explicit_limit=limit):
             limit = DEFAULT_FULL_MARKET_LIMIT
 
+        sharded = False
         if is_all_market(security) and start_date and end_date:
-            shards = plan_shards(
-                start_date=_parse_date(start_date),
-                end_date=_parse_date(end_date),
-                days_per_shard=days_per_shard,
+            sharded = True
+            shards = drop_weekend_shards(
+                plan_shards(
+                    start_date=_parse_date(start_date),
+                    end_date=_parse_date(end_date),
+                    days_per_shard=days_per_shard,
+                )
             )
         else:
             shards = []
@@ -326,7 +355,9 @@ class AsyncQuote:
             return await self._client._call(endpoint_key, body=body)
 
         failed_shards: list[tuple[dt.date, dt.date]] = []
-        if shards:
+        if sharded:
+            # An all-weekend range filters down to zero shards -> zero requests
+            # and an empty result via the merge path below.
             page_results, failed_shards = await fetch_shards_async(
                 shards,
                 fetch=fetch_shard,
@@ -366,10 +397,7 @@ class AsyncQuote:
             )
         if raw:
             return result_payload
-        return to_dataframe(
-            _normalize_quote_rows(rows, merged.get("fieldList")),
-            schema=None,
-        )
+        return _kline_dataframe(rows, merged.get("fieldList"))
 
     async def day_kline(
         self,

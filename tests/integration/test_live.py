@@ -6,6 +6,7 @@ Skipped by default. CI never runs these.
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 from collections.abc import Iterator
 
@@ -43,3 +44,45 @@ def test_live_quote_realtime(client: GangtiseClient) -> None:
 
     df = Quote(client).realtime(security=["000001.SH"])
     assert isinstance(df, pd.DataFrame)
+
+
+def test_live_quote_day_kline_single_security(client: GangtiseClient) -> None:
+    # Single security + narrow window: must NOT trigger all-market sharding.
+    from gangtise_openapi.domains.quote import Quote
+
+    end = dt.date.today()
+    start = end - dt.timedelta(days=14)
+    df = Quote(client).day_kline(security="000001.SZ", start_date=start, end_date=end)
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) > 0
+
+
+def test_live_fundamental_valuation_analysis(client: GangtiseClient) -> None:
+    from gangtise_openapi.domains.fundamental import Fundamental
+
+    df = Fundamental(client).valuation_analysis(
+        security_code="000001.SZ", indicator="peTtm", limit=5
+    )
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) > 0
+
+
+def test_live_insight_research_list_small_page(client: GangtiseClient) -> None:
+    # Paginated endpoint: size=5 stops after a small first page; also feeds the title cache.
+    from gangtise_openapi.domains.insight import Insight
+
+    df = Insight(client).research_list(size=5)
+    assert isinstance(df, pd.DataFrame)
+    assert 0 < len(df) <= 5
+
+
+def test_live_alternative_concept_info(client: GangtiseClient) -> None:
+    from gangtise_openapi.domains.alternative import Alternative
+    from gangtise_openapi.domains.lookup import Lookup
+
+    themes = Lookup(client).theme_ids(raw=True)
+    assert isinstance(themes, list) and themes
+    concept_id = next((t["id"] for t in themes if t.get("name") == "机器人"), themes[0]["id"])
+    info = Alternative(client).concept_info(concept_id=concept_id)
+    assert isinstance(info, dict)
+    assert info

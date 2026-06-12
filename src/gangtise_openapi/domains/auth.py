@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese text
+# that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 from typing import Any
@@ -13,11 +16,11 @@ class Auth:
         self._client = client
 
     def login(self) -> dict[str, Any]:
-        """Force a login (or reuse cached token) and return the bearer header."""
+        """登录获取 access token（有缓存则复用），返回 bearer 请求头（auth.login）。"""
         return self._client.login()
 
     def status(self) -> dict[str, Any]:
-        """Inspect the current token state without forcing a network call."""
+        """查看当前 token/缓存状态。本地方法，不发起 HTTP 请求。"""
         cfg = self._client.config
         cache = read_token_cache(cfg.token_cache_path)
         return {
@@ -42,9 +45,11 @@ class AsyncAuth:
         self._client = client
 
     async def login(self) -> dict[str, Any]:
+        """登录获取 access token（有缓存则复用），返回 bearer 请求头（auth.login）。"""
         return await self._client.login()
 
     async def status(self) -> dict[str, Any]:
+        """查看当前 token/缓存状态。本地方法，不发起 HTTP 请求。"""
         cfg = self._client.config
         cache = read_token_cache(cfg.token_cache_path)
         return {

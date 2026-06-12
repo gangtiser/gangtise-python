@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese text
+# that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 from typing import Any
@@ -69,6 +72,7 @@ class Alternative:
         limit: int = 100,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """按关键词搜索行业指标（EDB）列表（alternative.edb-search）。"""
         body = {"keyword": keyword, "limit": limit}
         result = self._client._call("alternative.edb-search", body=body)
         if raw:
@@ -91,6 +95,7 @@ class Alternative:
         end_date: str,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
         body = _strip_none(
             {
                 "indicatorIdList": _as_list(indicator_id),
@@ -117,13 +122,10 @@ class Alternative:
         return result  # type: ignore[no-any-return]
 
     def concept_info(self, *, concept_id: str, raw: bool = False) -> dict[str, Any]:
-        """Latest profile of a concept (theme index): definition, investment
-        logic, industry space, competitive landscape, and ``keyEvents``.
+        """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局/keyEvents（alternative.concept-info）。
 
-        ``concept_id`` shares the theme-id namespace — discover it by name via
-        ``gangtise.lookup.theme_ids()`` (e.g. 机器人 → ``121000130``). The
-        response is a single cross-section object, so it is returned as a dict
-        (``raw`` is accepted for signature uniformity; the return is the same).
+        concept_id 与题材 ID 共用体系，可用 lookup.theme_ids() 按名查询（机器人=121000130）。
+        返回最新截面对象 dict（raw 仅为签名统一，返回相同）。
         """
         return self._client._call(  # type: ignore[no-any-return]
             "alternative.concept-info", body={"conceptId": concept_id}
@@ -132,11 +134,10 @@ class Alternative:
     def concept_securities(
         self, *, concept_id: str, raw: bool = False
     ) -> pd.DataFrame | dict[str, Any]:
-        """Constituent securities of a concept (theme index), grouped.
+        """查询概念（题材指数）成分股，按分组返回（alternative.concept-securities）。
 
-        Each security carries ``isKey`` (key-stock flag) and ``inclusionReason``.
-        The default DataFrame flattens the groups one-row-per-security with a
-        ``groupName`` column; ``raw=True`` returns the nested grouped payload.
+        默认扁平化为每行一只成分股的 DataFrame（含 groupName/isKey/inclusionReason 列）；
+        raw=True 返回嵌套分组原始 payload。concept_id 见 lookup.theme_ids()。
         """
         result = self._client._call(
             "alternative.concept-securities", body={"conceptId": concept_id}
@@ -166,6 +167,7 @@ class AsyncAlternative:
         limit: int = 100,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """按关键词搜索行业指标（EDB）列表（alternative.edb-search）。"""
         body = {"keyword": keyword, "limit": limit}
         result = await self._client._call("alternative.edb-search", body=body)
         if raw:
@@ -188,6 +190,7 @@ class AsyncAlternative:
         end_date: str,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
         body = _strip_none(
             {
                 "indicatorIdList": _as_list(indicator_id),
@@ -213,7 +216,11 @@ class AsyncAlternative:
         return result  # type: ignore[no-any-return]
 
     async def concept_info(self, *, concept_id: str, raw: bool = False) -> dict[str, Any]:
-        """Async mirror of `Alternative.concept_info`."""
+        """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局/keyEvents（alternative.concept-info）。
+
+        concept_id 与题材 ID 共用体系，可用 lookup.theme_ids() 按名查询（机器人=121000130）。
+        返回最新截面对象 dict（raw 仅为签名统一，返回相同）。
+        """
         return await self._client._call(  # type: ignore[no-any-return]
             "alternative.concept-info", body={"conceptId": concept_id}
         )
@@ -221,7 +228,11 @@ class AsyncAlternative:
     async def concept_securities(
         self, *, concept_id: str, raw: bool = False
     ) -> pd.DataFrame | dict[str, Any]:
-        """Async mirror of `Alternative.concept_securities`."""
+        """查询概念（题材指数）成分股，按分组返回（alternative.concept-securities）。
+
+        默认扁平化为每行一只成分股的 DataFrame（含 groupName/isKey/inclusionReason 列）；
+        raw=True 返回嵌套分组原始 payload。concept_id 见 lookup.theme_ids()。
+        """
         result = await self._client._call(
             "alternative.concept-securities", body={"conceptId": concept_id}
         )

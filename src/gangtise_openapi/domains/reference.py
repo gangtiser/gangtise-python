@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese text
+# that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 from typing import Any
@@ -23,6 +26,10 @@ class Reference:
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索证券 GTS 代码（reference.securities-search）。
+
+        category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金；支持单值或列表。
+        """
         # TS body shape (cli.ts:503):
         #   { keyword, category: maybeArray(category) | undefined, top: int }
         # category choices the TS CLI enforces: stock/dr/index/fund.
@@ -59,6 +66,10 @@ class AsyncReference:
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索证券 GTS 代码（reference.securities-search）。
+
+        category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金；支持单值或列表。
+        """
         body = _strip_none(
             {
                 "keyword": keyword,

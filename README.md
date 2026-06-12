@@ -6,6 +6,14 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.5 - 2026-06-12
+- 健壮性：并发遇到失效令牌只触发一次登录；失效的 `GANGTISE_TOKEN` 环境变量不再反复拖慢每次调用；异步分页/分片失败抛回 `ApiError`（不再是 `ExceptionGroup`）；K 线分片部分失败不再丢弃已取数据（结果带 `partial`/`failedShards` 标记）；缓存写盘失败不再影响请求本身。
+- 下载：令牌失效自动刷新重试、瞬时错误退避重试、支持预签名 URL 响应、4xx 保留业务错误码与中文提示、异步下载不再阻塞事件循环。
+- `gangtise.configure(...)` 现对 `gangtise.async_` 同样生效；facade 域属性支持 IDE 补全与类型检查。
+- 性能：列式 K 线直接构建 DataFrame（提速 2-3 倍）；全市场日 K 回填跳过纯周末分片（少发约 29% 请求）。
+- 对齐 TS CLI：`earning_forecast` 缺省自动取最近一年；时间参数换算与 `toTimestamp13` 一致；补齐 5 个错误码提示。
+- 全部公开方法新增中文 docstring（含枚举取值）；测试从 222 个增至 402 个。
+
 ### 0.1.4 - 2026-05-30
 - 新增 `alternative.concept_info` / `alternative.concept_securities`：题材（概念）指数画像与成分股；`concept_id` 与 `ai.theme_tracking` 共用题材 ID 体系，可经 `gangtise.lookup.theme_ids()` 按名称查询。
 - `quote.index_day_kline` 透传上游新增的 `securityName` 列（如「上证指数」）。
@@ -21,9 +29,6 @@
 
 ### 0.1.1 - 2026-05-28
 - 为所有公开方法补齐可独立运行的示例脚本（`sample/sync/`、`sample/async/`）与完整参数文档 `sample/API_PARAMETERS.md`，并统一示例输出与下载文件命名。
-
-### 0.1.0 - 2026-05-28
-- 首个 SDK 版本：同步 + 异步 API、DataFrame 默认返回、自动重试、令牌自愈、分页辅助、异步内容轮询，以及与 npm CLI 共用的令牌缓存。
 
 ## 安装
 

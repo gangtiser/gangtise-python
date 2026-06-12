@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese
+# text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 import datetime as dt
@@ -100,6 +103,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股利润表累计口径（fundamental.income-statement）。
+
+        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        """
         return self._statement(
             "fundamental.income-statement",
             security_code=security_code,
@@ -124,6 +131,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股利润表单季口径（fundamental.income-statement-quarterly）。
+
+        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        """
         return self._statement(
             "fundamental.income-statement-quarterly",
             security_code=security_code,
@@ -148,6 +159,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股资产负债表（fundamental.balance-sheet）。
+
+        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        """
         return self._statement(
             "fundamental.balance-sheet",
             security_code=security_code,
@@ -172,6 +187,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股现金流量表累计口径（fundamental.cash-flow）。
+
+        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        """
         return self._statement(
             "fundamental.cash-flow",
             security_code=security_code,
@@ -196,6 +215,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股现金流量表单季口径（fundamental.cash-flow-quarterly）。
+
+        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        """
         return self._statement(
             "fundamental.cash-flow-quarterly",
             security_code=security_code,
@@ -220,6 +243,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
+
+        period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        """
         return self._statement(
             "fundamental.income-statement-hk",
             security_code=security_code,
@@ -244,6 +271,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
+
+        period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        """
         return self._statement(
             "fundamental.balance-sheet-hk",
             security_code=security_code,
@@ -268,6 +299,10 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
+
+        period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        """
         return self._statement(
             "fundamental.cash-flow-hk",
             security_code=security_code,
@@ -293,6 +328,11 @@ class Fundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询主营业务构成（fundamental.main-business）。
+
+        breakdown 取值 product=产品 / industry=行业 / region=地区；
+        period 取值 interim=中报 / annual=年报，支持单值或列表。
+        """
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -322,6 +362,11 @@ class Fundamental:
         skip_null: bool = False,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询估值分析与历史分位（fundamental.valuation-analysis）。
+
+        indicator 取值 peTtm/pbMrq/peg/psTtm/pcfTtm/em；
+        skip_null=True 时过滤 value/percentileRank 为空的行。
+        """
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -359,6 +404,11 @@ class Fundamental:
         period: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询前十大股东 / 前十大流通股东（fundamental.top-holders）。
+
+        holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
+        period 取值 q1/interim/q3/annual/latest，支持单值或列表。
+        """
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -386,6 +436,11 @@ class Fundamental:
         latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询盈利预测一致预期（fundamental.earning-forecast）。
+
+        start_date/end_date 缺省时自动取最近一年；latest=True（默认）仅保留最新一次更新。
+        consensus 取值 netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps，支持单值或列表。
+        """
         # TS CLI parity: endDate defaults to today, startDate to 365 days back.
         today = dt.date.today()
         if end_date is None:
@@ -453,6 +508,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股利润表累计口径（fundamental.income-statement）。
+
+        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        """
         return await self._statement(
             "fundamental.income-statement",
             security_code=security_code,
@@ -477,6 +536,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股利润表单季口径（fundamental.income-statement-quarterly）。
+
+        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        """
         return await self._statement(
             "fundamental.income-statement-quarterly",
             security_code=security_code,
@@ -501,6 +564,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股资产负债表（fundamental.balance-sheet）。
+
+        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        """
         return await self._statement(
             "fundamental.balance-sheet",
             security_code=security_code,
@@ -525,6 +592,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股现金流量表累计口径（fundamental.cash-flow）。
+
+        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        """
         return await self._statement(
             "fundamental.cash-flow",
             security_code=security_code,
@@ -549,6 +620,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股现金流量表单季口径（fundamental.cash-flow-quarterly）。
+
+        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        """
         return await self._statement(
             "fundamental.cash-flow-quarterly",
             security_code=security_code,
@@ -573,6 +648,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
+
+        period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        """
         return await self._statement(
             "fundamental.income-statement-hk",
             security_code=security_code,
@@ -597,6 +676,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
+
+        period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        """
         return await self._statement(
             "fundamental.balance-sheet-hk",
             security_code=security_code,
@@ -621,6 +704,10 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
+
+        period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        """
         return await self._statement(
             "fundamental.cash-flow-hk",
             security_code=security_code,
@@ -644,6 +731,11 @@ class AsyncFundamental:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询主营业务构成（fundamental.main-business）。
+
+        breakdown 取值 product=产品 / industry=行业 / region=地区；
+        period 取值 interim=中报 / annual=年报，支持单值或列表。
+        """
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -671,6 +763,11 @@ class AsyncFundamental:
         skip_null: bool = False,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询估值分析与历史分位（fundamental.valuation-analysis）。
+
+        indicator 取值 peTtm/pbMrq/peg/psTtm/pcfTtm/em；
+        skip_null=True 时过滤 value/percentileRank 为空的行。
+        """
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -706,6 +803,11 @@ class AsyncFundamental:
         period: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询前十大股东 / 前十大流通股东（fundamental.top-holders）。
+
+        holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
+        period 取值 q1/interim/q3/annual/latest，支持单值或列表。
+        """
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -731,6 +833,11 @@ class AsyncFundamental:
         latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询盈利预测一致预期（fundamental.earning-forecast）。
+
+        start_date/end_date 缺省时自动取最近一年；latest=True（默认）仅保留最新一次更新。
+        consensus 取值 netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps，支持单值或列表。
+        """
         # TS CLI parity: endDate defaults to today, startDate to 365 days back.
         today = dt.date.today()
         if end_date is None:

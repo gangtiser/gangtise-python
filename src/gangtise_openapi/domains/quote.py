@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese
+# text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 import datetime as dt
@@ -192,6 +195,12 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股日 K 线（quote.day-kline）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return self._day_kline(
             "quote.day-kline",
             security=security,
@@ -212,6 +221,12 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股日 K 线（quote.day-kline-hk）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 2 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return self._day_kline(
             "quote.day-kline-hk",
             security=security,
@@ -232,6 +247,12 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股日 K 线（quote.day-kline-us）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return self._day_kline(
             "quote.day-kline-us",
             security=security,
@@ -252,6 +273,12 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股指数日 K 线（quote.index-day-kline）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 30 个交易日），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return self._day_kline(
             "quote.index-day-kline",
             security=security,
@@ -272,6 +299,11 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """查询 A 股分钟 K 线（quote.minute-kline）。
+
+        仅支持单只 A 股代码（不支持列表 / "all"）；
+        start_time/end_time 格式 yyyy-MM-dd HH:mm:ss。limit 默认 5000，最大 10000。
+        """
         body = _strip_none(
             {
                 "securityCode": security,
@@ -294,6 +326,11 @@ class Quote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """查询实时行情快照（quote.realtime）。
+
+        security 支持单值或列表，也可传市场关键词：
+        aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股。
+        """
         body = _strip_none(
             {
                 "securityList": _as_list(security),
@@ -409,6 +446,12 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股日 K 线（quote.day-kline）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return await self._day_kline(
             "quote.day-kline",
             security=security,
@@ -429,6 +472,12 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股日 K 线（quote.day-kline-hk）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 2 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return await self._day_kline(
             "quote.day-kline-hk",
             security=security,
@@ -449,6 +498,12 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股日 K 线（quote.day-kline-us）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return await self._day_kline(
             "quote.day-kline-us",
             security=security,
@@ -469,6 +524,12 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股指数日 K 线（quote.index-day-kline）。
+
+        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
+        （每片 30 个交易日），部分分片失败时结果带 partial/failedShards
+        标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
+        """
         return await self._day_kline(
             "quote.index-day-kline",
             security=security,
@@ -489,6 +550,11 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """查询 A 股分钟 K 线（quote.minute-kline）。
+
+        仅支持单只 A 股代码（不支持列表 / "all"）；
+        start_time/end_time 格式 yyyy-MM-dd HH:mm:ss。limit 默认 5000，最大 10000。
+        """
         body = _strip_none(
             {
                 "securityCode": security,
@@ -511,6 +577,11 @@ class AsyncQuote:
         field: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """查询实时行情快照（quote.realtime）。
+
+        security 支持单值或列表，也可传市场关键词：
+        aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股。
+        """
         body = _strip_none(
             {
                 "securityList": _as_list(security),

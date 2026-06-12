@@ -252,3 +252,27 @@ async def test_aenter_reuses_lazily_created_http_client(tmp_path):
     async with client:
         assert client._http is first
     assert first.is_closed
+
+
+def test_async_client_constructor_kwargs_builds_config(monkeypatch):
+    for name in (
+        "GANGTISE_BASE_URL",
+        "GANGTISE_ACCESS_KEY",
+        "GANGTISE_SECRET_KEY",
+        "GANGTISE_TOKEN",
+        "GANGTISE_TIMEOUT_MS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    client = AsyncGangtiseClient(
+        access_key="kw-ak",
+        secret_key="kw-sk",
+        base_url="https://kw.test",
+        token="kw-tok",
+        timeout=7.5,
+    )
+    cfg = client._config
+    assert cfg.access_key == "kw-ak"
+    assert cfg.secret_key == "kw-sk"
+    assert cfg.base_url == "https://kw.test"
+    assert cfg.token == "kw-tok"
+    assert cfg.timeout_ms == 7500

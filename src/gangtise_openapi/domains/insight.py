@@ -1,3 +1,6 @@
+# ruff: noqa: RUF002
+# (RUF002 disabled file-wide: method docstrings are user-facing Chinese
+# text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 import datetime as dt
@@ -62,6 +65,7 @@ class Insight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询国内机构首席观点列表（insight.opinion.list）。"""
         body = _strip_none(
             {
                 "from": from_,
@@ -106,6 +110,10 @@ class Insight:
         participant_role: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询纪要列表（insight.summary.list）。
+
+        market 例如 SH/SZ/HK/US。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -200,6 +208,10 @@ class Insight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询路演日程列表（insight.roadshow.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return self._schedule_list(
             "insight.roadshow.list",
             from_=from_,
@@ -238,6 +250,10 @@ class Insight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询调研/实地走访日程列表（insight.site-visit.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return self._schedule_list(
             "insight.site-visit.list",
             from_=from_,
@@ -276,6 +292,10 @@ class Insight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询策略会日程列表（insight.strategy.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return self._schedule_list(
             "insight.strategy.list",
             from_=from_,
@@ -314,6 +334,10 @@ class Insight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询论坛/电话会日程列表（insight.forum.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return self._schedule_list(
             "insight.forum.list",
             from_=from_,
@@ -357,6 +381,10 @@ class Insight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询国内券商研报列表（insight.research.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -414,6 +442,10 @@ class Insight:
         max_pages: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外研报列表（insight.foreign-report.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -464,6 +496,11 @@ class Insight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股公告列表（insight.announcement.list）。
+
+        start_time/end_time 接受日期字符串或 13 位毫秒时间戳。
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -507,6 +544,10 @@ class Insight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股公告列表（insight.announcement-hk.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -552,6 +593,10 @@ class Insight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外机构观点列表（insight.foreign-opinion.list）。
+
+        rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -590,6 +635,10 @@ class Insight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外独立分析师观点列表（insight.independent-opinion.list）。
+
+        rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -625,6 +674,10 @@ class Insight:
         file_type: int | None = None,
         output: str | Path | None = None,
     ) -> Path:
+        """下载纪要原文/HTML（insight.summary.download）。
+
+        file_type 取值 1=原文（默认） 2=HTML，仅对会议平台纪要生效。
+        """
         query: dict[str, str | int] = {"summaryId": summary_id}
         if file_type is not None:
             query["fileType"] = file_type
@@ -644,6 +697,10 @@ class Insight:
         file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
+        """下载国内券商研报（insight.research.download）。
+
+        file_type 取值 1=PDF（默认） 2=Markdown。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="insight.research.download",
@@ -660,6 +717,10 @@ class Insight:
         file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
+        """下载海外研报（insight.foreign-report.download）。
+
+        file_type 取值 1=PDF（默认） 2=Markdown 3=中译PDF 4=中译Markdown。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="insight.foreign-report.download",
@@ -676,6 +737,10 @@ class Insight:
         file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
+        """下载 A 股公告（insight.announcement.download）。
+
+        file_type 取值 1=PDF（默认） 2=Markdown。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="insight.announcement.download",
@@ -691,6 +756,7 @@ class Insight:
         announcement_id: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载港股公告（insight.announcement-hk.download）。"""
         return download_to_path(
             client=self._client,
             endpoint_key="insight.announcement-hk.download",
@@ -707,6 +773,10 @@ class Insight:
         file_type: int,
         output: str | Path | None = None,
     ) -> Path:
+        """下载海外独立分析师观点（insight.independent-opinion.download）。
+
+        file_type 必填，取值 1=原文HTML 2=中译HTML。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="insight.independent-opinion.download",
@@ -749,6 +819,7 @@ class AsyncInsight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询国内机构首席观点列表（insight.opinion.list）。"""
         body = _strip_none(
             {
                 "from": from_,
@@ -791,6 +862,10 @@ class AsyncInsight:
         participant_role: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询纪要列表（insight.summary.list）。
+
+        market 例如 SH/SZ/HK/US。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -883,6 +958,10 @@ class AsyncInsight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询路演日程列表（insight.roadshow.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return await self._schedule_list(
             "insight.roadshow.list",
             from_=from_,
@@ -921,6 +1000,10 @@ class AsyncInsight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询调研/实地走访日程列表（insight.site-visit.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return await self._schedule_list(
             "insight.site-visit.list",
             from_=from_,
@@ -959,6 +1042,10 @@ class AsyncInsight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询策略会日程列表（insight.strategy.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return await self._schedule_list(
             "insight.strategy.list",
             from_=from_,
@@ -997,6 +1084,10 @@ class AsyncInsight:
         permission: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询论坛/电话会日程列表（insight.forum.list）。
+
+        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US。
+        """
         return await self._schedule_list(
             "insight.forum.list",
             from_=from_,
@@ -1038,6 +1129,10 @@ class AsyncInsight:
         source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询国内券商研报列表（insight.research.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -1093,6 +1188,10 @@ class AsyncInsight:
         max_pages: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外研报列表（insight.foreign-report.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -1141,6 +1240,11 @@ class AsyncInsight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股公告列表（insight.announcement.list）。
+
+        start_time/end_time 接受日期字符串或 13 位毫秒时间戳。
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -1182,6 +1286,10 @@ class AsyncInsight:
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询港股公告列表（insight.announcement-hk.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -1225,6 +1333,10 @@ class AsyncInsight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外机构观点列表（insight.foreign-opinion.list）。
+
+        rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -1261,6 +1373,10 @@ class AsyncInsight:
         rating_change: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外独立分析师观点列表（insight.independent-opinion.list）。
+
+        rank_type 取值 1=综合 2=时间倒序。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -1294,6 +1410,10 @@ class AsyncInsight:
         file_type: int | None = None,
         output: str | Path | None = None,
     ) -> Path:
+        """下载纪要原文/HTML（insight.summary.download）。
+
+        file_type 取值 1=原文（默认） 2=HTML，仅对会议平台纪要生效。
+        """
         query: dict[str, str | int] = {"summaryId": summary_id}
         if file_type is not None:
             query["fileType"] = file_type
@@ -1313,6 +1433,10 @@ class AsyncInsight:
         file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
+        """下载国内券商研报（insight.research.download）。
+
+        file_type 取值 1=PDF（默认） 2=Markdown。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="insight.research.download",
@@ -1329,6 +1453,10 @@ class AsyncInsight:
         file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
+        """下载海外研报（insight.foreign-report.download）。
+
+        file_type 取值 1=PDF（默认） 2=Markdown 3=中译PDF 4=中译Markdown。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="insight.foreign-report.download",
@@ -1345,6 +1473,10 @@ class AsyncInsight:
         file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
+        """下载 A 股公告（insight.announcement.download）。
+
+        file_type 取值 1=PDF（默认） 2=Markdown。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="insight.announcement.download",
@@ -1364,6 +1496,7 @@ class AsyncInsight:
         announcement_id: str,
         output: str | Path | None = None,
     ) -> Path:
+        """下载港股公告（insight.announcement-hk.download）。"""
         return await download_to_path_async(
             client=self._client,
             endpoint_key="insight.announcement-hk.download",
@@ -1384,6 +1517,10 @@ class AsyncInsight:
         file_type: int,
         output: str | Path | None = None,
     ) -> Path:
+        """下载海外独立分析师观点（insight.independent-opinion.download）。
+
+        file_type 必填，取值 1=原文HTML 2=中译HTML。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="insight.independent-opinion.download",

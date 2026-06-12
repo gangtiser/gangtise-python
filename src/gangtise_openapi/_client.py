@@ -228,7 +228,10 @@ class GangtiseClient:
         titles = extract_titles(rows, id_field=id_field, title_field=title_field)
         if titles:
             self._title_cache.set_titles(list_endpoint_key, titles)
-            self._title_cache.flush()
+            try:
+                self._title_cache.flush()
+            except OSError:
+                logger.debug("Failed to persist title cache", exc_info=True)
         return titles.get(str(id_value))
 
     def _request_once(
@@ -419,7 +422,10 @@ class AsyncGangtiseClient:
         titles = extract_titles(rows, id_field=id_field, title_field=title_field)
         if titles:
             self._title_cache.set_titles(list_endpoint_key, titles)
-            await to_thread.run_sync(self._title_cache.flush)
+            try:
+                await to_thread.run_sync(self._title_cache.flush)
+            except OSError:
+                logger.debug("Failed to persist title cache", exc_info=True)
         return titles.get(str(id_value))
 
     async def _call(

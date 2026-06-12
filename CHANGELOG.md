@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Token handling under concurrency**: N concurrent callers hitting a stale
+  token now trigger exactly one login (TS `refreshPromise` parity); a rejected
+  `GANGTISE_TOKEN` env token is skipped after its first failure instead of
+  permanently tripling every call; the token-cache temp file is now unique per
+  writer (multi-process safe); `__enter__`/`__aenter__` reuse a lazily created
+  HTTP client instead of leaking the old pool.
+- **Async error contract**: paginated/sharded fan-out failures now raise the
+  original `ApiError` instead of anyio's `ExceptionGroup`, so `except ApiError`
+  behaves identically in sync and async code.
+- **Kline sharding** (TS `c4306fe` parity): a failed shard no longer discards
+  all fetched data — surviving shards merge with `partial: true` +
+  `failedShards` flags and a `UserWarning`; only an all-shards failure raises.
+- **Download path** (TS parity): auth self-heal (8000014/8000015 → refresh →
+  retry once), transient-error retry with backoff, presigned-`{url}` responses
+  are now fetched instead of raising, 4xx JSON envelopes preserve the business
+  code and Chinese hint, `.part` temp files are cleaned up on stream failure,
+  and the async variant no longer blocks the event loop while writing to disk.
+- **Facade**: `gangtise.configure(...)` now propagates to `gangtise.async_`
+  (previously the async facade silently re-read env vars only).
+- **TS parity details**: `fundamental.earning_forecast` injects the CLI's
+  default one-year date window when dates are omitted; `insight` timestamp
+  conversion matches `toTimestamp13` (seconds-level ints ×1000, naive datetimes
+  in local tz); `ERROR_HINTS` caught up with TS v0.15.1 (410004, 430004,
+  430007, 433007, 10011401).
+- Cache persistence failures (token cache / title cache) no longer break an
+  otherwise-successful request or download.
+- Docs referenced a non-existent `lookup.theme_ids_list()` — corrected to
+  `lookup.theme_ids()`.
+
+### Changed
+- **Performance**: columnar kline payloads build the DataFrame directly from
+  the matrix (2–3× faster, ~half the peak memory at large row counts);
+  all-market day-kline sharding skips pure-weekend windows (~29% fewer
+  requests on a 1-year backfill).
+- IDE experience: facade domain attributes are now statically typed (mypy /
+  IDE autocomplete works on `gangtise.quote.*`), `dir()` lists domains, and
+  every public wrapper method has a Chinese docstring with endpoint key and
+  enum values.
+- CI now tests the support boundary (Python 3.10 + 3.13).
+
+### Tests
+- +179 tests (222 → 401): async wire-body regression coverage for every
+  vault/insight/ai wrapper (domain coverage 64% → 94%), async transport error
+  paths, poll exhaustion, token-refresh concurrency, download error paths and
+  filename-resolution tiers, facade registry integrity, and 4 new live smokes
+  (7 total) covering quote/fundamental/insight/alternative read paths.
+
 ## [0.1.4] - 2026-05-30
 
 ### Added

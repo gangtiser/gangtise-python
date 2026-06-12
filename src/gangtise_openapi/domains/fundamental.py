@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 import pandas as pd
@@ -385,6 +386,12 @@ class Fundamental:
         latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        # TS CLI parity: endDate defaults to today, startDate to 365 days back.
+        today = dt.date.today()
+        if end_date is None:
+            end_date = today.isoformat()
+        if start_date is None:
+            start_date = (today - dt.timedelta(days=365)).isoformat()
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -724,6 +731,12 @@ class AsyncFundamental:
         latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        # TS CLI parity: endDate defaults to today, startDate to 365 days back.
+        today = dt.date.today()
+        if end_date is None:
+            end_date = today.isoformat()
+        if start_date is None:
+            start_date = (today - dt.timedelta(days=365)).isoformat()
         body = _strip_none(
             {
                 "securityCode": security_code,

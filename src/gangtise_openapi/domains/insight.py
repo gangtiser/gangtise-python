@@ -16,10 +16,22 @@ def _to_unix_ms(value: int | str | None) -> int | None:
     if value is None:
         return None
     if isinstance(value, int):
+        # TS toTimestamp13: > 1e12 is already milliseconds, > 1e9 is seconds.
+        if value > 1_000_000_000_000:
+            return value
+        if value > 1_000_000_000:
+            return value * 1000
         return value
     parsed = dt.datetime.fromisoformat(value)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        try:
+            dt.date.fromisoformat(value)
+        except ValueError:
+            # Naive datetime string: local timezone, matching `new Date()` in the CLI.
+            parsed = parsed.astimezone()
+        else:
+            # Date-only string: UTC midnight, matching `new Date("YYYY-MM-DD")`.
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
     return int(parsed.timestamp() * 1000)
 
 

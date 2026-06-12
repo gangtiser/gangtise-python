@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import datetime as dt
+import json
+
 import httpx
 import pandas as pd
 import pytest
@@ -75,3 +78,33 @@ async def test_async_valuation_analysis_skip_null(tmp_path):
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 1
     assert df.iloc[0]["value"] == 10.0
+
+
+@pytest.mark.anyio
+async def test_async_earning_forecast_injects_default_dates(tmp_path):
+    # TS CLI parity: endDate defaults to today, startDate to 365 days back.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-fundamental/earning-forecast").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "securityCode": "000001.SZ",
+                        "securityName": "PAB",
+                        "updateList": [],
+                    },
+                },
+            )
+        )
+        before = dt.date.today()
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncFundamental(client).earning_forecast(security_code="000001.SZ")
+        after = dt.date.today()
+        body = json.loads(route.calls.last.request.read())
+    assert body["endDate"] in {before.isoformat(), after.isoformat()}
+    assert body["startDate"] in {
+        (before - dt.timedelta(days=365)).isoformat(),
+        (after - dt.timedelta(days=365)).isoformat(),
+    }

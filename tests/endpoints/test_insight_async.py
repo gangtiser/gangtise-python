@@ -48,6 +48,22 @@ async def test_async_opinion_list(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_async_announcement_list_scales_seconds_int_to_ms(tmp_path):
+    # TS toTimestamp13 parity: a seconds-level int is scaled to milliseconds.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/announcement/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"total": 0, "list": []}},
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncInsight(client).announcement_list(start_time=1767225600)
+    sent = route.calls.last.request.read()
+    assert b'"startTime":1767225600000' in sent.replace(b" ", b"")
+
+
+@pytest.mark.anyio
 async def test_async_research_download_writes_file(tmp_path, seeded_config):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-insight/broker-report/download/file").mock(

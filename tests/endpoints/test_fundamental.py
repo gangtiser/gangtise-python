@@ -1,3 +1,6 @@
+import datetime as dt
+import json
+
 import httpx
 import pandas as pd
 import respx
@@ -301,6 +304,38 @@ def test_earning_forecast_default_is_latest(tmp_path):
     assert df.shape[0] == 2
     assert set(df["date"]) == {"2026-02-28"}
     assert df[df["forecastYear"] == "2025E"].iloc[0]["netIncome"] == 105.0
+
+
+def test_earning_forecast_injects_default_dates(tmp_path):
+    # TS CLI parity: endDate defaults to today, startDate to 365 days back.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-fundamental/earning-forecast").mock(
+            return_value=_earning_forecast_response(),
+        )
+        before = dt.date.today()
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Fundamental(client).earning_forecast(security_code="000001.SZ")
+        after = dt.date.today()
+        body = json.loads(route.calls.last.request.read())
+    assert body["endDate"] in {before.isoformat(), after.isoformat()}
+    assert body["startDate"] in {
+        (before - dt.timedelta(days=365)).isoformat(),
+        (after - dt.timedelta(days=365)).isoformat(),
+    }
+
+
+def test_earning_forecast_explicit_dates_kept(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-fundamental/earning-forecast").mock(
+            return_value=_earning_forecast_response(),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Fundamental(client).earning_forecast(
+                security_code="000001.SZ", start_date="2025-01-01", end_date="2025-12-31"
+            )
+        body = route.calls.last.request.read().replace(b" ", b"")
+    assert b'"startDate":"2025-01-01"' in body
+    assert b'"endDate":"2025-12-31"' in body
 
 
 def test_statement_matrix_shape_is_transposed(tmp_path):

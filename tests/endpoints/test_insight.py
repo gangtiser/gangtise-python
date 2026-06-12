@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import datetime as dt
+
 import httpx
 import pandas as pd
 import respx
 
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
-from gangtise_openapi.domains.insight import Insight
+from gangtise_openapi.domains.insight import Insight, _to_unix_ms
 
 
 def _cfg(tmp_path) -> Config:
@@ -146,6 +148,40 @@ def test_announcement_list_converts_iso_to_ms(tmp_path):
     sent = route.calls.last.request.read()
     # 2026-01-01 UTC = 1767225600000 ms
     assert b'"startTime":1767225600000' in sent.replace(b" ", b"")
+
+
+def test_announcement_list_scales_seconds_int_to_ms(tmp_path):
+    # TS toTimestamp13 parity: a seconds-level int is scaled to milliseconds.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/announcement/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"total": 0, "list": []}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Insight(client).announcement_list(start_time=1767225600)
+    sent = route.calls.last.request.read()
+    assert b'"startTime":1767225600000' in sent.replace(b" ", b"")
+
+
+def test_to_unix_ms_naive_datetime_uses_local_timezone():
+    # Matches `new Date("2026-06-01 09:00:00")` in the CLI: system-local tz.
+    expected = int(dt.datetime(2026, 6, 1, 9, 0, 0).astimezone().timestamp() * 1000)
+    assert _to_unix_ms("2026-06-01 09:00:00") == expected
+
+
+def test_to_unix_ms_date_only_stays_utc_midnight():
+    # Matches `new Date("2026-01-01")`: date-only strings are UTC midnight.
+    assert _to_unix_ms("2026-01-01") == 1767225600000
+
+
+def test_to_unix_ms_seconds_int_scaled():
+    assert _to_unix_ms(1767225600) == 1767225600000
+
+
+def test_to_unix_ms_milliseconds_int_passthrough():
+    assert _to_unix_ms(1767225600000) == 1767225600000
 
 
 def test_announcement_hk_list(tmp_path):

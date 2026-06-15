@@ -86,7 +86,7 @@ def test_strategy_list(tmp_path):
             return_value=_row_response({"id": "st1", "title": "策略会"}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Insight(client).strategy_list(market="SH")
+            df = Insight(client).strategy_list(institution="i1")
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "st1"
 
@@ -97,7 +97,7 @@ def test_forum_list(tmp_path):
             return_value=_row_response({"id": "f1", "title": "论坛"}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Insight(client).forum_list(object_="company")
+            df = Insight(client).forum_list(research_area="medicine")
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "f1"
 

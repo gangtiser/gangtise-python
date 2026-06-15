@@ -67,6 +67,19 @@ async def test_async_knowledge_batch_body_shape(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_async_knowledge_batch_empty_resource_type_omitted(tmp_path):
+    # TS omits resourceTypes when empty (`.length` guard); Python must match.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-data/ai/search/knowledge/batch").mock(
+            return_value=_list_response([{"id": "1"}]),
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncAI(client).knowledge_batch(query="q1", resource_type=[])
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"resourceTypes"' not in sent
+
+
+@pytest.mark.anyio
 async def test_async_security_clue_list_sends_bare_source(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-ai/security-clue/getList").mock(

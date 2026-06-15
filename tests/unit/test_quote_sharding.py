@@ -81,6 +81,8 @@ def test_needs_limit_injection_only_for_all_market():
     assert needs_limit_injection(security="000001.SH", explicit_limit=None) is False
     assert needs_limit_injection(security=["all"], explicit_limit=None) is True
     assert needs_limit_injection(security=["000001.SH"], explicit_limit=None) is False
+    # Mixed list with "all" must NOT shard — TS only shards for exactly ["all"].
+    assert needs_limit_injection(security=["all", "000001.SZ"], explicit_limit=None) is False
 
 
 def test_plan_shards_zero_days_per_shard_raises():

@@ -62,9 +62,10 @@ def drop_weekend_shards(
 
 
 def is_all_market(security: Any) -> bool:
+    # TS only shards when securityList is exactly ["all"]; mirror that here.
     if security == "all":
         return True
-    return isinstance(security, (list, tuple)) and "all" in security
+    return isinstance(security, (list, tuple)) and list(security) == ["all"]
 
 
 def needs_limit_injection(*, security: Any, explicit_limit: int | None) -> bool:

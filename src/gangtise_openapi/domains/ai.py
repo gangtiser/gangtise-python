@@ -50,7 +50,7 @@ class AI:
             {
                 "queries": _as_list(query),
                 "top": top,
-                "resourceTypes": _as_list(resource_type),
+                "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
                 "startTime": start_time,
                 "endTime": end_time,
@@ -364,7 +364,7 @@ class AsyncAI:
             {
                 "queries": _as_list(query),
                 "top": top,
-                "resourceTypes": _as_list(resource_type),
+                "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
                 "startTime": start_time,
                 "endTime": end_time,

@@ -144,52 +144,14 @@ class Insight:
         )
         return to_dataframe(rows, schema=None)
 
-    # ---- schedule helpers (roadshow / site-visit / strategy / forum) ----
-
-    def _schedule_list(
-        self,
-        endpoint_key: str,
-        *,
-        from_: int,
-        size: int | None,
-        start_time: str | None,
-        end_time: str | None,
-        keyword: str | None,
-        research_area: Any,
-        institution: Any,
-        security: Any,
-        category: Any,
-        market: Any,
-        participant_role: Any,
-        broker_type: Any,
-        object_: Any,
-        permission: Any,
-        location: Any,
-        raw: bool,
-    ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none(
-            {
-                "from": from_,
-                "size": size,
-                "startTime": start_time,
-                "endTime": end_time,
-                "keyword": keyword,
-                "researchAreaList": _as_list(research_area),
-                "institutionList": _as_list(institution),
-                "securityList": _as_list(security),
-                "categoryList": _as_list(category),
-                "marketList": _as_list(market),
-                "participantRoleList": _as_list(participant_role),
-                "brokerTypeList": _as_list(broker_type),
-                "objectList": _as_list(object_),
-                "permission": _as_list(permission),
-                "locationList": _as_list(location),
-            }
-        )
-        result = self._client._call(endpoint_key, body=body)
-        if raw:
-            return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+    # ---- schedule (roadshow / site-visit / strategy / forum) ----
+    #
+    # v0.17.0 of the TS CLI tightened these four endpoints: each one accepts a
+    # different subset of filters per the API spec, and the server silently
+    # returned empty rows when given a field it doesn't recognise. The Python
+    # SDK now mirrors the per-endpoint signatures exactly — unsupported kwargs
+    # are removed rather than silently dropped, so callers get TypeError on
+    # bad usage instead of empty DataFrames.
 
     def roadshow_list(
         self,
@@ -206,35 +168,42 @@ class Insight:
         market: Any = None,
         participant_role: Any = None,
         broker_type: Any = None,
-        object_: Any = None,
         permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询路演日程列表（insight.roadshow.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        category 路演类型取值 earningsCall（业绩会）/ strategyMeeting（策略会）/
+        companyAnalysis（公司分析）/ industryAnalysis（行业分析）/ fundRoadshow
+        （基金路演）；market 取值 aShares / hkStocks / usChinaConcept / usStocks；
+        participant_role 取值 management / expert；broker_type 取值
+        cnBroker / otherBroker；permission 取值 1=公开 / 2=私密；
+        research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
+        location 用 domesticCity 码。
         """
-        return self._schedule_list(
-            "insight.roadshow.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "institutionList": _as_list(institution),
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "participantRoleList": _as_list(participant_role),
+                "brokerTypeList": _as_list(broker_type),
+                "permission": _as_list(permission),
+                "locationList": _as_list(location),
+            }
         )
+        result = self._client._call("insight.roadshow.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     def site_visit_list(
         self,
@@ -247,39 +216,41 @@ class Insight:
         research_area: Any = None,
         institution: Any = None,
         security: Any = None,
+        object_: Any = None,
         category: Any = None,
         market: Any = None,
-        participant_role: Any = None,
-        broker_type: Any = None,
-        object_: Any = None,
         permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询调研/实地走访日程列表（insight.site-visit.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        object_ 取值 company / industry（请求字段 object）；category 调研形式取值
+        single（单场）/ series（系列）；market 取值 aShares / hkStocks /
+        usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
+        research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
         """
-        return self._schedule_list(
-            "insight.site-visit.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "institutionList": _as_list(institution),
+                "securityList": _as_list(security),
+                "objectList": _as_list(object_),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "permission": _as_list(permission),
+                "locationList": _as_list(location),
+            }
         )
+        result = self._client._call("insight.site-visit.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     def strategy_list(
         self,
@@ -289,42 +260,30 @@ class Insight:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        research_area: Any = None,
         institution: Any = None,
-        security: Any = None,
-        category: Any = None,
-        market: Any = None,
-        participant_role: Any = None,
-        broker_type: Any = None,
-        object_: Any = None,
-        permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询策略会日程列表（insight.strategy.list）。
+        """查询线下策略会日程列表（insight.strategy.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
+        筛选，无 research_area / security / category 等。
         """
-        return self._schedule_list(
-            "insight.strategy.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "institutionList": _as_list(institution),
+                "locationList": _as_list(location),
+            }
         )
+        result = self._client._call("insight.strategy.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     def forum_list(
         self,
@@ -335,41 +294,29 @@ class Insight:
         end_time: str | None = None,
         keyword: str | None = None,
         research_area: Any = None,
-        institution: Any = None,
-        security: Any = None,
-        category: Any = None,
-        market: Any = None,
-        participant_role: Any = None,
-        broker_type: Any = None,
-        object_: Any = None,
-        permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询论坛/电话会日程列表（insight.forum.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
+        筛选，无 institution / security / category 等。
         """
-        return self._schedule_list(
-            "insight.forum.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "locationList": _as_list(location),
+            }
         )
+        result = self._client._call("insight.forum.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     # ---- research ----
 
@@ -506,7 +453,6 @@ class Insight:
         search_type: int = 1,
         rank_type: int = 1,
         security: Any = None,
-        announcement_type: Any = None,
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
@@ -514,6 +460,8 @@ class Insight:
 
         start_time/end_time 接受日期字符串或 13 位毫秒时间戳。
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        category 公告分类 ID，用 reference.constant_list(category="aShareAnnouncementCategory")
+        查询；常用 103910200 财务报告 / 103910201 业绩预告 / 103910700 股权股本 等。
         """
         body = _strip_none(
             {
@@ -525,7 +473,6 @@ class Insight:
                 "searchType": search_type,
                 "rankType": rank_type,
                 "securityList": _as_list(security),
-                "announcementTypeList": _as_list(announcement_type),
                 "categoryList": _as_list(category),
             }
         )
@@ -554,13 +501,14 @@ class Insight:
         search_type: int = 1,
         rank_type: int = 1,
         security: Any = None,
-        announcement_type: Any = None,
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股公告列表（insight.announcement-hk.list）。
 
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        category 港股公告分类 ID，用 reference.constant_list(category="hkShareAnnouncementCategory")
+        查询。
         """
         body = _strip_none(
             {
@@ -572,7 +520,6 @@ class Insight:
                 "searchType": search_type,
                 "rankType": rank_type,
                 "securityList": _as_list(security),
-                "announcementTypeList": _as_list(announcement_type),
                 "categoryList": _as_list(category),
             }
         )
@@ -910,50 +857,8 @@ class AsyncInsight:
         )
         return to_dataframe(rows, schema=None)
 
-    async def _schedule_list(
-        self,
-        endpoint_key: str,
-        *,
-        from_: int,
-        size: int | None,
-        start_time: str | None,
-        end_time: str | None,
-        keyword: str | None,
-        research_area: Any,
-        institution: Any,
-        security: Any,
-        category: Any,
-        market: Any,
-        participant_role: Any,
-        broker_type: Any,
-        object_: Any,
-        permission: Any,
-        location: Any,
-        raw: bool,
-    ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none(
-            {
-                "from": from_,
-                "size": size,
-                "startTime": start_time,
-                "endTime": end_time,
-                "keyword": keyword,
-                "researchAreaList": _as_list(research_area),
-                "institutionList": _as_list(institution),
-                "securityList": _as_list(security),
-                "categoryList": _as_list(category),
-                "marketList": _as_list(market),
-                "participantRoleList": _as_list(participant_role),
-                "brokerTypeList": _as_list(broker_type),
-                "objectList": _as_list(object_),
-                "permission": _as_list(permission),
-                "locationList": _as_list(location),
-            }
-        )
-        result = await self._client._call(endpoint_key, body=body)
-        if raw:
-            return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+    # ---- schedule (roadshow / site-visit / strategy / forum) ----
+    # See sync Insight class for the v0.17.0 tightening rationale.
 
     async def roadshow_list(
         self,
@@ -970,35 +875,42 @@ class AsyncInsight:
         market: Any = None,
         participant_role: Any = None,
         broker_type: Any = None,
-        object_: Any = None,
         permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询路演日程列表（insight.roadshow.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        category 路演类型取值 earningsCall（业绩会）/ strategyMeeting（策略会）/
+        companyAnalysis（公司分析）/ industryAnalysis（行业分析）/ fundRoadshow
+        （基金路演）；market 取值 aShares / hkStocks / usChinaConcept / usStocks；
+        participant_role 取值 management / expert；broker_type 取值
+        cnBroker / otherBroker；permission 取值 1=公开 / 2=私密；
+        research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
+        location 用 domesticCity 码。
         """
-        return await self._schedule_list(
-            "insight.roadshow.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "institutionList": _as_list(institution),
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "participantRoleList": _as_list(participant_role),
+                "brokerTypeList": _as_list(broker_type),
+                "permission": _as_list(permission),
+                "locationList": _as_list(location),
+            }
         )
+        result = await self._client._call("insight.roadshow.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     async def site_visit_list(
         self,
@@ -1011,39 +923,41 @@ class AsyncInsight:
         research_area: Any = None,
         institution: Any = None,
         security: Any = None,
+        object_: Any = None,
         category: Any = None,
         market: Any = None,
-        participant_role: Any = None,
-        broker_type: Any = None,
-        object_: Any = None,
         permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询调研/实地走访日程列表（insight.site-visit.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        object_ 取值 company / industry（请求字段 object）；category 调研形式取值
+        single（单场）/ series（系列）；market 取值 aShares / hkStocks /
+        usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
+        research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
         """
-        return await self._schedule_list(
-            "insight.site-visit.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "institutionList": _as_list(institution),
+                "securityList": _as_list(security),
+                "objectList": _as_list(object_),
+                "categoryList": _as_list(category),
+                "marketList": _as_list(market),
+                "permission": _as_list(permission),
+                "locationList": _as_list(location),
+            }
         )
+        result = await self._client._call("insight.site-visit.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     async def strategy_list(
         self,
@@ -1053,42 +967,30 @@ class AsyncInsight:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        research_area: Any = None,
         institution: Any = None,
-        security: Any = None,
-        category: Any = None,
-        market: Any = None,
-        participant_role: Any = None,
-        broker_type: Any = None,
-        object_: Any = None,
-        permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询策略会日程列表（insight.strategy.list）。
+        """查询线下策略会日程列表（insight.strategy.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
+        筛选，无 research_area / security / category 等。
         """
-        return await self._schedule_list(
-            "insight.strategy.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "institutionList": _as_list(institution),
+                "locationList": _as_list(location),
+            }
         )
+        result = await self._client._call("insight.strategy.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     async def forum_list(
         self,
@@ -1099,41 +1001,29 @@ class AsyncInsight:
         end_time: str | None = None,
         keyword: str | None = None,
         research_area: Any = None,
-        institution: Any = None,
-        security: Any = None,
-        category: Any = None,
-        market: Any = None,
-        participant_role: Any = None,
-        broker_type: Any = None,
-        object_: Any = None,
-        permission: Any = None,
         location: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询论坛/电话会日程列表（insight.forum.list）。
 
-        object_ 取值 company=公司 / industry=行业（映射为请求字段 object）；market 例如 SH/SZ/HK/US；
-        location 为城市/省份 ID（用 reference.constant_list(category="domesticCity") 查询）。
+        服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
+        筛选，无 institution / security / category 等。
         """
-        return await self._schedule_list(
-            "insight.forum.list",
-            from_=from_,
-            size=size,
-            start_time=start_time,
-            end_time=end_time,
-            keyword=keyword,
-            research_area=research_area,
-            institution=institution,
-            security=security,
-            category=category,
-            market=market,
-            participant_role=participant_role,
-            broker_type=broker_type,
-            object_=object_,
-            permission=permission,
-            location=location,
-            raw=raw,
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "researchAreaList": _as_list(research_area),
+                "locationList": _as_list(location),
+            }
         )
+        result = await self._client._call("insight.forum.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
 
     async def research_list(
         self,
@@ -1264,7 +1154,6 @@ class AsyncInsight:
         search_type: int = 1,
         rank_type: int = 1,
         security: Any = None,
-        announcement_type: Any = None,
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
@@ -1272,6 +1161,8 @@ class AsyncInsight:
 
         start_time/end_time 接受日期字符串或 13 位毫秒时间戳。
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        category 公告分类 ID，用 reference.constant_list(category="aShareAnnouncementCategory")
+        查询；常用 103910200 财务报告 / 103910201 业绩预告 / 103910700 股权股本 等。
         """
         body = _strip_none(
             {
@@ -1283,7 +1174,6 @@ class AsyncInsight:
                 "searchType": search_type,
                 "rankType": rank_type,
                 "securityList": _as_list(security),
-                "announcementTypeList": _as_list(announcement_type),
                 "categoryList": _as_list(category),
             }
         )
@@ -1310,13 +1200,14 @@ class AsyncInsight:
         search_type: int = 1,
         rank_type: int = 1,
         security: Any = None,
-        announcement_type: Any = None,
         category: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股公告列表（insight.announcement-hk.list）。
 
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        category 港股公告分类 ID，用 reference.constant_list(category="hkShareAnnouncementCategory")
+        查询。
         """
         body = _strip_none(
             {
@@ -1328,7 +1219,6 @@ class AsyncInsight:
                 "searchType": search_type,
                 "rankType": rank_type,
                 "securityList": _as_list(security),
-                "announcementTypeList": _as_list(announcement_type),
                 "categoryList": _as_list(category),
             }
         )

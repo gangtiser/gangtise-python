@@ -141,7 +141,6 @@ async def test_async_roadshow_list_body_shape(tmp_path):
                 market="SH",
                 participant_role=1,
                 broker_type=2,
-                object_="company",
                 permission=1,
                 location="156440000",
             )
@@ -153,9 +152,9 @@ async def test_async_roadshow_list_body_shape(tmp_path):
         assert b'"marketList":["SH"]' in body
         assert b'"participantRoleList":[1]' in body
         assert b'"brokerTypeList":[2]' in body
-        assert b'"objectList":["company"]' in body
         assert b'"permission":[1]' in body
         assert b'"locationList":["156440000"]' in body
+        assert b'"objectList"' not in body  # roadshow doesn't accept object_
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "r1"
 
@@ -181,9 +180,13 @@ async def test_async_strategy_list(tmp_path):
             return_value=_row_response({"id": "st1", "title": "策略会"})
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = await AsyncInsight(client).strategy_list(market="SH")
+            df = await AsyncInsight(client).strategy_list(institution="i1")
         body = route.calls.last.request.read().replace(b" ", b"")
-        assert b'"marketList":["SH"]' in body
+        assert b'"institutionList":["i1"]' in body
+        # strategy accepts only institution + location — no market/category/etc.
+        assert b'"marketList"' not in body
+        assert b'"categoryList"' not in body
+        assert b'"researchAreaList"' not in body
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "st1"
 
@@ -195,10 +198,13 @@ async def test_async_forum_list(tmp_path):
             return_value=_row_response({"id": "f1", "title": "论坛"})
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = await AsyncInsight(client).forum_list(object_="company")
+            df = await AsyncInsight(client).forum_list(research_area="medicine")
         body = route.calls.last.request.read().replace(b" ", b"")
-        assert b'"objectList":["company"]' in body
-        assert b'"object":' not in body
+        assert b'"researchAreaList":["medicine"]' in body
+        # forum accepts only research_area + location — no object/category/etc.
+        assert b'"objectList"' not in body
+        assert b'"categoryList"' not in body
+        assert b'"institutionList"' not in body
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "f1"
 
@@ -282,7 +288,6 @@ async def test_async_announcement_list_body_shape_converts_times(tmp_path):
                 start_time="2026-01-01T00:00:00",
                 end_time=1767312000000,
                 security="000001.SZ",
-                announcement_type="annual",
                 category="dividend",
             )
         body = route.calls.last.request.read().replace(b" ", b"")
@@ -292,7 +297,7 @@ async def test_async_announcement_list_body_shape_converts_times(tmp_path):
         # int timestamps pass through unchanged
         assert b'"endTime":1767312000000' in body
         assert b'"securityList":["000001.SZ"]' in body
-        assert b'"announcementTypeList":["annual"]' in body
+        assert b'"announcementTypeList"' not in body  # dropped in v0.17.0, server ignored it
         assert b'"categoryList":["dividend"]' in body
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["announcementId"] == "a1"
@@ -308,12 +313,11 @@ async def test_async_announcement_hk_list_keeps_string_times(tmp_path):
             df = await AsyncInsight(client).announcement_hk_list(
                 start_time="2026-01-01",
                 security="00700.HK",
-                announcement_type="annual",
             )
         body = route.calls.last.request.read().replace(b" ", b"")
         assert b'"startTime":"2026-01-01"' in body
         assert b'"securityList":["00700.HK"]' in body
-        assert b'"announcementTypeList":["annual"]' in body
+        assert b'"announcementTypeList"' not in body  # dropped in v0.17.0, server ignored it
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["announcementId"] == "hk1"
 

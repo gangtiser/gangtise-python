@@ -7,7 +7,10 @@ and follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Sync with upstream CLI v0.16.0 (`f2d2a00`, `041fc60`).
+## [0.1.6] - 2026-06-15
+
+Sync with upstream CLI v0.16.0 (`f2d2a00`, `041fc60`) and v0.17.0 (`010ac02`);
+plus three bugs found in a systematic SDK audit.
 
 ### Added
 - **`reference` constant/concept/sector APIs** (5 new endpoints, sync + async):
@@ -27,6 +30,30 @@ Sync with upstream CLI v0.16.0 (`f2d2a00`, `041fc60`).
 - **`location` filter** on the four schedule lists (`insight.roadshow_list` /
   `site_visit_list` / `strategy_list` / `forum_list`): city/province ID from
   `reference.constant_list(category="domesticCity")`, sent as `locationList`.
+
+### Fixed
+- **Schedule filter tightening** (TS v0.17.0 parity): each of the four schedule
+  endpoints now exposes only the filters its API spec actually supports.
+  Previously, all four shared an identical broad signature; unsupported kwargs
+  (e.g. `strategy_list(market=...)`) were silently sent to the server, which
+  returned empty rows instead of an error. Now unsupported kwargs raise
+  `TypeError` at the call site, matching the TS `v0.17.0` per-command field
+  matrix. Specific changes by endpoint:
+  - `roadshow_list` — `object_` removed (roadshow doesn't accept it).
+  - `site_visit_list` — keeps `object_`; `market` limited to
+    `aShares/hkStocks/usChinaConcept` (no `usStocks`).
+  - `strategy_list` — narrowed to `institution` + `location` only.
+  - `forum_list` — narrowed to `research_area` + `location` only.
+- **`insight.announcement_list` / `announcement_hk_list`** (TS v0.17.0 parity):
+  `announcement_type` param removed — the server always ignored it.
+- **`ai.knowledge_batch` empty `resource_type`**: passing `resource_type=[]`
+  previously sent `"resourceTypes": []` on the wire; the TS CLI omits the field
+  when the list is empty (`.length` guard). Fixed with `_as_list(...) or None`.
+- **`_quote_sharding.is_all_market` with mixed lists**: `security=["all",
+  "000001.SZ"]` incorrectly triggered full-market sharding. TS only shards when
+  `securityList` is exactly `["all"]`; fixed to `list(security) == ["all"]`.
+- **Error hint text** for `410110`/`410111` aligned to TS `errors.ts` (mentions
+  `*-check` command and "终态" for the terminal failure code).
 
 ### Removed
 - **Six API-covered local lookup tables** (TS v0.16.0 parity):

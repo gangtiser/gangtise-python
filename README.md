@@ -1,10 +1,16 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.16.0 功能对齐，覆盖 74 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.17.0 功能对齐，覆盖 74 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.1.6 - 2026-06-15
+- 对齐 TS CLI v0.16.0/v0.17.0：新增 5 个 `reference` 接口（constant/concept/sector），下线 6 个本地 lookup 表；4 个日程列表（路演/调研/策略会/论坛）各自精简为服务端实际支持的筛选项，传入不支持的参数现在抛 `TypeError` 而非静默返回空表；`announcement_list` 删除服务端始终忽略的 `announcement_type` 参数。
+- 修复 `ai.knowledge_batch` 传空列表时向服务端发送 `"resourceTypes":[]`（TS 会省略该字段，可能导致 API 报错）。
+- 修复 `is_all_market(["all", "000001.SZ"])` 误触发全市场分片（TS 只对恰好 `["all"]` 分片）。
+- 对齐 `410110`/`410111` 错误提示文案（提及 `*-check` 命令与"终态"描述）。
 
 ### 0.1.5 - 2026-06-12
 - 健壮性：并发遇到失效令牌只触发一次登录；失效的 `GANGTISE_TOKEN` 环境变量不再反复拖慢每次调用；异步分页/分片失败抛回 `ApiError`（不再是 `ExceptionGroup`）；K 线分片部分失败不再丢弃已取数据（结果带 `partial`/`failedShards` 标记）；缓存写盘失败不再影响请求本身。

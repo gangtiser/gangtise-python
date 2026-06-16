@@ -47,6 +47,14 @@ def test_api_error_ts_v0_15_1_hints(code, fragment):
     assert fragment in str(err)
 
 
+def test_api_error_token_invalidation_hint():
+    # 0000001008 = server-side token invalidation (TS v0.17.2 errors.ts); the
+    # SDK auto re-logins and replays once when AK/SK are present.
+    err = ApiError("boom", code="0000001008")
+    assert err.hint is not None
+    assert "失效" in err.hint
+
+
 def test_api_error_unknown_code_no_hint():
     err = ApiError("weird", code="123456")
     assert err.hint is None

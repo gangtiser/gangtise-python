@@ -132,6 +132,31 @@ async def test_async_call_auth_code_8000014_triggers_one_refresh(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_async_call_auth_code_0000001008_triggers_one_refresh(tmp_path):
+    # 0000001008 = server-side token invalidation; force re-login + replay once.
+    cfg = _cfg(tmp_path)
+    _seed_stale_token(cfg)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        login_route = router.post("/application/auth/oauth/open/loginV2").mock(
+            return_value=_login_ok()
+        )
+        ep_route = router.post("/application/open-quote/quote/realtime").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json={"code": "0000001008", "status": False, "msg": "token is invalid"}
+                ),
+                httpx.Response(200, json={"code": "000000", "status": True, "data": []}),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=cfg) as client:
+            out = await client._call("quote.realtime", body={"securityList": ["x"]})
+    assert out == []
+    assert ep_route.call_count == 2
+    assert login_route.call_count == 1
+    assert ep_route.calls.last.request.headers["Authorization"] == "Bearer refreshed"
+
+
+@pytest.mark.anyio
 async def test_async_auth_refresh_failure_propagates(tmp_path):
     # 8000014 forces a refresh; when the login itself fails, that ApiError
     # surfaces to the caller (no infinite retry).

@@ -37,7 +37,11 @@ from gangtise_openapi._transport_async import (
     request_json_async,
 )
 
-AUTH_RETRY_CODES = frozenset({"8000014", "8000015"})
+# Auth errors that warrant a forced re-login + one replay. 8000014/8000015 are
+# AK/SK errors; 0000001008 is a server-side token invalidation (the token still
+# looks valid by local expiry — e.g. logged in elsewhere — so only a forced
+# refresh recovers it).
+AUTH_RETRY_CODES = frozenset({"8000014", "8000015", "0000001008"})
 
 logger = get_logger()
 

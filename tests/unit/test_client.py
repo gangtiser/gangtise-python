@@ -125,6 +125,53 @@ def test_call_auth_code_8000014_triggers_one_refresh(client_config, tmp_path):
         assert ep_route.call_count == 2
 
 
+def test_call_auth_code_0000001008_triggers_one_refresh(client_config, tmp_path):
+    # 0000001008 = server-side token invalidation (logged in elsewhere). Like
+    # 8000014/8000015 it must force one re-login and replay the request once.
+    client_config.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    client_config.token_cache_path.write_text(
+        json.dumps(
+            {
+                "accessToken": "stale",
+                "expiresIn": 1,
+                "time": 0,
+                "expiresAt": 9999999999,
+            }
+        )
+    )
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/auth/oauth/open/loginV2").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "accessToken": "refreshed",
+                        "expiresIn": 3600,
+                        "time": 0,
+                        "uid": 1,
+                        "userName": "x",
+                        "tenantId": 1,
+                    },
+                },
+            )
+        )
+        ep_route = router.post("/application/open-quote/quote/realtime").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"code": "0000001008", "status": False, "msg": "token is invalid"},
+                ),
+                httpx.Response(200, json={"code": "000000", "status": True, "data": []}),
+            ]
+        )
+        with GangtiseClient(_config=client_config) as client:
+            out = client._call("quote.realtime", body={"securityList": ["x"]})
+        assert out == []
+        assert ep_route.call_count == 2
+
+
 def test_login_returns_authorization_and_cache(client_config):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/auth/oauth/open/loginV2").mock(

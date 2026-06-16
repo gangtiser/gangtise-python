@@ -115,7 +115,7 @@ def download_to_path(
 
     Retries transient failures (429/5xx, network errors, API code 999999) with
     the same policy as the JSON request path, and force-refreshes the token
-    once on auth errors (8000014/8000015). If the endpoint answers with a JSON
+    once on auth errors (8000014/8000015/0000001008). If the endpoint answers with a JSON
     envelope whose data carries a presigned `url`, that URL is fetched instead.
 
     Resolution order for the output filename when `output` is None:

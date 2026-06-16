@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import re
 import time
+import uuid
+from functools import partial
 from pathlib import Path
 from typing import NoReturn
 
@@ -221,6 +223,18 @@ def _download_once(
         )
 
 
+def _part_path(target: Path) -> Path:
+    """Return a unique temp path for streaming ``target`` to disk.
+
+    The random token is essential: two concurrent downloads that resolve to the
+    same ``target`` must not share one ``.part`` file, or their byte streams
+    interleave into one handle and each task's cleanup unlinks the other's file.
+    Unlike the token / title caches (which guard cross-*process* writers with
+    pid+timestamp), this race is in-process, so the suffix must be unique per call.
+    """
+    return target.with_suffix(target.suffix + f".part-{uuid.uuid4().hex}")
+
+
 def _write_response_to_disk(
     *,
     client: GangtiseClient,
@@ -240,7 +254,7 @@ def _write_response_to_disk(
         title_lookup=title_lookup,
     )
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".part")
+    tmp = _part_path(target)
     try:
         with tmp.open("wb") as fh:
             for chunk in response.iter_bytes():
@@ -436,19 +450,19 @@ async def _write_response_to_disk_async(
         content_type=content_type,
         title_lookup=title_lookup,
     )
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".part")
+    await anyio.to_thread.run_sync(partial(target.parent.mkdir, parents=True, exist_ok=True))
+    tmp = _part_path(target)
     try:
         async with await anyio.open_file(tmp, "wb") as fh:
             async for chunk in response.aiter_bytes():
                 await fh.write(chunk)
-        tmp.replace(target)
+        await anyio.to_thread.run_sync(tmp.replace, target)
     except OSError as exc:
         raise DownloadError(f"failed to write to {target}: {exc}") from exc
     finally:
         # No-op after a successful replace; cleans up the .part file when the
         # stream fails mid-flight (httpx errors are not OSError subclasses).
-        tmp.unlink(missing_ok=True)
+        await anyio.to_thread.run_sync(partial(tmp.unlink, missing_ok=True))
     return target
 
 

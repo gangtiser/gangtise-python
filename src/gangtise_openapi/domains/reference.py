@@ -43,13 +43,7 @@ class Reference:
         result = self._client._call("reference.securities-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        if isinstance(result, list):
-            rows: list[Any] = result
-        elif isinstance(result, dict):
-            rows = result.get("list", [])
-        else:
-            rows = []
-        return to_dataframe(rows, schema=None)
+        return to_dataframe(_extract_rows(result), schema=None)
 
     def constant_category(
         self,
@@ -170,13 +164,7 @@ class AsyncReference:
         result = await self._client._call("reference.securities-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        if isinstance(result, list):
-            rows: list[Any] = result
-        elif isinstance(result, dict):
-            rows = result.get("list", [])
-        else:
-            rows = []
-        return to_dataframe(rows, schema=None)
+        return to_dataframe(_extract_rows(result), schema=None)
 
     async def constant_category(
         self,

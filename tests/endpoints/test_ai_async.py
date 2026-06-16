@@ -297,6 +297,42 @@ async def test_async_earnings_review_wait_true_returns_content(tmp_path, monkeyp
 
 
 @pytest.mark.anyio
+async def test_async_earnings_review_polls_on_410110_then_succeeds(tmp_path, monkeypatch):
+    # poll_content_async sleeps via anyio.sleep — monkeypatch to no-op so the
+    # 410110-pending -> retry -> success path runs instantly (<1s).
+    async def _no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr("gangtise_openapi._async_content.anyio.sleep", _no_sleep)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post(_EARNINGS_GET_ID).mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"dataId": "abc"}},
+            )
+        )
+        content_route = router.post(_EARNINGS_GET_CONTENT).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={"code": "410110", "status": False, "msg": "pending"},
+                ),
+                httpx.Response(
+                    200,
+                    json={"code": "000000", "status": True, "data": {"content": "done"}},
+                ),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = await AsyncAI(client).earnings_review(
+                security_code="600519.SH",
+                period="2026q1",
+            )
+    assert result["content"] == "done"
+    assert content_route.call_count == 2
+
+
+@pytest.mark.anyio
 async def test_async_earnings_review_wait_false_returns_pending(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         router.post(_EARNINGS_GET_ID).mock(

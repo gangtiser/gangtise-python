@@ -9,7 +9,7 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import _as_list, _strip_none
+from gangtise_openapi.domains._common import _as_list, _extract_rows, _strip_none
 
 # Stable columns for the flattened concept-securities frame. Used only to shape
 # the *empty* result (a concept with no constituents) so the columns match the
@@ -77,15 +77,7 @@ class Alternative:
         result = self._client._call("alternative.edb-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        rows: list[Any]
-        if isinstance(result, dict):
-            maybe_rows = result.get("list", [])
-            rows = maybe_rows if isinstance(maybe_rows, list) else []
-        elif isinstance(result, list):
-            rows = result
-        else:
-            rows = []
-        return to_dataframe(rows, schema=None)
+        return to_dataframe(_extract_rows(result), schema=None)
 
     def edb_data(
         self,
@@ -172,15 +164,7 @@ class AsyncAlternative:
         result = await self._client._call("alternative.edb-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        rows: list[Any]
-        if isinstance(result, dict):
-            maybe_rows = result.get("list", [])
-            rows = maybe_rows if isinstance(maybe_rows, list) else []
-        elif isinstance(result, list):
-            rows = result
-        else:
-            rows = []
-        return to_dataframe(rows, schema=None)
+        return to_dataframe(_extract_rows(result), schema=None)
 
     async def edb_data(
         self,

@@ -364,3 +364,91 @@ def test_statement_matrix_shape_is_transposed(tmp_path):
     assert df.shape == (2, 3)
     assert df.iloc[0]["revenue"] == 100.0
     assert df.iloc[1]["endDate"] == "2024-12-31"
+
+
+def test_valuation_analysis_matrix_shape_is_transposed(tmp_path):
+    # valuation-analysis serves the same columnar matrix as the statement
+    # endpoints: {"fieldList": [...], "list": [[...]]}. normalize_rows transposes
+    # it so columns come from fieldList and each inner array becomes one row.
+    # With skip_null=True the (post-transpose) row-wise filter drops any row whose
+    # value OR percentileRank is None — here the middle row (null value) is dropped.
+    matrix = {
+        "code": "000000",
+        "status": True,
+        "data": {
+            "fieldList": ["securityCode", "indicator", "date", "value", "percentileRank"],
+            "list": [
+                ["000001.SZ", "peTtm", "2026-01-02", 10.0, 0.5],
+                ["000001.SZ", "peTtm", "2026-01-03", None, 0.6],
+                ["000001.SZ", "peTtm", "2026-01-04", 12.0, 0.7],
+            ],
+        },
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/valuation-analysis").mock(
+            return_value=httpx.Response(200, json=matrix)
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).valuation_analysis(
+                security_code="000001.SZ", indicator="peTtm", skip_null=True
+            )
+    # Columns are sourced from fieldList, not integer positions.
+    assert list(df.columns) == ["securityCode", "indicator", "date", "value", "percentileRank"]
+    # Row with a null value is filtered out; the two complete rows survive,
+    # transposed so each inner array maps positionally onto fieldList.
+    assert df.shape == (2, 5)
+    assert list(df["value"]) == [10.0, 12.0]
+    assert df.iloc[0]["date"] == "2026-01-02"
+    assert df.iloc[1]["percentileRank"] == 0.7
+
+
+def test_top_holders_matrix_shape_is_transposed(tmp_path):
+    # top-holders also returns the columnar matrix shape; normalize_rows must
+    # transpose {fieldList, list:[[...]]} into named columns.
+    matrix = {
+        "code": "000000",
+        "status": True,
+        "data": {
+            "fieldList": ["securityCode", "holderType", "holderName", "holdingRatio"],
+            "list": [
+                ["000001.SZ", "top10", "Holder A", 5.5],
+                ["000001.SZ", "top10", "Holder B", 3.2],
+            ],
+        },
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/capital-structure/top-holders").mock(
+            return_value=httpx.Response(200, json=matrix)
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).top_holders(security_code="000001.SZ", holder_type="top10")
+    assert list(df.columns) == ["securityCode", "holderType", "holderName", "holdingRatio"]
+    assert df.shape == (2, 4)
+    assert df.iloc[0]["holderName"] == "Holder A"
+    assert df.iloc[1]["holdingRatio"] == 3.2
+
+
+def test_main_business_matrix_shape_is_transposed(tmp_path):
+    # main-business returns the columnar matrix shape; normalize_rows must
+    # transpose {fieldList, list:[[...]]} into named columns.
+    matrix = {
+        "code": "000000",
+        "status": True,
+        "data": {
+            "fieldList": ["securityCode", "breakdown", "name", "revenue"],
+            "list": [
+                ["000001.SZ", "product", "Segment A", 1000.0],
+                ["000001.SZ", "product", "Segment B", 600.0],
+            ],
+        },
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/main-business").mock(
+            return_value=httpx.Response(200, json=matrix)
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).main_business(security_code="000001.SZ")
+    assert list(df.columns) == ["securityCode", "breakdown", "name", "revenue"]
+    assert df.shape == (2, 4)
+    assert df.iloc[0]["name"] == "Segment A"
+    assert df.iloc[1]["revenue"] == 600.0

@@ -170,6 +170,82 @@ async def test_async_day_kline_all_shards_failed_raises_bare_api_error(tmp_path)
 
 
 @pytest.mark.anyio
+async def test_async_day_kline_hk_shard_count_and_body(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline-hk/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"list": []}},
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncQuote(client).day_kline_hk(
+                security="all",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-09",  # Fri
+            )
+        # 2-day shards x 5 weekdays -> 3 shards
+        assert route.call_count == 3
+        # day-kline-hk body uses `securityList` (camelCase, list form)
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"securityList":["all"]' in sent
+        assert b'"securityCode"' not in sent
+
+
+@pytest.mark.anyio
+async def test_async_index_day_kline_30_day_shards_and_body(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/index/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"list": []}},
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncQuote(client).index_day_kline(
+                security="all",
+                start_date="2026-01-01",
+                end_date="2026-03-31",
+            )
+        # 90 days / 30 per shard = 3 shards
+        assert route.call_count == 3
+        # index-day-kline body uses `securityList` (camelCase, list form)
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"securityList":["all"]' in sent
+        assert b'"securityCode"' not in sent
+
+
+@pytest.mark.anyio
+async def test_async_minute_kline(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/minute").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "list": [
+                            {
+                                "securityCode": "000001.SH",
+                                "datetime": "2026-01-02 10:00:00",
+                                "close": 12.3,
+                            },
+                        ]
+                    },
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncQuote(client).minute_kline(security="000001.SH")
+        # minute-kline body uses `securityCode` (singular), NOT `securityList`
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"securityCode":"000001.SH"' in sent
+        assert b'"securityList"' not in sent
+    assert df.iloc[0]["close"] == 12.3
+
+
+@pytest.mark.anyio
 async def test_async_realtime(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-quote/quote/realtime").mock(

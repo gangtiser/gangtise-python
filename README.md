@@ -6,6 +6,9 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.8 - 2026-06-16
+- 服务端把 token 挤掉（他处登录）导致本会话失效时，自动重新登录并重试一次（错误码 `0000001008` 加入 auth 重试集合，`_call` 与下载、同步与异步四条路径全覆盖），不再需要手动重新登录；补充对应中文错误提示。对齐 CLI v0.17.2。
+
 ### 0.1.7 - 2026-06-16
 - 修复并发下载临时文件竞态：两个解析到同一目标文件名的下载（同一 id 下载两次、标题相同、或显式相同 `output`）此前共用 `<目标>.part`，字节交错且互删对方临时文件（表现为 `DownloadError: No such file`）；改为每次下载用唯一后缀 `.part-<uuid>`。
 - 异步下载不再因 `mkdir`/`replace`/`unlink` 等元数据 syscall 阻塞事件循环（改走 `anyio.to_thread`）。
@@ -29,9 +32,6 @@
 - 新增 `alternative.concept_info` / `alternative.concept_securities`：题材（概念）指数画像与成分股；`concept_id` 与 `ai.theme_tracking` 共用题材 ID 体系，可经 `gangtise.lookup.theme_ids()` 按名称查询。
 - `quote.index_day_kline` 透传上游新增的 `securityName` 列（如「上证指数」）。
 - title 缓存优化：单端点标题数封顶、无新增内容时不再重写——此前会无限增长至约 58 MB，现单次写入约 1.7 MB。
-
-### 0.1.3 - 2026-05-29
-- 修复 `quote.realtime` / `quote.minute_kline` / `quote.day_kline` 与 `reference.securities_search` 列名错配导致整列为 None：改为按响应 `fieldList` 动态取列，不再硬编码列名。
 
 ## 安装
 

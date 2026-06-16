@@ -7,6 +7,16 @@ and follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-06-16
+
+### Fixed
+- **Auto-recover from server-side token invalidation** (`0000001008`): when the
+  server revokes a token that still looks valid by local expiry — e.g. the
+  account logged in elsewhere, displacing this session — the SDK now forces a
+  re-login and replays the request once, across both the `_call` and download
+  paths (sync + async), instead of failing every request until a manual
+  re-login. Adds the matching Chinese error hint. Ports CLI v0.17.2 (`1915227`).
+
 ## [0.1.7] - 2026-06-16
 
 ### Fixed

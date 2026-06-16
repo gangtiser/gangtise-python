@@ -6,6 +6,11 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.7 - 2026-06-16
+- 修复并发下载临时文件竞态：两个解析到同一目标文件名的下载（同一 id 下载两次、标题相同、或显式相同 `output`）此前共用 `<目标>.part`，字节交错且互删对方临时文件（表现为 `DownloadError: No such file`）；改为每次下载用唯一后缀 `.part-<uuid>`。
+- 异步下载不再因 `mkdir`/`replace`/`unlink` 等元数据 syscall 阻塞事件循环（改走 `anyio.to_thread`）。
+- 内部清理：`reference.securities_search`、`alternative.edb_search` 改用共享 `_extract_rows`；测试从 413 增至 431（并发下载回归、财报列式矩阵转置、异步 body 映射、异步轮询重试）。
+
 ### 0.1.6 - 2026-06-15
 - 对齐 TS CLI v0.16.0/v0.17.0：新增 5 个 `reference` 接口（constant/concept/sector），下线 6 个本地 lookup 表；4 个日程列表（路演/调研/策略会/论坛）各自精简为服务端实际支持的筛选项，传入不支持的参数现在抛 `TypeError` 而非静默返回空表；`announcement_list` 删除服务端始终忽略的 `announcement_type` 参数。
 - 修复 `ai.knowledge_batch` 传空列表时向服务端发送 `"resourceTypes":[]`（TS 会省略该字段，可能导致 API 报错）。
@@ -27,14 +32,6 @@
 
 ### 0.1.3 - 2026-05-29
 - 修复 `quote.realtime` / `quote.minute_kline` / `quote.day_kline` 与 `reference.securities_search` 列名错配导致整列为 None：改为按响应 `fieldList` 动态取列，不再硬编码列名。
-
-### 0.1.2 - 2026-05-29
-- 列式响应（`{fieldList, list:[[...]]}`）的 DataFrame 转换（新增 `normalize_rows`），修复财务报表 / 估值 / 主营构成等接口的空表问题。
-- `GANGTISE_VERBOSE` 调试日志真正生效；异步客户端不再因磁盘 I/O 阻塞事件循环。
-- `fundamental.earning_forecast` 改为返回 DataFrame；各 domain 的公共 helper 合并去重。
-
-### 0.1.1 - 2026-05-28
-- 为所有公开方法补齐可独立运行的示例脚本（`sample/sync/`、`sample/async/`）与完整参数文档 `sample/API_PARAMETERS.md`，并统一示例输出与下载文件命名。
 
 ## 安装
 

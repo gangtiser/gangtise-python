@@ -7,6 +7,34 @@ and follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-06-16
+
+### Fixed
+- **Concurrent download temp-file collision**: `download_to_path` /
+  `download_to_path_async` streamed to a deterministic `<target>.part` temp
+  file. Two concurrent downloads resolving to the same target filename (the same
+  id downloaded twice, two documents with identical titles, or the same explicit
+  `output=`) wrote into one handle — interleaving bytes — while each task's
+  cleanup unlinked the other's file, surfacing as
+  `DownloadError: ... No such file or directory`. Temp files now carry a per-call
+  unique suffix (`.part-<uuid>`), giving each download the isolation the token /
+  title caches already had.
+
+### Changed
+- **Async download no longer blocks the event loop** on filesystem metadata
+  operations: `mkdir` / `replace` / `unlink` in the async write path now run via
+  `anyio.to_thread.run_sync` (the streamed body write already used
+  `anyio.open_file`).
+- **Row extraction consolidated**: `reference.securities_search` and
+  `alternative.edb_search` (sync + async) now use the shared `_extract_rows`
+  helper instead of bespoke `isinstance` ladders — identical output on the shapes
+  these endpoints return, plus columnar-matrix fallback for free.
+- Test suite expanded 413 → 431: deterministic concurrent-download regression
+  tests, fundamental matrix-shape transpose coverage (`valuation_analysis` /
+  `top_holders` / `main_business`), async body-mapping tests for the fundamental
+  statement wrappers, async quote shard/body tests, and the async
+  `earnings_review` `410110` poll-retry path.
+
 ## [0.1.6] - 2026-06-15
 
 Sync with upstream CLI v0.16.0 (`f2d2a00`, `041fc60`) and v0.17.0 (`010ac02`);

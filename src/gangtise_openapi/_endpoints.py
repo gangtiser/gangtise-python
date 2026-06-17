@@ -189,6 +189,20 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download foreign independent opinion file",
         kind="download",
     ),
+    "insight.official-account.list": _ep(
+        "insight.official-account.list",
+        "POST",
+        "/application/open-insight/officialAccount/getList",
+        "List WeChat official account articles",
+        paginated=50,
+    ),
+    "insight.official-account.download": _ep(
+        "insight.official-account.download",
+        "GET",
+        "/application/open-insight/officialAccount/download/file",
+        "Download WeChat official account article (txt/HTML)",
+        kind="download",
+    ),
     # ─── reference ───
     "reference.securities-search": _ep(
         "reference.securities-search",

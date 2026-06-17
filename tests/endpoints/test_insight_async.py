@@ -371,6 +371,30 @@ async def test_async_independent_opinion_list_body_shape(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_async_official_account_list_body_shape(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/officialAccount/getList").mock(
+            return_value=_row_response({"articleId": "a1", "title": "公众号文章"})
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncInsight(client).official_account_list(
+                search_type=2,
+                account_id="acc1",
+                security="000001.SZ",
+                category="report",
+                industry=42,
+            )
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"searchType":2' in body
+        assert b'"accountIdList":["acc1"]' in body
+        assert b'"securityList":["000001.SZ"]' in body
+        assert b'"categoryList":["report"]' in body
+        assert b'"industryList":[42]' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["articleId"] == "a1"
+
+
+@pytest.mark.anyio
 async def test_async_raw_passthrough(tmp_path):
     row = {"id": "x", "title": "t"}
     expected = {"total": 1, "list": [row]}
@@ -383,6 +407,7 @@ async def test_async_raw_passthrough(tmp_path):
         "/application/open-insight/announcement-hk/getList",
         "/application/open-insight/foreign-opinion/getList",
         "/application/open-insight/independent-opinion/getList",
+        "/application/open-insight/officialAccount/getList",
     ]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         for path in paths:
@@ -398,6 +423,7 @@ async def test_async_raw_passthrough(tmp_path):
                 insight.announcement_hk_list,
                 insight.foreign_opinion_list,
                 insight.independent_opinion_list,
+                insight.official_account_list,
             ):
                 assert await method(raw=True) == expected
 
@@ -508,6 +534,23 @@ async def test_async_independent_opinion_download_writes_file(tmp_path, seeded_c
             )
         sent_url = str(route.calls.last.request.url)
         assert "independentOpinionId=io1" in sent_url
+        assert "fileType=1" in sent_url
+    assert path.read_bytes() == b"data"
+
+
+@pytest.mark.anyio
+async def test_async_official_account_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/officialAccount/download/file").mock(
+            return_value=httpx.Response(200, content=b"data")
+        )
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            path = await AsyncInsight(client).official_account_download(
+                article_id="a1",
+                output=tmp_path / "out.txt",
+            )
+        sent_url = str(route.calls.last.request.url)
+        assert "articleId=a1" in sent_url
         assert "fileType=1" in sent_url
     assert path.read_bytes() == b"data"
 

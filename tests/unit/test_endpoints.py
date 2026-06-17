@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 74
+    assert len(ENDPOINTS) == 76
 
 
 def test_lookup_known_endpoint():
@@ -36,6 +36,7 @@ def test_pagination_registry_matches_ts_source():
         "insight.announcement-hk.list": 50,
         "insight.foreign-opinion.list": 50,
         "insight.independent-opinion.list": 50,
+        "insight.official-account.list": 50,
         "ai.security-clue.list": 500,
         "ai.hot-topic": 20,
         "vault.drive.list": 50,
@@ -122,6 +123,8 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.foreign-opinion.list",
         "insight.independent-opinion.list",
         "insight.independent-opinion.download",
+        "insight.official-account.list",
+        "insight.official-account.download",
         "reference.securities-search",
         "reference.constant-category",
         "reference.constant-list",

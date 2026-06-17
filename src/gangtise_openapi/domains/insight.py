@@ -626,6 +626,57 @@ class Insight:
         )
         return to_dataframe(rows, schema=None)
 
+    def official_account_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int = 1,
+        rank_type: int = 1,
+        account_id: Any = None,
+        security: Any = None,
+        category: Any = None,
+        industry: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询产业公众号资讯列表（insight.official-account.list）。
+
+        search_type 取值 1=标题搜索（默认） 2=全文搜索。
+        rank_type 取值 1=综合（默认） 2=时间倒序。
+        category 文章类型可多选：news/law/report/view/data/event/meeting/
+        notice/recruit/investEdu/brand/notes/other。
+        keyword 需用数据中的具体词（如「泡泡玛特」），不能用整句白话。
+        """
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "keyword": keyword,
+                "accountIdList": _as_list(account_id),
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+                "industryList": _as_list(industry),
+            }
+        )
+        result = self._client._call("insight.official-account.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.official-account.list",
+            id_field="articleId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
     # ---- Download endpoints ----
 
     def summary_download(
@@ -752,6 +803,26 @@ class Insight:
                 "independentOpinionId",
                 independent_opinion_id,
             ),
+        )
+
+    def official_account_download(
+        self,
+        *,
+        article_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载产业公众号文章（insight.official-account.download）。
+
+        file_type 取值 1=txt（默认） 2=HTML。
+        """
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.official-account.download",
+            query={"articleId": article_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"official-account-{article_id}",
+            title_lookup=("insight.official-account.list", "articleId", article_id),
         )
 
 
@@ -1321,6 +1392,57 @@ class AsyncInsight:
         )
         return to_dataframe(rows, schema=None)
 
+    async def official_account_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int = 1,
+        rank_type: int = 1,
+        account_id: Any = None,
+        security: Any = None,
+        category: Any = None,
+        industry: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询产业公众号资讯列表（insight.official-account.list）。
+
+        search_type 取值 1=标题搜索（默认） 2=全文搜索。
+        rank_type 取值 1=综合（默认） 2=时间倒序。
+        category 文章类型可多选：news/law/report/view/data/event/meeting/
+        notice/recruit/investEdu/brand/notes/other。
+        keyword 需用数据中的具体词（如「泡泡玛特」），不能用整句白话。
+        """
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "keyword": keyword,
+                "accountIdList": _as_list(account_id),
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+                "industryList": _as_list(industry),
+            }
+        )
+        result = await self._client._call("insight.official-account.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        await self._client._record_list_titles(
+            list_endpoint_key="insight.official-account.list",
+            id_field="articleId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
     async def summary_download(
         self,
         *,
@@ -1453,4 +1575,24 @@ class AsyncInsight:
                 "independentOpinionId",
                 independent_opinion_id,
             ),
+        )
+
+    async def official_account_download(
+        self,
+        *,
+        article_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载产业公众号文章（insight.official-account.download）。
+
+        file_type 取值 1=txt（默认） 2=HTML。
+        """
+        return await download_to_path_async(
+            client=self._client,
+            endpoint_key="insight.official-account.download",
+            query={"articleId": article_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"official-account-{article_id}",
+            title_lookup=("insight.official-account.list", "articleId", article_id),
         )

@@ -217,6 +217,30 @@ def test_independent_opinion_list(tmp_path):
     assert df.iloc[0]["id"] == "io1"
 
 
+def test_official_account_list_body_shape(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/officialAccount/getList").mock(
+            return_value=_row_response({"articleId": "a1", "title": "公众号文章"}),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Insight(client).official_account_list(
+                search_type=2,
+                account_id="acc1",
+                security="000001.SZ",
+                category="report",
+                industry=42,
+            )
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"searchType":2' in body
+        assert b'"rankType":1' in body
+        assert b'"accountIdList":["acc1"]' in body
+        assert b'"securityList":["000001.SZ"]' in body
+        assert b'"categoryList":["report"]' in body
+        assert b'"industryList":[42]' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["articleId"] == "a1"
+
+
 # ---- Download endpoint tests ----
 
 
@@ -391,3 +415,20 @@ def test_research_download_uses_title_cache(tmp_path, monkeypatch, seeded_config
             path = insight.research_download(report_id="r1")
     assert path.name.startswith("Alpha Report 2026Q1")
     assert path.suffix == ".pdf"
+
+
+def test_official_account_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/officialAccount/download/file").mock(
+            return_value=httpx.Response(200, content=b"data")
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).official_account_download(
+                article_id="a1",
+                output=tmp_path / "out.txt",
+            )
+        sent_url = str(route.calls.last.request.url)
+        assert "articleId=a1" in sent_url
+        assert "fileType=1" in sent_url
+    assert path == tmp_path / "out.txt"
+    assert path.read_bytes() == b"data"

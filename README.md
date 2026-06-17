@@ -6,6 +6,9 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.9 - 2026-06-17
+- 新增产业公众号资讯接口（对齐 CLI v0.18.0）：`insight.official_account_list` 按关键词/公众号/证券/文章类型（枚举）/行业分页检索，支持 `search_type`（1=标题 2=全文）与 `rank_type`（1=综合 2=时间倒序）；`insight.official_account_download` 按 `article_id` 下载文章为 txt（默认 `file_type=1`）或 HTML（`file_type=2`）。同步+异步双实现，下载走 title 缓存解析文件名。
+
 ### 0.1.8 - 2026-06-16
 - 服务端把 token 挤掉（他处登录）导致本会话失效时，自动重新登录并重试一次（错误码 `0000001008` 加入 auth 重试集合，`_call` 与下载、同步与异步四条路径全覆盖），不再需要手动重新登录；补充对应中文错误提示。对齐 CLI v0.17.2。
 
@@ -27,11 +30,6 @@
 - 性能：列式 K 线直接构建 DataFrame（提速 2-3 倍）；全市场日 K 回填跳过纯周末分片（少发约 29% 请求）。
 - 对齐 TS CLI：`earning_forecast` 缺省自动取最近一年；时间参数换算与 `toTimestamp13` 一致；补齐 5 个错误码提示。
 - 全部公开方法新增中文 docstring（含枚举取值）；测试从 222 个增至 402 个。
-
-### 0.1.4 - 2026-05-30
-- 新增 `alternative.concept_info` / `alternative.concept_securities`：题材（概念）指数画像与成分股；`concept_id` 与 `ai.theme_tracking` 共用题材 ID 体系，可经 `gangtise.lookup.theme_ids()` 按名称查询。
-- `quote.index_day_kline` 透传上游新增的 `securityName` 列（如「上证指数」）。
-- title 缓存优化：单端点标题数封顶、无新增内容时不再重写——此前会无限增长至约 58 MB，现单次写入约 1.7 MB。
 
 ## 安装
 

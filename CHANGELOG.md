@@ -7,6 +7,17 @@ and follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-06-17
+
+### Added
+- **Insight official-account (WeChat) endpoints**: `official_account_list`
+  paginates 产业公众号 articles by keyword / account / security / category (enum) /
+  industry, with `search_type` (1=title, 2=fulltext) and `rank_type` (1=composite,
+  2=time-desc); `official_account_download` fetches an article as txt (default,
+  `file_type=1`) or HTML (`file_type=2`) by `article_id`. Both wrappers ship sync
+  + async, with title-cache filename resolution on download. Ports CLI v0.18.0
+  (`4ce9556`).
+
 ## [0.1.8] - 2026-06-16
 
 ### Fixed

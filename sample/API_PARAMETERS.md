@@ -43,12 +43,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `insight` | `announcement_hk_list` | [insight_announcement_hk_list.py](sync/insight_announcement_hk_list.py) | [insight_announcement_hk_list.py](async/insight_announcement_hk_list.py) |
 | `insight` | `foreign_opinion_list` | [insight_foreign_opinion_list.py](sync/insight_foreign_opinion_list.py) | [insight_foreign_opinion_list.py](async/insight_foreign_opinion_list.py) |
 | `insight` | `independent_opinion_list` | [insight_independent_opinion_list.py](sync/insight_independent_opinion_list.py) | [insight_independent_opinion_list.py](async/insight_independent_opinion_list.py) |
+| `insight` | `official_account_list` | [insight_official_account_list.py](sync/insight_official_account_list.py) | [insight_official_account_list.py](async/insight_official_account_list.py) |
 | `insight` | `summary_download` | [insight_summary_download.py](sync/insight_summary_download.py) | [insight_summary_download.py](async/insight_summary_download.py) |
 | `insight` | `research_download` | [insight_research_download.py](sync/insight_research_download.py) | [insight_research_download.py](async/insight_research_download.py) |
 | `insight` | `foreign_report_download` | [insight_foreign_report_download.py](sync/insight_foreign_report_download.py) | [insight_foreign_report_download.py](async/insight_foreign_report_download.py) |
 | `insight` | `announcement_download` | [insight_announcement_download.py](sync/insight_announcement_download.py) | [insight_announcement_download.py](async/insight_announcement_download.py) |
 | `insight` | `announcement_hk_download` | [insight_announcement_hk_download.py](sync/insight_announcement_hk_download.py) | [insight_announcement_hk_download.py](async/insight_announcement_hk_download.py) |
 | `insight` | `independent_opinion_download` | [insight_independent_opinion_download.py](sync/insight_independent_opinion_download.py) | [insight_independent_opinion_download.py](async/insight_independent_opinion_download.py) |
+| `insight` | `official_account_download` | [insight_official_account_download.py](sync/insight_official_account_download.py) | [insight_official_account_download.py](async/insight_official_account_download.py) |
 | `fundamental` | `income_statement` | [fundamental_income_statement.py](sync/fundamental_income_statement.py) | [fundamental_income_statement.py](async/fundamental_income_statement.py) |
 | `fundamental` | `income_statement_quarterly` | [fundamental_income_statement_quarterly.py](sync/fundamental_income_statement_quarterly.py) | [fundamental_income_statement_quarterly.py](async/fundamental_income_statement_quarterly.py) |
 | `fundamental` | `balance_sheet` | [fundamental_balance_sheet.py](sync/fundamental_balance_sheet.py) | [fundamental_balance_sheet.py](async/fundamental_balance_sheet.py) |
@@ -613,6 +615,28 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
+### `insight.official_account_list`
+
+- Endpoint: `insight.official-account.list` `POST /application/open-insight/officialAccount/getList` - List WeChat official account articles, paginated max size 50
+- Sync sample: `sample/sync/insight_official_account_list.py`
+- Async sample: `sample/async/insight_official_account_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int | None` | 否 | `None` | `5` | 分页大小；省略则按 endpoint 最大页大小 50 自动分页。 |
+| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；接受日期或时间字符串。 |
+| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；接受日期或时间字符串。 |
+| `keyword` | `str | None` | 否 | `None` | `"泡泡玛特"` | 搜索关键词；需用数据中的具体词，不能用整句白话。 |
+| `search_type` | `int` | 否 | `1` | `2` | 搜索方式：1=标题（默认） 2=全文。 |
+| `rank_type` | `int` | 否 | `1` | `2` | 排序方式：1=综合（默认） 2=时间倒序。 |
+| `account_id` | `Any` | 否 | `None` | `None` | 公众号 ID 过滤，取自列表返回的 accountId 列，支持单值或列表。 |
+| `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"report"` | 文章类型，支持单值或列表，枚举：news/law/report/view/data/event/meeting/notice/recruit/investEdu/brand/notes/other。 |
+| `industry` | `Any` | 否 | `None` | `1` | 行业 ID 过滤（中信/申万），支持单值或列表。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
 ### `insight.summary_download`
 
 - Endpoint: `insight.summary.download` `GET /application/open-insight/summary/v2/download/file` - Download summary file
@@ -689,6 +713,19 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `independent_opinion_id` | `str` | 是 | - | `"<independentOpinionId>"` | 独立观点 ID，通常来自 independent_opinion_list。 |
 | `file_type` | `int` | 是 | - | `1` | 文件类型代码；下载接口常用 1。 |
 | `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+
+### `insight.official_account_download`
+
+- Endpoint: `insight.official-account.download` `GET /application/open-insight/officialAccount/download/file` - Download WeChat official account article (txt/HTML)
+- Sync sample: `sample/sync/insight_official_account_download.py`
+- Async sample: `sample/async/insight_official_account_download.py`
+- Return annotation: `Path`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `article_id` | `str` | 是 | - | `"<articleId>"` | 文章 ID，通常来自 official_account_list 返回的 articleId 列。 |
+| `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=txt（默认） 2=HTML。 |
+| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.txt")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
 
 
 ## Fundamental data (`gangtise.fundamental`)

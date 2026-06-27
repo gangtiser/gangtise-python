@@ -183,3 +183,24 @@ async def test_async_sector_constituents_body(tmp_path):
         assert b'"sectorId":"2000000014"' in body
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["gtsCode"] == "821047.SWI"
+
+
+@pytest.mark.anyio
+async def test_async_chiefs_search(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-reference/chiefs/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": [{"chiefId": "c1", "chiefName": "张三"}],
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncReference(client).chiefs_search(keyword="张三", top=5)
+        body = json.loads(route.calls.last.request.read())
+        assert body == {"keyword": "张三", "top": 5}
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["chiefId"] == "c1"

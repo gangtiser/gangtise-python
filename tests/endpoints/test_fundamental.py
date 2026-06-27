@@ -124,6 +124,36 @@ def test_cash_flow_hk(tmp_path):
     assert df.iloc[0]["operatingCashFlow"] == 333.0
 
 
+def test_income_statement_us(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/income-statement/us").mock(
+            return_value=_row_response({"securityCode": "TSLA.O", "revenue": 250.0}),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).income_statement_us(security_code="TSLA.O")
+    assert df.iloc[0]["securityCode"] == "TSLA.O"
+
+
+def test_balance_sheet_us(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/balance-sheet/us").mock(
+            return_value=_row_response({"securityCode": "TSLA.O", "totalAssets": 12345.0}),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).balance_sheet_us(security_code="TSLA.O")
+    assert df.iloc[0]["totalAssets"] == 12345.0
+
+
+def test_cash_flow_us(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/cash-flow-statement/us").mock(
+            return_value=_row_response({"securityCode": "TSLA.O", "operatingCashFlow": 77.0}),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Fundamental(client).cash_flow_us(security_code="TSLA.O")
+    assert df.iloc[0]["operatingCashFlow"] == 77.0
+
+
 def test_main_business(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-fundamental/main-business").mock(

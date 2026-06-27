@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import warnings
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -8,9 +10,6 @@ import anyio
 
 from gangtise_openapi._endpoints import EndpointDef
 from gangtise_openapi._errors import ValidationError
-from gangtise_openapi._logging import get_logger
-
-logger = get_logger()
 
 MAX_PAGES = 1000
 
@@ -105,25 +104,85 @@ def collect_paginated(
         remaining_requests.append({**initial, "from": next_from, "size": size})
         next_from += size
     if len(remaining_requests) + 1 > MAX_PAGES:
-        logger.warning(
-            "pagination capped at MAX_PAGES=%d for %s; dropping %d page(s) of results",
-            MAX_PAGES,
-            endpoint.key,
-            len(remaining_requests) + 1 - MAX_PAGES,
-        )
+        _warn_capped(endpoint, len(remaining_requests) + 1 - MAX_PAGES)
         remaining_requests = remaining_requests[: MAX_PAGES - 1]
 
+    # Fail-soft fan-out (TS parity): a hard page failure (rate limit, no-perm,
+    # retries exhausted) must NOT discard the pages already fetched. Catch per
+    # page, record it, and stop starting new requests so we don't keep burning
+    # quota into a rate limit. firstPage already succeeded to get here.
+    failed_pages: list[dict[str, Any]] = []
+    state: dict[str, Any] = {"aborted": False, "first_error": None}
     if remaining_requests:
         workers = max(1, min(concurrency, len(remaining_requests)))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            pages = list(pool.map(fetch, remaining_requests))
-        for page in pages:
+        lock = threading.Lock()
+
+        def _run_page(req: dict[str, Any]) -> list[Any]:
+            with lock:
+                if state["aborted"]:
+                    failed_pages.append(req)
+                    return []
+            try:
+                page = fetch(req)
+            except Exception as error:  # fail-soft: record and keep prior pages
+                with lock:
+                    if state["first_error"] is None:
+                        state["first_error"] = error
+                    state["aborted"] = True
+                    failed_pages.append(req)
+                return []
             if _is_paginated_response(page) and page["list"]:
-                collected.extend(page["list"])
+                return page["list"]  # type: ignore[no-any-return]
+            return []
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            page_lists = list(pool.map(_run_page, remaining_requests))
+        for page_list in page_lists:
+            collected.extend(page_list)
 
     if requested_size is not None:
         collected = collected[:requested_size]
-    return {**first_page, "total": total, "list": collected}
+    return _finalize_partial(first_page, total, collected, failed_pages, state, endpoint)
+
+
+def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
+    """Warn when the MAX_PAGES cap drops trailing pages from the result. Uses
+    ``warnings.warn`` (not a silent ``logger``) so the truncation surfaces on the
+    default DataFrame path too, consistent with the fail-soft warning below."""
+    warnings.warn(
+        f"pagination capped at MAX_PAGES={MAX_PAGES} for {endpoint.key}; "
+        f"dropping {dropped} page(s) of results",
+        stacklevel=2,
+    )
+
+
+def _finalize_partial(
+    first_page: dict[str, Any],
+    total: int,
+    collected: list[Any],
+    failed_pages: list[dict[str, Any]],
+    state: dict[str, Any],
+    endpoint: EndpointDef,
+) -> dict[str, Any]:
+    """Assemble the paginated result, tagging it ``partial`` when fan-out pages
+    failed. Shared by the sync and async collectors."""
+    result: dict[str, Any] = {**first_page, "total": total, "list": collected}
+    if failed_pages:
+        result["partial"] = True
+        result["failedPages"] = [{"from": p["from"], "size": p["size"]} for p in failed_pages]
+        first_error = state.get("first_error")
+        detail = f": {first_error}" if first_error is not None else ""
+        # Surface via warnings.warn (not logger) so the default DataFrame path —
+        # which drops the partial/failedPages dict keys — still signals the gap to
+        # callers who never set raw=True. Mirrors the K-line shard path (quote.py);
+        # the SDK's default logger is a NullHandler, so logger.warning is silent.
+        warnings.warn(
+            f"{len(failed_pages)} page(s) not fetched for {endpoint.key}{detail}; "
+            f"results are partial — got {len(collected)}/{total} rows "
+            "(see failedPages in raw output)",
+            stacklevel=2,
+        )
+    return result
 
 
 AsyncPageFetcher = Callable[[dict[str, Any]], Any]  # returns Awaitable
@@ -172,36 +231,38 @@ async def collect_paginated_async(
         remaining_requests.append({**initial, "from": next_from, "size": size})
         next_from += size
     if len(remaining_requests) + 1 > MAX_PAGES:
-        logger.warning(
-            "pagination capped at MAX_PAGES=%d for %s; dropping %d page(s) of results",
-            MAX_PAGES,
-            endpoint.key,
-            len(remaining_requests) + 1 - MAX_PAGES,
-        )
+        _warn_capped(endpoint, len(remaining_requests) + 1 - MAX_PAGES)
         remaining_requests = remaining_requests[: MAX_PAGES - 1]
 
     pages: list[Any | None] = [None] * len(remaining_requests)
+    # Fail-soft fan-out (TS parity): keep pages already fetched when a later page
+    # hits a non-retryable error; record the failures and stop starting new
+    # requests. See the sync sibling in collect_paginated.
+    failed_pages: list[dict[str, Any]] = []
+    state: dict[str, Any] = {"aborted": False, "first_error": None}
     if remaining_requests:
         semaphore = anyio.Semaphore(max(1, min(concurrency, len(remaining_requests))))
 
         async def run_one(idx: int, req: dict[str, Any]) -> None:
             async with semaphore:
-                pages[idx] = await fetch(req)
+                if state["aborted"]:
+                    failed_pages.append(req)
+                    return
+                try:
+                    pages[idx] = await fetch(req)
+                except Exception as error:  # fail-soft: record and keep prior pages
+                    if state["first_error"] is None:
+                        state["first_error"] = error
+                    state["aborted"] = True
+                    failed_pages.append(req)
 
-        try:
-            async with anyio.create_task_group() as tg:
-                for idx, req in enumerate(remaining_requests):
-                    tg.start_soon(run_one, idx, req)
-        except BaseException as eg:
-            leaf = first_leaf_exception(eg)
-            if leaf is eg:
-                raise
-            # Mirror the sync path (pool.map raises the bare first error).
-            raise leaf from eg
+        async with anyio.create_task_group() as tg:
+            for idx, req in enumerate(remaining_requests):
+                tg.start_soon(run_one, idx, req)
 
     for page in pages:
         if page is not None and _is_paginated_response(page) and page["list"]:
             collected.extend(page["list"])
     if requested_size is not None:
         collected = collected[:requested_size]
-    return {**first_page, "total": total, "list": collected}
+    return _finalize_partial(first_page, total, collected, failed_pages, state, endpoint)

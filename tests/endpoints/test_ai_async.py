@@ -7,6 +7,7 @@ import respx
 
 from gangtise_openapi._client import AsyncGangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ValidationError
 from gangtise_openapi.domains.ai import AsyncAI
 
 
@@ -179,7 +180,8 @@ async def test_async_hot_topic_default_categories(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_hot_topic_omits_false_flags(tmp_path):
+async def test_async_hot_topic_sends_false_flags(tmp_path):
+    # TS v0.19.0 parity: flags go out as explicit booleans, so False sends false.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-ai/hot-topic/getList").mock(
             return_value=_list_response([{"id": "h2"}]),
@@ -189,9 +191,9 @@ async def test_async_hot_topic_omits_false_flags(tmp_path):
                 with_related_securities=False,
                 with_close_reading=False,
             )
-        sent = route.calls.last.request.read()
-        assert b'"withRelatedSecurities"' not in sent
-        assert b'"withCloseReading"' not in sent
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"withRelatedSecurities":false' in sent
+        assert b'"withCloseReading":false' in sent
 
 
 @pytest.mark.anyio
@@ -436,3 +438,24 @@ async def test_async_knowledge_resource_download_writes_file(tmp_path):
         assert "sourceId=s1" in sent_url
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"resource"
+
+
+@pytest.mark.anyio
+async def test_async_stock_summary_list(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-ai/stock-summary/getList").mock(
+            return_value=_list_response([{"securityCode": "600519.SH", "summary": "x"}]),
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncAI(client).stock_summary_list(security="600519.SH")
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"securityList":["600519.SH"]' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["securityCode"] == "600519.SH"
+
+
+@pytest.mark.anyio
+async def test_async_stock_summary_list_requires_security(tmp_path):
+    async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+        with pytest.raises(ValidationError):
+            await AsyncAI(client).stock_summary_list(security=None)

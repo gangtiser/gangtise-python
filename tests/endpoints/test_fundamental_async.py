@@ -376,3 +376,36 @@ async def test_async_top_holders_body(tmp_path):
     assert "fieldList" not in body
     assert list(df.columns) == ["securityCode", "holderType", "holderName"]
     assert df.iloc[0]["holderName"] == "X"
+
+
+@pytest.mark.anyio
+async def test_async_income_statement_us(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/income-statement/us").mock(
+            return_value=_matrix_response(["securityCode", "revenue"], [["TSLA.O", 250.0]])
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncFundamental(client).income_statement_us(security_code="TSLA.O")
+    assert df.iloc[0]["securityCode"] == "TSLA.O"
+
+
+@pytest.mark.anyio
+async def test_async_balance_sheet_us(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/balance-sheet/us").mock(
+            return_value=_matrix_response(["securityCode", "totalAssets"], [["TSLA.O", 12345.0]])
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncFundamental(client).balance_sheet_us(security_code="TSLA.O")
+    assert df.iloc[0]["totalAssets"] == 12345.0
+
+
+@pytest.mark.anyio
+async def test_async_cash_flow_us(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/cash-flow-statement/us").mock(
+            return_value=_matrix_response(["securityCode", "operatingCashFlow"], [["TSLA.O", 77.0]])
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncFundamental(client).cash_flow_us(security_code="TSLA.O")
+    assert df.iloc[0]["operatingCashFlow"] == 77.0

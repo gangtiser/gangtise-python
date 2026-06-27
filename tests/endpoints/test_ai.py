@@ -5,7 +5,7 @@ import respx
 
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
-from gangtise_openapi._errors import ApiError
+from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi.domains.ai import AI
 
 
@@ -142,7 +142,9 @@ def test_hot_topic_default_categories(tmp_path):
     assert df.iloc[0]["id"] == "h1"
 
 
-def test_hot_topic_omits_false_flags(tmp_path):
+def test_hot_topic_sends_false_flags(tmp_path):
+    # TS v0.19.0 parity: the flags now go out as explicit booleans (`!== false`),
+    # so passing False sends false rather than omitting the field.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-ai/hot-topic/getList").mock(
             return_value=_list_response([{"id": "h2"}]),
@@ -152,9 +154,21 @@ def test_hot_topic_omits_false_flags(tmp_path):
                 with_related_securities=False,
                 with_close_reading=False,
             )
-        sent = route.calls.last.request.read()
-        assert b'"withRelatedSecurities"' not in sent
-        assert b'"withCloseReading"' not in sent
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"withRelatedSecurities":false' in sent
+        assert b'"withCloseReading":false' in sent
+
+
+def test_hot_topic_sends_true_flags_by_default(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-ai/hot-topic/getList").mock(
+            return_value=_list_response([{"id": "h1"}]),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            AI(client).hot_topic()
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"withRelatedSecurities":true' in sent
+        assert b'"withCloseReading":true' in sent
 
 
 def test_management_discuss_announcement(tmp_path):
@@ -371,3 +385,26 @@ def test_knowledge_resource_download_writes_file(tmp_path):
             )
     assert path == tmp_path / "out.pdf"
     assert path.read_bytes() == b"resource"
+
+
+def test_stock_summary_list(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-ai/stock-summary/getList").mock(
+            return_value=_list_response([{"securityCode": "600519.SH", "summary": "x"}]),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = AI(client).stock_summary_list(security=["600519.SH", "00700.HK"])
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"securityList":["600519.SH","00700.HK"]' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["securityCode"] == "600519.SH"
+
+
+def test_stock_summary_list_requires_security(tmp_path):
+    with GangtiseClient(_config=_cfg(tmp_path)) as client, pytest.raises(ValidationError):
+        AI(client).stock_summary_list(security=[])
+
+
+def test_knowledge_batch_requires_query(tmp_path):
+    with GangtiseClient(_config=_cfg(tmp_path)) as client, pytest.raises(ValidationError):
+        AI(client).knowledge_batch(query=[])

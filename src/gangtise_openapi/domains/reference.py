@@ -135,6 +135,24 @@ class Reference:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
 
+    def chiefs_search(
+        self,
+        *,
+        keyword: str,
+        top: int = 10,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索首席分析师 ID（reference.chiefs-search）。
+
+        keyword 支持首席姓名 / 机构 / 团队；top 默认 10、上限 10。
+        结果的 chief ID 供 insight.opinion_list(chief=...) 等按首席筛选使用。
+        """
+        body = {"keyword": keyword, "top": top}
+        result = self._client._call("reference.chiefs-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
 
 class AsyncReference:
     """Async mirror of `Reference`."""
@@ -252,6 +270,24 @@ class AsyncReference:
         """
         body = {"sectorId": sector_id}
         result = await self._client._call("reference.sector-constituents", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def chiefs_search(
+        self,
+        *,
+        keyword: str,
+        top: int = 10,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索首席分析师 ID（reference.chiefs-search）。
+
+        keyword 支持首席姓名 / 机构 / 团队；top 默认 10、上限 10。
+        结果的 chief ID 供 insight.opinion_list(chief=...) 等按首席筛选使用。
+        """
+        body = {"keyword": keyword, "top": top}
+        result = await self._client._call("reference.chiefs-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)

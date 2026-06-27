@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 76
+    assert len(ENDPOINTS) == 86
 
 
 def test_lookup_known_endpoint():
@@ -34,6 +34,7 @@ def test_pagination_registry_matches_ts_source():
         "insight.foreign-report.list": 50,
         "insight.announcement.list": 50,
         "insight.announcement-hk.list": 50,
+        "insight.announcement-us.list": 50,
         "insight.foreign-opinion.list": 50,
         "insight.independent-opinion.list": 50,
         "insight.official-account.list": 50,
@@ -120,12 +121,15 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.announcement.download",
         "insight.announcement-hk.list",
         "insight.announcement-hk.download",
+        "insight.announcement-us.list",
+        "insight.announcement-us.download",
         "insight.foreign-opinion.list",
         "insight.independent-opinion.list",
         "insight.independent-opinion.download",
         "insight.official-account.list",
         "insight.official-account.download",
         "reference.securities-search",
+        "reference.chiefs-search",
         "reference.constant-category",
         "reference.constant-list",
         "reference.concept-search",
@@ -145,10 +149,14 @@ def test_all_endpoint_keys_match_ts_source():
         "fundamental.income-statement-hk",
         "fundamental.balance-sheet-hk",
         "fundamental.cash-flow-hk",
+        "fundamental.income-statement-us",
+        "fundamental.balance-sheet-us",
+        "fundamental.cash-flow-us",
         "fundamental.main-business",
         "fundamental.valuation-analysis",
         "fundamental.top-holders",
         "fundamental.earning-forecast",
+        "ai.stock-summary.list",
         "ai.knowledge-batch",
         "ai.knowledge-resource.download",
         "ai.security-clue.list",
@@ -178,5 +186,8 @@ def test_all_endpoint_keys_match_ts_source():
         "alternative.edb-data",
         "alternative.concept-info",
         "alternative.concept-securities",
+        "indicator.search",
+        "indicator.cross-section",
+        "indicator.time-series",
     }
     assert set(ENDPOINTS.keys()) == expected

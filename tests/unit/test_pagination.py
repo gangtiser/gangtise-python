@@ -42,6 +42,7 @@ def test_fetches_remaining_pages_concurrently():
     out = collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
     assert out["total"] == 12
     assert [row["i"] for row in out["list"]] == list(range(12))
+    assert "partial" not in out  # all pages succeeded
 
 
 def test_requested_size_truncates_collected():
@@ -86,25 +87,31 @@ def test_invalid_size_raises():
         collect_paginated(_ep(), body={"size": 0}, fetch=fetch, concurrency=3)
 
 
-def test_fanout_page_failure_raises_bare_api_error():
-    # A non-first page failing in the thread-pool fan-out must surface as the
-    # bare ApiError (sync/async parity contract; async sibling in
-    # test_pagination_async.py).
+def test_fanout_page_failure_returns_partial():
+    # TS v0.20.0 fail-soft: a non-first page failing in the fan-out must NOT
+    # discard the pages already fetched; the result is tagged `partial` with the
+    # failed page specs (async sibling in test_pagination_async.py).
     def fetch(body):
         if body["from"] == 0:
             return {"total": 12, "list": [{"i": j} for j in range(5)]}
-        raise ApiError("boom on page 2", code="100001")
+        raise ApiError("boom on a later page", code="100001")
 
-    with pytest.raises(ApiError) as excinfo:
-        collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
-    assert excinfo.value.code == "100001"
+    with pytest.warns(UserWarning, match="results are partial"):
+        out = collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
+    assert out["total"] == 12
+    assert out["partial"] is True
+    assert [row["i"] for row in out["list"]] == list(range(5))  # only first page survived
+    assert out["failedPages"]
+    assert all({"from", "size"} <= set(p) for p in out["failedPages"])
 
 
 def test_max_pages_cap():
-    # total=10000 with maxPageSize=1 would request 10000 pages; we cap at 1000.
+    # total=10000 with maxPageSize=1 would request 10000 pages; we cap at 1000 and
+    # emit a UserWarning so the truncation is visible on the default DataFrame path.
     def fetch(body):
         f, s = body["from"], body["size"]
         return {"total": 10000, "list": [{"i": j} for j in range(f, f + s)]}
 
-    out = collect_paginated(_ep(max_page_size=1), body={}, fetch=fetch, concurrency=2)
+    with pytest.warns(UserWarning, match="capped at MAX_PAGES"):
+        out = collect_paginated(_ep(max_page_size=1), body={}, fetch=fetch, concurrency=2)
     assert len(out["list"]) == 1000

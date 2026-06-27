@@ -535,6 +535,53 @@ class Insight:
         )
         return to_dataframe(rows, schema=None)
 
+    # ---- announcement-us (plain string timestamps) ----
+
+    def announcement_us_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int = 1,
+        rank_type: int = 1,
+        security: Any = None,
+        category: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股公告列表（insight.announcement-us.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        security 传美股代码如 TSLA.O；category 美股公告分类 ID，用
+        reference.constant_list(category="usShareAnnouncementCategory") 查询。
+        """
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+            }
+        )
+        result = self._client._call("insight.announcement-us.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.announcement-us.list",
+            id_field="announcementId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
     # ---- foreign-opinion ----
 
     def foreign_opinion_list(
@@ -766,16 +813,40 @@ class Insight:
         self,
         *,
         announcement_id: str,
+        file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
-        """下载港股公告（insight.announcement-hk.download）。"""
+        """下载港股公告（insight.announcement-hk.download）。
+
+        file_type 取值 1=原文（默认） 2=Markdown。
+        """
         return download_to_path(
             client=self._client,
             endpoint_key="insight.announcement-hk.download",
-            query={"announcementId": announcement_id},
+            query={"announcementId": announcement_id, "fileType": file_type},
             output=output,
             fallback_name=f"announcement-hk-{announcement_id}",
             title_lookup=("insight.announcement-hk.list", "announcementId", announcement_id),
+        )
+
+    def announcement_us_download(
+        self,
+        *,
+        announcement_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载美股公告（insight.announcement-us.download）。
+
+        file_type 取值 1=原文 PDF（默认） 2=Markdown。
+        """
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.announcement-us.download",
+            query={"announcementId": announcement_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"announcement-us-{announcement_id}",
+            title_lookup=("insight.announcement-us.list", "announcementId", announcement_id),
         )
 
     def independent_opinion_download(
@@ -1305,6 +1376,51 @@ class AsyncInsight:
         )
         return to_dataframe(rows, schema=None)
 
+    async def announcement_us_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int = 1,
+        rank_type: int = 1,
+        security: Any = None,
+        category: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股公告列表（insight.announcement-us.list）。
+
+        search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
+        security 传美股代码如 TSLA.O；category 美股公告分类 ID，用
+        reference.constant_list(category="usShareAnnouncementCategory") 查询。
+        """
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "securityList": _as_list(security),
+                "categoryList": _as_list(category),
+            }
+        )
+        result = await self._client._call("insight.announcement-us.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        await self._client._record_list_titles(
+            list_endpoint_key="insight.announcement-us.list",
+            id_field="announcementId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
     async def foreign_opinion_list(
         self,
         *,
@@ -1534,17 +1650,45 @@ class AsyncInsight:
         self,
         *,
         announcement_id: str,
+        file_type: int = 1,
         output: str | Path | None = None,
     ) -> Path:
-        """下载港股公告（insight.announcement-hk.download）。"""
+        """下载港股公告（insight.announcement-hk.download）。
+
+        file_type 取值 1=原文（默认） 2=Markdown。
+        """
         return await download_to_path_async(
             client=self._client,
             endpoint_key="insight.announcement-hk.download",
-            query={"announcementId": announcement_id},
+            query={"announcementId": announcement_id, "fileType": file_type},
             output=output,
             fallback_name=f"announcement-hk-{announcement_id}",
             title_lookup=(
                 "insight.announcement-hk.list",
+                "announcementId",
+                announcement_id,
+            ),
+        )
+
+    async def announcement_us_download(
+        self,
+        *,
+        announcement_id: str,
+        file_type: int = 1,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载美股公告（insight.announcement-us.download）。
+
+        file_type 取值 1=原文 PDF（默认） 2=Markdown。
+        """
+        return await download_to_path_async(
+            client=self._client,
+            endpoint_key="insight.announcement-us.download",
+            query={"announcementId": announcement_id, "fileType": file_type},
+            output=output,
+            fallback_name=f"announcement-us-{announcement_id}",
+            title_lookup=(
+                "insight.announcement-us.list",
                 "announcementId",
                 announcement_id,
             ),

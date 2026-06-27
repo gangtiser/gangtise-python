@@ -41,6 +41,7 @@ async def test_async_fans_out_concurrently():
 
     out = await collect_paginated_async(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
     assert [r["i"] for r in out["list"]] == list(range(12))
+    assert "partial" not in out  # all pages succeeded
 
 
 @pytest.mark.anyio
@@ -53,18 +54,24 @@ async def test_async_invalid_from_raises():
 
 
 @pytest.mark.anyio
-async def test_async_fanout_page_failure_raises_bare_api_error():
-    # anyio>=4 task groups wrap task errors in an ExceptionGroup; the unwrap in
-    # collect_paginated_async must restore sync parity so `except ApiError`
-    # works (sync sibling: test_pagination.test_fanout_page_failure_raises_bare_api_error).
+async def test_async_fanout_page_failure_returns_partial():
+    # TS v0.20.0 fail-soft: a non-first page failing must NOT discard pages
+    # already fetched; the task group catches per-page and tags the result
+    # `partial` (sync sibling: test_pagination.test_fanout_page_failure_returns_partial).
     async def fetch(body):
         if body["from"] == 0:
             return {"total": 12, "list": [{"i": j} for j in range(5)]}
-        raise ApiError("boom on page 2", code="100001")
+        raise ApiError("boom on a later page", code="100001")
 
-    with pytest.raises(ApiError) as excinfo:
-        await collect_paginated_async(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
-    assert excinfo.value.code == "100001"
+    with pytest.warns(UserWarning, match="results are partial"):
+        out = await collect_paginated_async(
+            _ep(max_page_size=5), body={}, fetch=fetch, concurrency=4
+        )
+    assert out["total"] == 12
+    assert out["partial"] is True
+    assert [r["i"] for r in out["list"]] == list(range(5))  # only first page survived
+    assert out["failedPages"]
+    assert all({"from", "size"} <= set(p) for p in out["failedPages"])
 
 
 def test_first_leaf_exception_descends_nested_groups():
@@ -82,10 +89,13 @@ def test_first_leaf_exception_passes_through_plain_errors():
 @pytest.mark.anyio
 async def test_async_max_pages_cap():
     # Mirrors the sync test_max_pages_cap: total=10000 with maxPageSize=1 would
-    # request 10000 pages; we cap at 1000.
+    # request 10000 pages; we cap at 1000 and emit a visible UserWarning.
     async def fetch(body):
         f, s = body["from"], body["size"]
         return {"total": 10000, "list": [{"i": j} for j in range(f, f + s)]}
 
-    out = await collect_paginated_async(_ep(max_page_size=1), body={}, fetch=fetch, concurrency=2)
+    with pytest.warns(UserWarning, match="capped at MAX_PAGES"):
+        out = await collect_paginated_async(
+            _ep(max_page_size=1), body={}, fetch=fetch, concurrency=2
+        )
     assert len(out["list"]) == 1000

@@ -168,6 +168,20 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download HK announcement file",
         kind="download",
     ),
+    "insight.announcement-us.list": _ep(
+        "insight.announcement-us.list",
+        "POST",
+        "/application/open-insight/announcement-us/getList",
+        "List US announcements",
+        paginated=50,
+    ),
+    "insight.announcement-us.download": _ep(
+        "insight.announcement-us.download",
+        "GET",
+        "/application/open-insight/announcement-us/download/file",
+        "Download US announcement file",
+        kind="download",
+    ),
     "insight.foreign-opinion.list": _ep(
         "insight.foreign-opinion.list",
         "POST",
@@ -209,6 +223,12 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-reference/securities/search",
         "Search GTS codes (securities)",
+    ),
+    "reference.chiefs-search": _ep(
+        "reference.chiefs-search",
+        "POST",
+        "/application/open-reference/chiefs/search",
+        "Search chief analyst IDs by name / institution / team",
     ),
     "reference.constant-category": _ep(
         "reference.constant-category",
@@ -326,6 +346,24 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-fundamental/financial-report/cash-flow-statement/hk",
         "Query HK cash flow statement (China GAAP)",
     ),
+    "fundamental.income-statement-us": _ep(
+        "fundamental.income-statement-us",
+        "POST",
+        "/application/open-fundamental/financial-report/income-statement/us",
+        "Query US income statement",
+    ),
+    "fundamental.balance-sheet-us": _ep(
+        "fundamental.balance-sheet-us",
+        "POST",
+        "/application/open-fundamental/financial-report/balance-sheet/us",
+        "Query US balance sheet",
+    ),
+    "fundamental.cash-flow-us": _ep(
+        "fundamental.cash-flow-us",
+        "POST",
+        "/application/open-fundamental/financial-report/cash-flow-statement/us",
+        "Query US cash flow statement",
+    ),
     "fundamental.main-business": _ep(
         "fundamental.main-business",
         "POST",
@@ -351,6 +389,12 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Query earning forecast (consensus estimates)",
     ),
     # ─── ai ───
+    "ai.stock-summary.list": _ep(
+        "ai.stock-summary.list",
+        "POST",
+        "/application/open-ai/stock-summary/getList",
+        "Stock highlights (refined research summary per security)",
+    ),
     "ai.knowledge-batch": _ep(
         "ai.knowledge-batch",
         "POST",
@@ -536,6 +580,25 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-alternative/concept/securities",
         "Query concept (theme index) constituent securities, grouped",
+    ),
+    # ─── indicator (EDE: security-level data indicators) ───
+    "indicator.search": _ep(
+        "indicator.search",
+        "POST",
+        "/application/open-indicator/EDE/search",
+        "Search data indicators by keyword (returns indicatorCode + params)",
+    ),
+    "indicator.cross-section": _ep(
+        "indicator.cross-section",
+        "POST",
+        "/application/open-indicator/EDE/cross-section",
+        "Get cross-section data (multi-indicator x multi-security, single date)",
+    ),
+    "indicator.time-series": _ep(
+        "indicator.time-series",
+        "POST",
+        "/application/open-indicator/EDE/time-series",
+        "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
     ),
 }
 

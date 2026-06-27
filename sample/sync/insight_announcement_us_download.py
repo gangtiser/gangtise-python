@@ -1,14 +1,13 @@
-"""insight.announcement_hk_download — 下载港股公告（返回本地文件路径）。
+"""insight.announcement_us_download — 下载美股公告（返回本地文件路径）。
 
-流程: 先用 insight.announcement_hk_list 取 1 条拿到 announcementId, 再下载该公告。
-file_type 取值 1=原文（默认） 2=Markdown。
+流程: 先用 insight.announcement_us_list 取 1 条拿到 announcementId, 再下载该公告。
+file_type 取值 1=原文 PDF（默认） 2=Markdown。
 download 类接口需要真实 ID, 故不另加示例调用; 全部参数见下方注释。
-异步用法相同, 路径为 gangtise.async_.insight.announcement_hk_download(...)。
+异步用法相同, 路径为 gangtise.async_.insight.announcement_us_download(...)。
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -17,11 +16,11 @@ from _utils import show_result
 from gangtise_openapi import gangtise
 
 
-async def main():
+def main():
     # 步骤 1 · 先取列表拿到一个可下载的 announcementId
-    items = await gangtise.async_.insight.announcement_hk_list(size=1)
+    items = gangtise.insight.announcement_us_list(size=1, security="TSLA.O")
     if items.empty:
-        raise SystemExit("No source item found for insight.announcement_hk_download.")
+        raise SystemExit("No source item found for insight.announcement_us_download.")
     row = items.iloc[0]
     item_id = row.get("announcementId") or row.get("id")
     if not item_id:
@@ -33,9 +32,9 @@ async def main():
     output_dir.mkdir(exist_ok=True)
     try:
         os.chdir(output_dir)
-        result = await gangtise.async_.insight.announcement_hk_download(
-            announcement_id=item_id,  # 港股公告 ID（必填）, 取自 announcement_hk_list 的 announcementId 列
-            file_type=1,  # 1=原文（默认） 2=Markdown
+        result = gangtise.insight.announcement_us_download(
+            announcement_id=item_id,  # 美股公告 ID（必填）, 取自 announcement_us_list 的 announcementId 列
+            file_type=1,  # 1=原文 PDF（默认） 2=Markdown
             # output=None,            # 显式落盘路径; 省略则按标题/响应头自动命名
         )
     finally:
@@ -44,4 +43,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

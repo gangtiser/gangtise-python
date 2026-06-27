@@ -105,10 +105,14 @@ def test_write_token_cache_tmp_name_unique_per_writer(tmp_path, monkeypatch):
 
 
 def test_require_credentials_missing():
-    with pytest.raises(ConfigError):
+    with pytest.raises(ConfigError) as exc:
         require_credentials(None, None)
-    with pytest.raises(ConfigError):
+    msg = str(exc.value)
+    assert "GANGTISE_ACCESS_KEY" in msg and "GANGTISE_SECRET_KEY" in msg
+    # only the actually-missing var is named in the "缺少环境变量" summary line
+    with pytest.raises(ConfigError) as exc2:
         require_credentials("ak", None)
+    assert "缺少环境变量: GANGTISE_SECRET_KEY" in str(exc2.value)
 
 
 def test_require_credentials_ok():

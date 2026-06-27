@@ -1,6 +1,6 @@
 # API Parameter Reference
 
-本文档按当前 Python SDK wrapper 自动整理，覆盖 75 个公开 SDK 方法（对应 74 个上游 OpenAPI endpoint，另含 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
+本文档按当前 Python SDK wrapper 自动整理，覆盖 87 个公开 SDK 方法（对应 84 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
 
 运行示例前请配置：
 
@@ -20,6 +20,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `lookup` | `broker_orgs` | [lookup_broker_orgs.py](sync/lookup_broker_orgs.py) | [lookup_broker_orgs.py](async/lookup_broker_orgs.py) |
 | `lookup` | `meeting_orgs` | [lookup_meeting_orgs.py](sync/lookup_meeting_orgs.py) | [lookup_meeting_orgs.py](async/lookup_meeting_orgs.py) |
 | `reference` | `securities_search` | [reference_securities_search.py](sync/reference_securities_search.py) | [reference_securities_search.py](async/reference_securities_search.py) |
+| `reference` | `chiefs_search` | [reference_chiefs_search.py](sync/reference_chiefs_search.py) | [reference_chiefs_search.py](async/reference_chiefs_search.py) |
 | `reference` | `constant_category` | [reference_constant_category.py](sync/reference_constant_category.py) | [reference_constant_category.py](async/reference_constant_category.py) |
 | `reference` | `constant_list` | [reference_constant_list.py](sync/reference_constant_list.py) | [reference_constant_list.py](async/reference_constant_list.py) |
 | `reference` | `concept_search` | [reference_concept_search.py](sync/reference_concept_search.py) | [reference_concept_search.py](async/reference_concept_search.py) |
@@ -41,6 +42,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `insight` | `foreign_report_list` | [insight_foreign_report_list.py](sync/insight_foreign_report_list.py) | [insight_foreign_report_list.py](async/insight_foreign_report_list.py) |
 | `insight` | `announcement_list` | [insight_announcement_list.py](sync/insight_announcement_list.py) | [insight_announcement_list.py](async/insight_announcement_list.py) |
 | `insight` | `announcement_hk_list` | [insight_announcement_hk_list.py](sync/insight_announcement_hk_list.py) | [insight_announcement_hk_list.py](async/insight_announcement_hk_list.py) |
+| `insight` | `announcement_us_list` | [insight_announcement_us_list.py](sync/insight_announcement_us_list.py) | [insight_announcement_us_list.py](async/insight_announcement_us_list.py) |
 | `insight` | `foreign_opinion_list` | [insight_foreign_opinion_list.py](sync/insight_foreign_opinion_list.py) | [insight_foreign_opinion_list.py](async/insight_foreign_opinion_list.py) |
 | `insight` | `independent_opinion_list` | [insight_independent_opinion_list.py](sync/insight_independent_opinion_list.py) | [insight_independent_opinion_list.py](async/insight_independent_opinion_list.py) |
 | `insight` | `official_account_list` | [insight_official_account_list.py](sync/insight_official_account_list.py) | [insight_official_account_list.py](async/insight_official_account_list.py) |
@@ -49,6 +51,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `insight` | `foreign_report_download` | [insight_foreign_report_download.py](sync/insight_foreign_report_download.py) | [insight_foreign_report_download.py](async/insight_foreign_report_download.py) |
 | `insight` | `announcement_download` | [insight_announcement_download.py](sync/insight_announcement_download.py) | [insight_announcement_download.py](async/insight_announcement_download.py) |
 | `insight` | `announcement_hk_download` | [insight_announcement_hk_download.py](sync/insight_announcement_hk_download.py) | [insight_announcement_hk_download.py](async/insight_announcement_hk_download.py) |
+| `insight` | `announcement_us_download` | [insight_announcement_us_download.py](sync/insight_announcement_us_download.py) | [insight_announcement_us_download.py](async/insight_announcement_us_download.py) |
 | `insight` | `independent_opinion_download` | [insight_independent_opinion_download.py](sync/insight_independent_opinion_download.py) | [insight_independent_opinion_download.py](async/insight_independent_opinion_download.py) |
 | `insight` | `official_account_download` | [insight_official_account_download.py](sync/insight_official_account_download.py) | [insight_official_account_download.py](async/insight_official_account_download.py) |
 | `fundamental` | `income_statement` | [fundamental_income_statement.py](sync/fundamental_income_statement.py) | [fundamental_income_statement.py](async/fundamental_income_statement.py) |
@@ -59,12 +62,16 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `fundamental` | `income_statement_hk` | [fundamental_income_statement_hk.py](sync/fundamental_income_statement_hk.py) | [fundamental_income_statement_hk.py](async/fundamental_income_statement_hk.py) |
 | `fundamental` | `balance_sheet_hk` | [fundamental_balance_sheet_hk.py](sync/fundamental_balance_sheet_hk.py) | [fundamental_balance_sheet_hk.py](async/fundamental_balance_sheet_hk.py) |
 | `fundamental` | `cash_flow_hk` | [fundamental_cash_flow_hk.py](sync/fundamental_cash_flow_hk.py) | [fundamental_cash_flow_hk.py](async/fundamental_cash_flow_hk.py) |
+| `fundamental` | `income_statement_us` | [fundamental_income_statement_us.py](sync/fundamental_income_statement_us.py) | [fundamental_income_statement_us.py](async/fundamental_income_statement_us.py) |
+| `fundamental` | `balance_sheet_us` | [fundamental_balance_sheet_us.py](sync/fundamental_balance_sheet_us.py) | [fundamental_balance_sheet_us.py](async/fundamental_balance_sheet_us.py) |
+| `fundamental` | `cash_flow_us` | [fundamental_cash_flow_us.py](sync/fundamental_cash_flow_us.py) | [fundamental_cash_flow_us.py](async/fundamental_cash_flow_us.py) |
 | `fundamental` | `main_business` | [fundamental_main_business.py](sync/fundamental_main_business.py) | [fundamental_main_business.py](async/fundamental_main_business.py) |
 | `fundamental` | `valuation_analysis` | [fundamental_valuation_analysis.py](sync/fundamental_valuation_analysis.py) | [fundamental_valuation_analysis.py](async/fundamental_valuation_analysis.py) |
 | `fundamental` | `top_holders` | [fundamental_top_holders.py](sync/fundamental_top_holders.py) | [fundamental_top_holders.py](async/fundamental_top_holders.py) |
 | `fundamental` | `earning_forecast` | [fundamental_earning_forecast.py](sync/fundamental_earning_forecast.py) | [fundamental_earning_forecast.py](async/fundamental_earning_forecast.py) |
 | `ai` | `knowledge_batch` | [ai_knowledge_batch.py](sync/ai_knowledge_batch.py) | [ai_knowledge_batch.py](async/ai_knowledge_batch.py) |
 | `ai` | `security_clue_list` | [ai_security_clue_list.py](sync/ai_security_clue_list.py) | [ai_security_clue_list.py](async/ai_security_clue_list.py) |
+| `ai` | `stock_summary_list` | [ai_stock_summary_list.py](sync/ai_stock_summary_list.py) | [ai_stock_summary_list.py](async/ai_stock_summary_list.py) |
 | `ai` | `one_pager` | [ai_one_pager.py](sync/ai_one_pager.py) | [ai_one_pager.py](async/ai_one_pager.py) |
 | `ai` | `investment_logic` | [ai_investment_logic.py](sync/ai_investment_logic.py) | [ai_investment_logic.py](async/ai_investment_logic.py) |
 | `ai` | `peer_comparison` | [ai_peer_comparison.py](sync/ai_peer_comparison.py) | [ai_peer_comparison.py](async/ai_peer_comparison.py) |
@@ -92,6 +99,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `alternative` | `edb_data` | [alternative_edb_data.py](sync/alternative_edb_data.py) | [alternative_edb_data.py](async/alternative_edb_data.py) |
 | `alternative` | `concept_info` | [alternative_concept_info.py](sync/alternative_concept_info.py) | [alternative_concept_info.py](async/alternative_concept_info.py) |
 | `alternative` | `concept_securities` | [alternative_concept_securities.py](sync/alternative_concept_securities.py) | [alternative_concept_securities.py](async/alternative_concept_securities.py) |
+| `indicator` | `search` | [indicator_search.py](sync/indicator_search.py) | [indicator_search.py](async/indicator_search.py) |
+| `indicator` | `cross_section` | [indicator_cross_section.py](sync/indicator_cross_section.py) | [indicator_cross_section.py](async/indicator_cross_section.py) |
+| `indicator` | `time_series` | [indicator_time_series.py](sync/indicator_time_series.py) | [indicator_time_series.py](async/indicator_time_series.py) |
 
 ## Authentication (`gangtise.auth`)
 
@@ -157,6 +167,19 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `keyword` | `str` | 是 | - | `"平安银行"` | 搜索关键词。 |
 | `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 stock / dr / index / fund。 |
 | `top` | `int` | 否 | `10` | `3` | 每个查询返回的最大候选数。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.chiefs_search`
+
+- Endpoint: `reference.chiefs-search` `POST /application/open-reference/chiefs/search` - Search chief analyst IDs by name / institution / team
+- Sync sample: `sample/sync/reference_chiefs_search.py`
+- Async sample: `sample/async/reference_chiefs_search.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"电子"` | 搜索关键词，支持 首席姓名 / 机构 / 团队。 |
+| `top` | `int` | 否 | `10` | `5` | 最大返回数，默认 10，上限 10。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `reference.constant_category`
@@ -571,6 +594,26 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `category` | `Any` | 否 | `None` | `"stock"` | 港股公告类型 ID，支持单值或列表，见 reference.constant_list(category="hkShareAnnouncementCategory")。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
+### `insight.announcement_us_list`
+
+- Endpoint: `insight.announcement-us.list` `POST /application/open-insight/announcement-us/getList` - List US announcements, paginated max size 50
+- Sync sample: `sample/sync/insight_announcement_us_list.py`
+- Async sample: `sample/async/insight_announcement_us_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int | None` | 否 | `None` | `5` | 分页大小；省略则按 endpoint 最大页大小 50 自动分页。 |
+| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；接受日期或时间字符串。 |
+| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；接受日期或时间字符串。 |
+| `keyword` | `str | None` | 否 | `None` | `"earnings"` | 搜索关键词。 |
+| `search_type` | `int` | 否 | `1` | `2` | 搜索方式：1=标题（默认） 2=全文。 |
+| `rank_type` | `int` | 否 | `1` | `2` | 排序方式：1=综合（默认） 2=时间倒序。 |
+| `security` | `Any` | 否 | `None` | `"TSLA.O"` | 美股代码或代码列表，例如 TSLA.O。 |
+| `category` | `Any` | 否 | `None` | `None` | 美股公告类型 ID，支持单值或列表，见 reference.constant_list(category="usShareAnnouncementCategory")。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
 ### `insight.foreign_opinion_list`
 
 - Endpoint: `insight.foreign-opinion.list` `POST /application/open-insight/foreign-opinion/getList` - List foreign institution opinions, paginated max size 50
@@ -699,6 +742,20 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 公告 ID，通常来自 announcement 列表接口。 |
+| `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=原文（默认） 2=Markdown。 |
+| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+
+### `insight.announcement_us_download`
+
+- Endpoint: `insight.announcement-us.download` `GET /application/open-insight/announcement-us/download/file` - Download US announcement file
+- Sync sample: `sample/sync/insight_announcement_us_download.py`
+- Async sample: `sample/async/insight_announcement_us_download.py`
+- Return annotation: `Path`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 美股公告 ID，通常来自 insight.announcement_us_list 返回的 announcementId 列。 |
+| `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=原文 PDF（默认） 2=Markdown。 |
 | `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
 
 ### `insight.independent_opinion_download`
@@ -874,6 +931,60 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
+### `fundamental.income_statement_us`
+
+- Endpoint: `fundamental.income-statement-us` `POST /application/open-fundamental/financial-report/income-statement/us` - Query US income statement
+- Sync sample: `sample/sync/fundamental_income_statement_us.py`
+- Async sample: `sample/async/fundamental_income_statement_us.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
+| `start_date` | `str | None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
+| `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `fundamental.balance_sheet_us`
+
+- Endpoint: `fundamental.balance-sheet-us` `POST /application/open-fundamental/financial-report/balance-sheet/us` - Query US balance sheet
+- Sync sample: `sample/sync/fundamental_balance_sheet_us.py`
+- Async sample: `sample/async/fundamental_balance_sheet_us.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
+| `start_date` | `str | None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
+| `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `fundamental.cash_flow_us`
+
+- Endpoint: `fundamental.cash-flow-us` `POST /application/open-fundamental/financial-report/cash-flow-statement/us` - Query US cash flow statement
+- Sync sample: `sample/sync/fundamental_cash_flow_us.py`
+- Async sample: `sample/async/fundamental_cash_flow_us.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
+| `start_date` | `str | None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
+| `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
 ### `fundamental.main_business`
 
 - Endpoint: `fundamental.main-business` `POST /application/open-fundamental/main-business` - Query main business composition
@@ -977,6 +1088,18 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `gts_code` | `Any` | 否 | `None` | `"000001.SZ"` | GTS 证券代码或代码列表。 |
 | `source` | `Any` | 否 | `None` | `"research"` | 来源过滤，支持单值或列表；ai.security_clue_list 中请求字段为 source。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `ai.stock_summary_list`
+
+- Endpoint: `ai.stock-summary.list` `POST /application/open-ai/stock-summary/getList` - Stock highlights (refined research summary per security)
+- Sync sample: `sample/sync/ai_stock_summary_list.py`
+- Async sample: `sample/async/ai_stock_summary_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，或市场关键词 aShares / hkStocks（上限 6000）；留空抛 ValidationError 以防全市场积分误耗。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `ai.one_pager`
@@ -1359,3 +1482,54 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；见 reference.concept_search（机器人=121000130）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 默认返回扁平化 DataFrame（每行一只成分股，列含 groupName/securityCode/securityName/isKey/inclusionReason）；True 返回嵌套分组 dict。 |
+
+## Data indicator (`gangtise.indicator`)
+
+### `indicator.search`
+
+- Endpoint: `indicator.search` `POST /application/open-indicator/EDE/search` - Search data indicators by keyword (returns indicatorCode + params)
+- Sync sample: `sample/sync/indicator_search.py`
+- Async sample: `sample/async/indicator_search.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"收盘价"` | 指标词，如 收盘价 / 成交量 / 营业收入（不是自然语言问题）。 |
+| `limit` | `int` | 否 | `50` | `20` | 最大返回数，默认 50，上限 100。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `indicator.cross_section`
+
+- Endpoint: `indicator.cross-section` `POST /application/open-indicator/EDE/cross-section` - Get cross-section data (multi-indicator x multi-security, single date)
+- Sync sample: `sample/sync/indicator_cross_section.py`
+- Async sample: `sample/async/indicator_cross_section.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `date` | `str` | 是 | - | `"2025-06-30"` | 数据日期，格式 YYYY-MM-DD。 |
+| `indicator` | `Any` | 否 | `None` | `"qte_close"` | 指标码或列表，例如 qte_close；用 indicator.search 查询。 |
+| `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或代码列表，例如 600519.SH。 |
+| `currency` | `str | None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
+| `scale` | `str | None` | 否 | `None` | `"8"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
+| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustmentType": "2"}}` | 单指标参数映射；如 adjustmentType=2 表示前复权。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一证券、指标名作列的宽表 DataFrame。 |
+
+### `indicator.time_series`
+
+- Endpoint: `indicator.time-series` `POST /application/open-indicator/EDE/time-series` - Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)
+- Sync sample: `sample/sync/indicator_time_series.py`
+- Async sample: `sample/async/indicator_time_series.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `start_date` | `str` | 是 | - | `"2025-01-01"` | 起始日期，格式 YYYY-MM-DD。 |
+| `end_date` | `str` | 是 | - | `"2025-06-30"` | 结束日期，格式 YYYY-MM-DD。 |
+| `indicator` | `Any` | 否 | `None` | `"qte_close"` | 指标码或列表；用 indicator.search 查询。 |
+| `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或代码列表。 |
+| `calendar_type` | `str | None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日（默认 TD）。 |
+| `currency` | `str | None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
+| `scale` | `str | None` | 否 | `None` | `"0"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
+| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustmentType": "2"}}` | 单指标参数映射；如 adjustmentType=2 表示前复权。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一日期的宽表 DataFrame。 |

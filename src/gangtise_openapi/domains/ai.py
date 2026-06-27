@@ -11,7 +11,7 @@ import pandas as pd
 from gangtise_openapi._async_content import poll_content, poll_content_async
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
-from gangtise_openapi._errors import ApiError
+from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi.domains._common import _as_list, _extract_rows, _strip_none
 
@@ -44,11 +44,14 @@ class AI:
     ) -> pd.DataFrame | dict[str, Any]:
         """知识库批量检索（ai.knowledge-batch）。
 
-        start_time/end_time 为毫秒时间戳。
+        query 必填，传至少一个检索词；start_time/end_time 为毫秒时间戳。
         """
+        queries = _as_list(query)
+        if not queries:
+            raise ValidationError("query is required: pass at least one query string")
         body = _strip_none(
             {
-                "queries": _as_list(query),
+                "queries": queries,
                 "top": top,
                 "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
@@ -91,6 +94,32 @@ class AI:
             }
         )
         result = self._client._call("ai.security-clue.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    # ---- stock-summary (个股看点) ----
+
+    def stock_summary_list(
+        self,
+        *,
+        security: Any,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
+
+        security 必填, 传证券代码(如 600519.SH / 00700.HK)或市场关键词
+        aShares / hkStocks, 上限 6000; 支持单值或列表。省略会被后端当作全市场
+        (每行约 3 积分 × 数千行), 故此处强制要求非空。
+        """
+        securities = _as_list(security)
+        if not securities:
+            raise ValidationError(
+                "security is required: pass security code(s) or a market keyword "
+                "(aShares / hkStocks)"
+            )
+        body = {"securityList": securities}
+        result = self._client._call("ai.stock-summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
@@ -165,8 +194,8 @@ class AI:
                 "startDate": start_date,
                 "endDate": end_date,
                 "categoryList": _as_list(category) or _HOT_TOPIC_DEFAULT_CATEGORIES,
-                "withRelatedSecurities": True if with_related_securities else None,
-                "withCloseReading": True if with_close_reading else None,
+                "withRelatedSecurities": with_related_securities,
+                "withCloseReading": with_close_reading,
             }
         )
         result = self._client._call("ai.hot-topic", body=body)
@@ -358,11 +387,14 @@ class AsyncAI:
     ) -> pd.DataFrame | dict[str, Any]:
         """知识库批量检索（ai.knowledge-batch）。
 
-        start_time/end_time 为毫秒时间戳。
+        query 必填，传至少一个检索词；start_time/end_time 为毫秒时间戳。
         """
+        queries = _as_list(query)
+        if not queries:
+            raise ValidationError("query is required: pass at least one query string")
         body = _strip_none(
             {
-                "queries": _as_list(query),
+                "queries": queries,
                 "top": top,
                 "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
@@ -403,6 +435,30 @@ class AsyncAI:
             }
         )
         result = await self._client._call("ai.security-clue.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def stock_summary_list(
+        self,
+        *,
+        security: Any,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
+
+        security 必填, 传证券代码(如 600519.SH / 00700.HK)或市场关键词
+        aShares / hkStocks, 上限 6000; 支持单值或列表。省略会被后端当作全市场
+        (每行约 3 积分 × 数千行), 故此处强制要求非空。
+        """
+        securities = _as_list(security)
+        if not securities:
+            raise ValidationError(
+                "security is required: pass security code(s) or a market keyword "
+                "(aShares / hkStocks)"
+            )
+        body = {"securityList": securities}
+        result = await self._client._call("ai.stock-summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
@@ -481,8 +537,8 @@ class AsyncAI:
                 "startDate": start_date,
                 "endDate": end_date,
                 "categoryList": _as_list(category) or _HOT_TOPIC_DEFAULT_CATEGORIES,
-                "withRelatedSecurities": True if with_related_securities else None,
-                "withCloseReading": True if with_close_reading else None,
+                "withRelatedSecurities": with_related_securities,
+                "withCloseReading": with_close_reading,
             }
         )
         result = await self._client._call("ai.hot-topic", body=body)

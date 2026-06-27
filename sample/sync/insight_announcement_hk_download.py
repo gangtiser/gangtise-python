@@ -1,7 +1,7 @@
 """insight.announcement_hk_download — 下载港股公告（返回本地文件路径）。
 
 流程: 先用 insight.announcement_hk_list 取 1 条拿到 announcementId, 再下载该公告。
-注意: 港股公告下载无 file_type 参数（TS 端也未提供）, 仅 announcement_id + 可选 output。
+file_type 取值 1=原文（默认） 2=Markdown。
 download 类接口需要真实 ID, 故不另加示例调用; 全部参数见下方注释。
 异步用法相同, 路径为 gangtise.async_.insight.announcement_hk_download(...)。
 """
@@ -34,6 +34,7 @@ def main():
         os.chdir(output_dir)
         result = gangtise.insight.announcement_hk_download(
             announcement_id=item_id,  # 港股公告 ID（必填）, 取自 announcement_hk_list 的 announcementId 列
+            file_type=1,  # 1=原文（默认） 2=Markdown
             # output=None,            # 显式落盘路径; 省略则按标题/响应头自动命名
         )
     finally:

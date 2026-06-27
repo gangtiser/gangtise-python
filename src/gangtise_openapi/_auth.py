@@ -1,3 +1,6 @@
+# ruff: noqa: RUF001
+# (RUF001 disabled file-wide: require_credentials' message is user-facing
+# Chinese text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
 import json
@@ -87,5 +90,20 @@ def write_token_cache(path: Path, cache: TokenCache) -> None:
 
 def require_credentials(access_key: str | None, secret_key: str | None) -> tuple[str, str]:
     if not access_key or not secret_key:
-        raise ConfigError("Missing GANGTISE_ACCESS_KEY or GANGTISE_SECRET_KEY")
+        missing = ", ".join(
+            name
+            for name, present in (
+                ("GANGTISE_ACCESS_KEY", access_key),
+                ("GANGTISE_SECRET_KEY", secret_key),
+            )
+            if not present
+        )
+        raise ConfigError(
+            f"缺少环境变量: {missing}（未导出到当前进程环境）\n"
+            "注意：在 shell 里赋值还不够，必须导出（export），Python 进程才读得到：\n"
+            "  bash/zsh:  export GANGTISE_ACCESS_KEY=... GANGTISE_SECRET_KEY=...\n"
+            "  fish:      set -gx GANGTISE_ACCESS_KEY ...; set -gx GANGTISE_SECRET_KEY ...\n"
+            "或在代码里显式传入：gangtise.configure(access_key=..., secret_key=...)\n"
+            "验证：env | grep GANGTISE（能列出对应行才算导出成功）"
+        )
     return access_key, secret_key

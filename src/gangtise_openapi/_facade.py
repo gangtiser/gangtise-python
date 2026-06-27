@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         AsyncAlternative,
         AsyncAuth,
         AsyncFundamental,
+        AsyncIndicator,
         AsyncInsight,
         AsyncLookup,
         AsyncQuote,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
         AsyncVault,
         Auth,
         Fundamental,
+        Indicator,
         Insight,
         Lookup,
         Quote,
@@ -53,6 +55,7 @@ class _Facade:
         "alternative": "gangtise_openapi.domains.alternative:Alternative",
         "auth": "gangtise_openapi.domains.auth:Auth",
         "fundamental": "gangtise_openapi.domains.fundamental:Fundamental",
+        "indicator": "gangtise_openapi.domains.indicator:Indicator",
         "insight": "gangtise_openapi.domains.insight:Insight",
         "lookup": "gangtise_openapi.domains.lookup:Lookup",
         "quote": "gangtise_openapi.domains.quote:Quote",
@@ -66,6 +69,7 @@ class _Facade:
         alternative: Alternative
         auth: Auth
         fundamental: Fundamental
+        indicator: Indicator
         insight: Insight
         lookup: Lookup
         quote: Quote
@@ -176,6 +180,7 @@ class _AsyncFacade:
         "ai": "gangtise_openapi.domains.ai:AsyncAI",
         "vault": "gangtise_openapi.domains.vault:AsyncVault",
         "alternative": "gangtise_openapi.domains.alternative:AsyncAlternative",
+        "indicator": "gangtise_openapi.domains.indicator:AsyncIndicator",
     }
 
     if TYPE_CHECKING:
@@ -183,6 +188,7 @@ class _AsyncFacade:
         alternative: AsyncAlternative
         auth: AsyncAuth
         fundamental: AsyncFundamental
+        indicator: AsyncIndicator
         insight: AsyncInsight
         lookup: AsyncLookup
         quote: AsyncQuote

@@ -432,3 +432,40 @@ def test_official_account_download_writes_file(tmp_path, seeded_config):
         assert "fileType=1" in sent_url
     assert path == tmp_path / "out.txt"
     assert path.read_bytes() == b"data"
+
+
+def test_announcement_us_list(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/announcement-us/getList").mock(
+            return_value=_row_response({"announcementId": "us1", "title": "US filing"})
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Insight(client).announcement_us_list(
+                start_time="2026-01-01",
+                security="TSLA.O",
+            )
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"startTime":"2026-01-01"' in body
+        assert b'"securityList":["TSLA.O"]' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["announcementId"] == "us1"
+
+
+def test_announcement_us_download_sends_file_type(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/announcement-us/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": 'attachment; filename="file.pdf"'},
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).announcement_us_download(
+                announcement_id="us1",
+                output=tmp_path / "out.pdf",
+            )
+        sent_url = str(route.calls.last.request.url)
+        assert "announcementId=us1" in sent_url
+        assert "fileType=1" in sent_url
+    assert path.read_bytes() == b"data"

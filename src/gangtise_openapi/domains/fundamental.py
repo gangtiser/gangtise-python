@@ -315,6 +315,90 @@ class Fundamental:
             raw=raw,
         )
 
+    def income_statement_us(
+        self,
+        *,
+        security_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        fiscal_year: Any = None,
+        period: Any = None,
+        report_type: Any = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股利润表（fundamental.income-statement-us）。
+
+        period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        """
+        return self._statement(
+            "fundamental.income-statement-us",
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
+        )
+
+    def balance_sheet_us(
+        self,
+        *,
+        security_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        fiscal_year: Any = None,
+        period: Any = None,
+        report_type: Any = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股资产负债表（fundamental.balance-sheet-us）。
+
+        period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        """
+        return self._statement(
+            "fundamental.balance-sheet-us",
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
+        )
+
+    def cash_flow_us(
+        self,
+        *,
+        security_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        fiscal_year: Any = None,
+        period: Any = None,
+        report_type: Any = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股现金流量表（fundamental.cash-flow-us）。
+
+        period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        """
+        return self._statement(
+            "fundamental.cash-flow-us",
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
+        )
+
     # ---- main-business ----
 
     def main_business(
@@ -710,6 +794,90 @@ class AsyncFundamental:
         """
         return await self._statement(
             "fundamental.cash-flow-hk",
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
+        )
+
+    async def income_statement_us(
+        self,
+        *,
+        security_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        fiscal_year: Any = None,
+        period: Any = None,
+        report_type: Any = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股利润表（fundamental.income-statement-us）。
+
+        period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        """
+        return await self._statement(
+            "fundamental.income-statement-us",
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
+        )
+
+    async def balance_sheet_us(
+        self,
+        *,
+        security_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        fiscal_year: Any = None,
+        period: Any = None,
+        report_type: Any = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股资产负债表（fundamental.balance-sheet-us）。
+
+        period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        """
+        return await self._statement(
+            "fundamental.balance-sheet-us",
+            security_code=security_code,
+            start_date=start_date,
+            end_date=end_date,
+            fiscal_year=fiscal_year,
+            period=period,
+            report_type=report_type,
+            field=field,
+            raw=raw,
+        )
+
+    async def cash_flow_us(
+        self,
+        *,
+        security_code: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        fiscal_year: Any = None,
+        period: Any = None,
+        report_type: Any = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询美股现金流量表（fundamental.cash-flow-us）。
+
+        period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        """
+        return await self._statement(
+            "fundamental.cash-flow-us",
             security_code=security_code,
             start_date=start_date,
             end_date=end_date,

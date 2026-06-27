@@ -7,6 +7,49 @@ and follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-06-27
+
+### Added
+- **Indicator (EDE) domain** — `gangtise.indicator.*` (sync + async): `search`
+  finds data-indicator codes by keyword; `cross_section` returns a
+  multi-indicator × multi-security matrix for a single date; `time_series`
+  returns a multi-indicator × single-security (or single-indicator ×
+  multi-security) matrix over a date range. The live `values` matrix is
+  flattened into wide rows (one row per security / per date, indicator names as
+  columns), and the inner double-envelope is unwrapped — surfacing an `ApiError`
+  on an inner failure code instead of a null payload. `indicator_param={"qte_close":
+  {"adjustmentType": "2"}}` sets per-indicator options (e.g. 前复权). Ports CLI
+  v0.19.0 (`5af5540`).
+- **US-market endpoints** (CLI v0.20.0, `9881ea2`): `insight.announcement_us_list`
+  / `announcement_us_download` (mirror the HK announcement wrappers, with
+  `file_type` 1=original PDF, 2=Markdown); `fundamental.income_statement_us` /
+  `balance_sheet_us` / `cash_flow_us`.
+- **`ai.stock_summary_list`** (个股看点) — refined research summary per security;
+  requires `security` (codes or market keyword `aShares` / `hkStocks`) and raises
+  `ValidationError` on an empty value to avoid an all-market credit blow-up.
+- **`reference.chiefs_search`** — search chief-analyst IDs by name / institution /
+  team.
+
+### Changed
+- **`ai.hot_topic`** now sends `with_related_securities` / `with_close_reading` as
+  explicit booleans, so passing `False` sends `false` (previously the field was
+  omitted and the server applied its default). TS parity (`!== false`).
+- **`insight.announcement_hk_download`** gains `file_type` (1=original default,
+  2=Markdown), matching the CLI.
+- **Missing-credential error** now names which of `GANGTISE_ACCESS_KEY` /
+  `GANGTISE_SECRET_KEY` is absent and explains shell `export`
+  (and `gangtise.configure(...)`), replacing the single generic message.
+
+### Fixed
+- **Pagination is now fail-soft**: when a fan-out page hits a non-retryable error
+  (rate limit, no-permission), the already-fetched pages are kept and a
+  `UserWarning` is emitted, instead of discarding everything by raising. The raw
+  payload is tagged `partial=True` with `failedPages` (`raw=True`); the default
+  DataFrame drops those keys, so the warning is the signal on that path —
+  mirroring the existing K-line shard tolerance. Sync + async; CLI v0.20.0.
+- **`ai.knowledge_batch`** raises `ValidationError` on an empty `query` instead of
+  sending an empty `queries` list to the server.
+
 ## [0.1.9] - 2026-06-17
 
 ### Added

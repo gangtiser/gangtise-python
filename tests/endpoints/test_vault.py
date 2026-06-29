@@ -133,6 +133,35 @@ def test_wechat_chatroom_list_joins_room_names(tmp_path):
     assert df.iloc[0]["chatroomId"] == "r1"
 
 
+def test_wechat_chatroom_list_paginates_sequentially(tmp_path):
+    # Real chatRoomList shape, no `total`: a full first page (50) then a short page
+    # ends it. Exercises the wrapper's whole consume chain — sequential collector →
+    # {"chatRoomList": rows} → normalize_rows → one merged DataFrame.
+    page1 = [{"chatroomId": f"r{i}", "roomName": f"g{i}"} for i in range(50)]
+    page2 = [{"chatroomId": "r50", "roomName": "g50"}, {"chatroomId": "r51", "roomName": "g51"}]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-vault/wechatgroupmsg/chatroomId").mock(
+            side_effect=[
+                httpx.Response(
+                    200, json={"code": "000000", "status": True, "data": {"chatRoomList": page1}}
+                ),
+                httpx.Response(
+                    200, json={"code": "000000", "status": True, "data": {"chatRoomList": page2}}
+                ),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Vault(client).wechat_chatroom_list()
+    assert route.call_count == 2
+    # second request advanced from=50 and kept the 50-row page size
+    body2 = route.calls[1].request.read().replace(b" ", b"")
+    assert b'"from":50' in body2
+    assert b'"size":50' in body2
+    assert len(df) == 52
+    assert df.iloc[0]["chatroomId"] == "r0"
+    assert df.iloc[-1]["chatroomId"] == "r51"
+
+
 def test_stock_pool_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-vault/stock-pool/getPoolList").mock(

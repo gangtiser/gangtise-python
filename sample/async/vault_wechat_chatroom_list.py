@@ -14,14 +14,14 @@ from gangtise_openapi import gangtise
 
 
 async def main():
-    # 示例 1 · 最简调用: 取前 5 个群
-    show_result(await gangtise.async_.vault.wechat_chatroom_list(size=5), __file__)
+    # 示例 1 · 最简调用: 省略 size 拉取全部群（接口不返回 total，按页串行翻到末页）
+    show_result(await gangtise.async_.vault.wechat_chatroom_list(), __file__)
 
     # 示例 2 · 按群名称过滤 + 分页
     show_result(
         await gangtise.async_.vault.wechat_chatroom_list(
             from_=0,  # 分页起始偏移（映射为请求字段 from）
-            size=20,  # 分页大小, 默认 20
+            size=20,  # 取前 20 条；省略 size 则拉取全部群
             room_name="投研",  # 微信群名称, 支持单值或列表; 多值请求时会拼成逗号分隔字符串
         ),
         __file__,

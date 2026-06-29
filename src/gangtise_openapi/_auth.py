@@ -79,13 +79,24 @@ def write_token_cache(path: Path, cache: TokenCache) -> None:
         "userName": cache.user_name,
         "tenantId": cache.tenant_id,
     }
-    # Atomic write: temp file + rename to avoid partial reads. The tmp name
-    # carries pid + timestamp so concurrent writers (token.json is shared with
-    # the npm CLI and other processes) never clobber each other's temp file.
+    # Atomic write: create a fresh 0600 temp file, then rename over the target.
+    # The temp must be 0600 *from the first byte* — writing then chmod-ing would
+    # leave a brief window where the bearer token sits in a umask-default (often
+    # 0644) world-readable file. os.open(..., 0o600) sets the mode at creation,
+    # and O_EXCL refuses to follow a pre-existing file/symlink at the temp path.
+    # rename is atomic and carries 0600 to the target, tightening any pre-existing
+    # lax-permission token.json too (CLI v0.21.0 parity). The tmp name carries
+    # pid + millis so concurrent writers (token.json is shared with the npm CLI
+    # and other processes) never clobber each other's temp file.
     tmp = path.with_suffix(path.suffix + f".tmp-{os.getpid()}-{int(time.time() * 1000)}")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf8")
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)
+    fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf8") as f:
+            f.write(json.dumps(payload, indent=2))
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def require_credentials(access_key: str | None, secret_key: str | None) -> tuple[str, str]:

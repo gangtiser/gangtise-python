@@ -62,6 +62,9 @@ def collect_paginated(
     if endpoint.pagination is None:
         return fetch(body)
 
+    if endpoint.pagination.sequential:
+        return _collect_sequential(endpoint, body=body, fetch=fetch)
+
     initial = dict(body)
     _validate_paging_args(initial)
 
@@ -131,9 +134,14 @@ def collect_paginated(
                     state["aborted"] = True
                     failed_pages.append(req)
                 return []
-            if _is_paginated_response(page) and page["list"]:
-                return page["list"]  # type: ignore[no-any-return]
-            return []
+            if not _is_paginated_response(page):
+                # 2xx but malformed (no total/list): record it so the result is tagged
+                # partial instead of silently dropping rows. Don't set aborted — unlike
+                # a rate limit, one malformed page is no reason to stop the whole batch.
+                with lock:
+                    failed_pages.append(req)
+                return []
+            return page["list"]  # type: ignore[no-any-return]  # may be [] (empty page)
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             page_lists = list(pool.map(_run_page, remaining_requests))
@@ -143,6 +151,92 @@ def collect_paginated(
     if requested_size is not None:
         collected = collected[:requested_size]
     return _finalize_partial(first_page, total, collected, failed_pages, state, endpoint)
+
+
+def _extract_list_by_key(page: Any, list_key: str) -> list[Any] | None:
+    """Return ``page[list_key]`` if it's a list, else ``None`` (shape mismatch)."""
+    if not isinstance(page, dict):
+        return None
+    arr = page.get(list_key)
+    return arr if isinstance(arr, list) else None
+
+
+def _warn_sequential_partial(endpoint: EndpointDef, collected: int) -> None:
+    warnings.warn(
+        f"a page response had an unexpected shape for {endpoint.key}; "
+        f"results are partial — {collected} row(s) fetched",
+        stacklevel=2,
+    )
+
+
+def _warn_sequential_capped(endpoint: EndpointDef, collected: int) -> None:
+    warnings.warn(
+        f"sequential pagination hit the MAX_PAGES={MAX_PAGES} cap for {endpoint.key}; "
+        f"fetched {collected} row(s) — pass size= to bound the result",
+        stacklevel=2,
+    )
+
+
+def _collect_sequential(
+    endpoint: EndpointDef,
+    *,
+    body: dict[str, Any],
+    fetch: PageFetcher,
+) -> Any:
+    """Serial offset pagination for endpoints with NO ``total`` and a non-standard
+    list key (wechat chatroom's ``chatRoomList``). Without ``total`` the page count
+    is unknown, so we can't fan out — page serially until a short page (fewer rows
+    than requested) signals the end. Returns ``{list_key: rows}`` so normalize /
+    ``_extract_rows`` treat it like any list. Mirrors ``requestSequentialPaginated``
+    in the TS CLI (core/client.ts)."""
+    initial = dict(body)
+    _validate_paging_args(initial)
+    pagination = endpoint.pagination
+    assert pagination is not None  # caller guards; narrows for mypy
+    list_key = pagination.list_key or "list"
+    max_page_size = pagination.max_page_size
+    raw_from = initial.get("from")
+    start_from = raw_from if isinstance(raw_from, int) else 0
+    raw_size = initial.get("size")
+    requested_size = raw_size if isinstance(raw_size, int) else None
+
+    collected: list[Any] = []
+    first_page: Any = None
+    next_from = start_from
+    truncated = False
+    page = 0
+    while True:
+        remaining = max_page_size if requested_size is None else requested_size - len(collected)
+        if requested_size is not None and remaining <= 0:
+            break
+        size = min(max_page_size, remaining)
+        page_data = fetch({**initial, "from": next_from, "size": size})
+        if first_page is None:
+            first_page = page_data
+        rows = _extract_list_by_key(page_data, list_key)
+        if rows is None:
+            # First response isn't a list shape → hand it back untouched. A LATER
+            # page losing shape must NOT discard rows already collected (mirrors the
+            # fail-soft fan-out): stop, keep them, warn.
+            if page == 0:
+                return first_page
+            _warn_sequential_partial(endpoint, len(collected))
+            break
+        collected.extend(rows)
+        if len(rows) < size:  # short page ⇒ no more rows
+            break
+        if requested_size is not None and len(collected) >= requested_size:
+            break  # filled the request exactly — the page cap below must not fire
+        if page + 1 >= MAX_PAGES:
+            truncated = True
+            break
+        next_from += len(rows)
+        page += 1
+
+    if truncated:
+        _warn_sequential_capped(endpoint, len(collected))
+    result = collected if requested_size is None else collected[:requested_size]
+    return {list_key: result}
 
 
 def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
@@ -197,6 +291,8 @@ async def collect_paginated_async(
 ) -> Any:
     if endpoint.pagination is None:
         return await fetch(body)
+    if endpoint.pagination.sequential:
+        return await _collect_sequential_async(endpoint, body=body, fetch=fetch)
     initial = dict(body)
     _validate_paging_args(initial)
     raw_from = initial.get("from")
@@ -260,9 +356,70 @@ async def collect_paginated_async(
             for idx, req in enumerate(remaining_requests):
                 tg.start_soon(run_one, idx, req)
 
-    for page in pages:
-        if page is not None and _is_paginated_response(page) and page["list"]:
-            collected.extend(page["list"])
+    for idx, page in enumerate(pages):
+        if page is None:
+            continue  # run_one already recorded this failure (the exception path)
+        if not _is_paginated_response(page):
+            # 2xx but malformed: record so it surfaces as partial, don't drop silently
+            # (mirrors the sync _run_page branch).
+            failed_pages.append(remaining_requests[idx])
+            continue
+        collected.extend(page["list"])  # may be [] — a legitimately empty page
     if requested_size is not None:
         collected = collected[:requested_size]
     return _finalize_partial(first_page, total, collected, failed_pages, state, endpoint)
+
+
+async def _collect_sequential_async(
+    endpoint: EndpointDef,
+    *,
+    body: dict[str, Any],
+    fetch: Callable[[dict[str, Any]], Any],
+) -> Any:
+    """Async sibling of :func:`_collect_sequential` — serial offset pagination for
+    no-``total`` endpoints, awaiting each page before fetching the next."""
+    initial = dict(body)
+    _validate_paging_args(initial)
+    pagination = endpoint.pagination
+    assert pagination is not None  # caller guards; narrows for mypy
+    list_key = pagination.list_key or "list"
+    max_page_size = pagination.max_page_size
+    raw_from = initial.get("from")
+    start_from = raw_from if isinstance(raw_from, int) else 0
+    raw_size = initial.get("size")
+    requested_size = raw_size if isinstance(raw_size, int) else None
+
+    collected: list[Any] = []
+    first_page: Any = None
+    next_from = start_from
+    truncated = False
+    page = 0
+    while True:
+        remaining = max_page_size if requested_size is None else requested_size - len(collected)
+        if requested_size is not None and remaining <= 0:
+            break
+        size = min(max_page_size, remaining)
+        page_data = await fetch({**initial, "from": next_from, "size": size})
+        if first_page is None:
+            first_page = page_data
+        rows = _extract_list_by_key(page_data, list_key)
+        if rows is None:
+            if page == 0:
+                return first_page
+            _warn_sequential_partial(endpoint, len(collected))
+            break
+        collected.extend(rows)
+        if len(rows) < size:  # short page ⇒ no more rows
+            break
+        if requested_size is not None and len(collected) >= requested_size:
+            break  # filled the request exactly — the page cap below must not fire
+        if page + 1 >= MAX_PAGES:
+            truncated = True
+            break
+        next_from += len(rows)
+        page += 1
+
+    if truncated:
+        _warn_sequential_capped(endpoint, len(collected))
+    result = collected if requested_size is None else collected[:requested_size]
+    return {list_key: result}

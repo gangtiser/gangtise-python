@@ -1364,7 +1364,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int` | 否 | `20` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 省略则拉取全部群（接口不返回 total，按页串行翻到末页，单页上限 50）；传 N 仅取前 N 条。 |
 | `room_name` | `Any` | 否 | `None` | `"投研"` | 微信群名称或名称列表；请求时会拼成逗号分隔字符串。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 

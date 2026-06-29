@@ -183,13 +183,15 @@ class Vault:
         self,
         *,
         from_: int = 0,
-        size: int = 20,
+        size: int | None = None,
         room_name: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
 
         room_name 支持单值或列表; 请求时会拼成逗号分隔字符串。
+        省略 size 拉取全部群（该接口不返回 total，按页串行翻页到末页为止，
+        单页上限 50）；传 size=N 仅取前 N 条。
         """
         names = _as_list(room_name) or []
         body = _strip_none(
@@ -468,13 +470,15 @@ class AsyncVault:
         self,
         *,
         from_: int = 0,
-        size: int = 20,
+        size: int | None = None,
         room_name: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
 
         room_name 支持单值或列表; 请求时会拼成逗号分隔字符串。
+        省略 size 拉取全部群（该接口不返回 total，按页串行翻页到末页为止，
+        单页上限 50）；传 size=N 仅取前 N 条。
         """
         names = _as_list(room_name) or []
         body = _strip_none(

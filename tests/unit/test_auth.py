@@ -59,6 +59,41 @@ def test_read_token_cache_roundtrip(tmp_path):
     assert (path.stat().st_mode & 0o777) == 0o600
 
 
+def test_write_token_cache_tightens_lax_existing_file(tmp_path):
+    # CLI v0.21.0 parity: a token.json restored from backup or written by an older
+    # tool may be 0644; the temp-file + atomic replace must hand back a 0600 file
+    # (the temp carries 0600, and replace adopts the temp's inode + perms).
+    path = tmp_path / "tok.json"
+    path.write_text("{}", encoding="utf8")
+    os.chmod(path, 0o644)
+    write_token_cache(path, _make_cache(expires_at=int(time.time()) + 1000))
+    assert (path.stat().st_mode & 0o777) == 0o600
+    loaded = read_token_cache(path)
+    assert loaded is not None
+    assert loaded.access_token == "tok"
+
+
+def test_write_token_cache_creates_temp_0600_atomically(tmp_path, monkeypatch):
+    # The temp file is created with mode 0600 at open() time — NOT written under a
+    # umask default then chmod-ed, which would leave a brief window where the bearer
+    # token is world-readable. CLI v0.21.0 parity (auth.ts: "0600 from the first byte").
+    path = tmp_path / "tok.json"
+    opens: list[tuple[str, int]] = []
+    real_open = os.open
+
+    def spy(file, flags, mode=0o777, *args, **kwargs):
+        opens.append((str(file), mode))
+        return real_open(file, flags, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", spy)
+    write_token_cache(path, _make_cache(expires_at=int(time.time()) + 1000))
+    # Exactly one temp opened, created 0600 (not chmod-ed afterward); the final file
+    # inherits 0600 via the atomic rename.
+    assert len(opens) == 1
+    assert opens[0][1] == 0o600
+    assert (path.stat().st_mode & 0o777) == 0o600
+
+
 def test_read_token_cache_missing(tmp_path):
     assert read_token_cache(tmp_path / "nope.json") is None
 
@@ -83,13 +118,13 @@ def test_write_token_cache_tmp_name_unique_per_writer(tmp_path, monkeypatch):
     cache = _make_cache(expires_at=int(time.time()) + 1000)
     real_pid = os.getpid()
     tmp_names: list[str] = []
-    original_write_text = Path.write_text
+    original_replace = Path.replace
 
     def spy(self, *args, **kwargs):
-        tmp_names.append(self.name)
-        return original_write_text(self, *args, **kwargs)
+        tmp_names.append(self.name)  # self is the temp file being renamed onto path
+        return original_replace(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "write_text", spy)
+    monkeypatch.setattr(Path, "replace", spy)
     write_token_cache(path, cache)
     # Simulate a second process by faking a different pid.
     monkeypatch.setattr(os, "getpid", lambda: real_pid + 1)

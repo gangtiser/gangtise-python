@@ -86,7 +86,12 @@ class TitleCache:
             ts = entry.get("ts")
             if isinstance(ts, int) and (now_ms - ts) <= TITLE_CACHE_TTL_MS:
                 titles = entry.get("titles")
-                if isinstance(titles, dict) and len(titles) > TITLE_CACHE_MAX_PER_ENDPOINT:
+                if not isinstance(titles, dict):
+                    # Drop a half-corrupt entry (titles not a dict) rather than carry
+                    # it forward: set_titles() does existing.get(...) and lookup()
+                    # assumes a dict, so a bad value would crash the next list call.
+                    continue
+                if len(titles) > TITLE_CACHE_MAX_PER_ENDPOINT:
                     entry = {**entry, "titles": _cap_titles(titles)}
                 pruned[key] = entry
         return pruned
@@ -132,10 +137,15 @@ class TitleCache:
             tmp = self._path.with_suffix(
                 self._path.suffix + f".tmp-{os.getpid()}-{int(time.time() * 1000)}"
             )
-            tmp.write_text(
-                json.dumps(self._data, ensure_ascii=False),
-                encoding="utf8",
-            )
-            os.chmod(tmp, 0o600)
-            tmp.replace(self._path)
+            # Create the temp 0600 from the first byte (not write-then-chmod, which
+            # leaves a brief world-readable window) and rename atomically. Mirrors
+            # _auth.write_token_cache — the cache can hold non-public report titles.
+            fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(fd, "w", encoding="utf8") as f:
+                    f.write(json.dumps(self._data, ensure_ascii=False))
+                tmp.replace(self._path)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
             self._dirty = False

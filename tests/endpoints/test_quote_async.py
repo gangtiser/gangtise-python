@@ -150,6 +150,45 @@ async def test_async_day_kline_partial_shard_failure_sets_flags(tmp_path):
     assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
 
 
+def _malformed_shard_responder(request):
+    """Mon-Wed shards: the Tuesday shard returns 2xx but malformed (non-list) data."""
+    body = json.loads(request.read())
+    if body["startDate"] == "2026-01-06":
+        return httpx.Response(
+            200, json={"code": "000000", "status": True, "data": {"unexpected": "shape"}}
+        )
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {
+                "fieldList": ["securityCode", "tradeDate", "close"],
+                "list": [["000001.SH", body["startDate"], 1.0]],
+            },
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_malformed_shard_response_sets_partial(tmp_path):
+    # Async sibling of test_day_kline_malformed_shard_response_sets_partial.
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_malformed_shard_responder
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="unexpected shape"):
+                out = await AsyncQuote(client).day_kline(
+                    security="all",
+                    start_date="2026-01-05",  # Mon
+                    end_date="2026-01-07",  # Wed
+                    raw=True,
+                )
+    assert out["partial"] is True
+    assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
+
+
 @pytest.mark.anyio
 async def test_async_day_kline_all_shards_failed_raises_bare_api_error(tmp_path):
     # `except ApiError` must work on the async fan-out path too (no ExceptionGroup).

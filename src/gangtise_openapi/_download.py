@@ -67,6 +67,9 @@ _FORBIDDEN_FILENAME_CHARS = r'/\:*?"<>|'
 
 def _sanitize_filename(name: str) -> str:
     table = {ord(c): "_" for c in _FORBIDDEN_FILENAME_CHARS}
+    # Control chars + NUL (\x00-\x1f) too: a server-supplied name could otherwise
+    # break the file write or smuggle terminal escapes (CLI v0.21.0 parity).
+    table.update(dict.fromkeys(range(0x20), "_"))
     return name.translate(table).strip()
 
 

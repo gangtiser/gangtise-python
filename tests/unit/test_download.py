@@ -10,6 +10,7 @@ import respx
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._config import Config
 from gangtise_openapi._download import (
+    _sanitize_filename,
     _write_response_to_disk,
     _write_response_to_disk_async,
     download_to_path,
@@ -27,6 +28,15 @@ def _cfg(tmp_path: Path) -> Config:
         token_cache_path=tmp_path / "tok.json",
         title_cache_path=tmp_path / "title.json",
     )
+
+
+def test_sanitize_filename_strips_control_chars_and_nul():
+    # CLI v0.21.0 parity: control chars + NUL (\x00-\x1f) join the forbidden set so
+    # a server-supplied filename can't break the file write or smuggle escapes.
+    assert _sanitize_filename("a\x00b\x1fc") == "a_b_c"
+    assert _sanitize_filename("tab\tnew\nline") == "tab_new_line"
+    # existing forbidden chars still handled alongside control chars
+    assert _sanitize_filename("a/b\x01c") == "a_b_c"
 
 
 _LOGIN_JSON = {

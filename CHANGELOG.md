@@ -7,6 +7,38 @@ and follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-06-29
+
+### Changed
+- **`vault.wechat_chatroom_list`** now fetches **all** chatrooms when `size` is
+  omitted (previously capped at 20). This endpoint returns no `total`, so the
+  client pages sequentially until a short page (server caps each page at 50)
+  signals the end; pass `size=N` to cap the result at the first N rows. Scripts
+  that relied on the implicit 20-row default will now receive every group. Ports
+  CLI v0.21.0 (`5e306b3`).
+
+### Fixed
+- **Download filenames** now strip control characters and NUL (`\x00`–`\x1f`)
+  in addition to the existing path-unsafe set, so a server-supplied name can't
+  break the file write or smuggle terminal escape sequences. TS parity
+  (CLI v0.21.0).
+- **Title cache** drops a half-corrupt entry (an endpoint whose `titles` field is
+  not a dict) on load instead of carrying it forward, which could otherwise crash
+  the next list call that records titles.
+- **Malformed 2xx responses no longer silently drop rows**: when a fan-out
+  pagination page or a sharded K-line response returns `200` with an unexpected
+  shape (neither a paginated list nor the K-line matrix), the result is now flagged
+  `partial` and a warning is emitted, instead of quietly omitting those rows. This
+  makes the success-but-malformed path symmetric with the hard-failure path and the
+  sequential collector.
+
+### Security
+- **Token cache and title cache** files are now created `0600` atomically (`os.open`
+  with mode `0600`, then atomic rename) instead of write-then-`chmod`, eliminating the
+  brief window where the file briefly existed with umask-default (often world-readable)
+  permissions. Ports the CLI v0.21.0 token-cache hardening; the title cache can hold
+  non-public report titles.
+
 ## [0.1.10] - 2026-06-27
 
 ### Added

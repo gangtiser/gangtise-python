@@ -1,4 +1,5 @@
 import json
+import os
 import time
 
 from gangtise_openapi._title_cache import (
@@ -100,3 +101,39 @@ def test_load_caps_oversized_entry(tmp_path):
     assert len(stored) == n
     assert cache.lookup("ep", str(n + 99)) == f"t{n + 99}"
     assert cache.lookup("ep", "0") is None
+
+
+def test_load_drops_entry_with_non_dict_titles(tmp_path):
+    # A half-corrupt entry (titles not a dict) is dropped on load, not carried
+    # forward — otherwise the next set_titles() would AttributeError on existing.get.
+    path = tmp_path / "titles.json"
+    fresh_ts = int(time.time() * 1000)
+    path.write_text(
+        json.dumps({"ep": {"titles": ["not", "a", "dict"], "ts": fresh_ts}}),
+        encoding="utf8",
+    )
+    cache = TitleCache(path)
+    assert "ep" not in cache._data  # corrupt entry dropped, not retained
+    # A subsequent record on the same key still works (no crash, starts a fresh dict).
+    cache.set_titles("ep", {"x": "y"})
+    assert cache.lookup("ep", "x") == "y"
+
+
+def test_flush_creates_file_0600_atomically(tmp_path, monkeypatch):
+    # Cache may hold non-public report titles; the on-disk file is created 0600 at
+    # open() time (not write-then-chmod) and renamed atomically — mirrors the token
+    # cache. spy on os.open distinguishes this from the old write_text path (0666).
+    path = tmp_path / "titles.json"
+    cache = TitleCache(path)
+    cache.set_titles("ep", {"x": "标题"})
+    opens: list[int] = []
+    real_open = os.open
+
+    def spy(file, flags, mode=0o777, *args, **kwargs):
+        opens.append(mode)
+        return real_open(file, flags, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", spy)
+    cache.flush()
+    assert opens == [0o600]
+    assert (path.stat().st_mode & 0o777) == 0o600

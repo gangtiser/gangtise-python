@@ -163,12 +163,18 @@ class Quote:
 
         merged: dict[str, Any] = {}
         rows: list[Any] = []
+        malformed = 0
         for result in page_results:
             if isinstance(result, dict) and isinstance(result.get("list"), list):
                 merged.update({k: v for k, v in result.items() if k != "list"})
                 rows.extend(result["list"])
             elif isinstance(result, list):
                 rows.extend(result)
+            elif result is not None:
+                # 2xx but neither {list:[...]} nor a bare list — count it instead of
+                # silently dropping, so the result is flagged partial below. (A None
+                # marks a shard already recorded in failed_shards; don't double-count.)
+                malformed += 1
         result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
         if failed_shards:
             # Mirror TS quoteSharding partial-failure flags (camelCase).
@@ -179,6 +185,13 @@ class Quote:
             warnings.warn(
                 f"{len(failed_shards)}/{len(shards)} kline shards failed; results are partial "
                 "(see failedShards in raw output)",
+                stacklevel=3,
+            )
+        if malformed:
+            result_payload["partial"] = True
+            warnings.warn(
+                f"{malformed} kline shard response(s) had an unexpected shape; their rows "
+                "were dropped — results are partial",
                 stacklevel=3,
             )
         if raw:
@@ -414,12 +427,18 @@ class AsyncQuote:
 
         merged: dict[str, Any] = {}
         rows: list[Any] = []
+        malformed = 0
         for result in page_results:
             if isinstance(result, dict) and isinstance(result.get("list"), list):
                 merged.update({k: v for k, v in result.items() if k != "list"})
                 rows.extend(result["list"])
             elif isinstance(result, list):
                 rows.extend(result)
+            elif result is not None:
+                # 2xx but neither {list:[...]} nor a bare list — count it instead of
+                # silently dropping, so the result is flagged partial below. (A None
+                # marks a shard already recorded in failed_shards; don't double-count.)
+                malformed += 1
         result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
         if failed_shards:
             # Mirror TS quoteSharding partial-failure flags (camelCase).
@@ -430,6 +449,13 @@ class AsyncQuote:
             warnings.warn(
                 f"{len(failed_shards)}/{len(shards)} kline shards failed; results are partial "
                 "(see failedShards in raw output)",
+                stacklevel=3,
+            )
+        if malformed:
+            result_payload["partial"] = True
+            warnings.warn(
+                f"{malformed} kline shard response(s) had an unexpected shape; their rows "
+                "were dropped — results are partial",
                 stacklevel=3,
             )
         if raw:

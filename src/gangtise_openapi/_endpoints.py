@@ -10,6 +10,12 @@ EndpointKind = Literal["json", "download"]
 @dataclass(frozen=True)
 class Pagination:
     max_page_size: int
+    # Sequential mode: for endpoints that page by offset but return NO `total` and
+    # use a non-standard list key (e.g. wechat chatroom's `chatRoomList`). The
+    # client pages serially until a short page signals the end, accumulating
+    # `list_key`. Omit both for the standard total-driven concurrent fan-out.
+    sequential: bool = False
+    list_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +36,8 @@ def _ep(
     *,
     kind: EndpointKind = "json",
     paginated: int | None = None,
+    sequential: bool = False,
+    list_key: str | None = None,
 ) -> EndpointDef:
     return EndpointDef(
         key=key,
@@ -37,7 +45,11 @@ def _ep(
         path=path,
         kind=kind,
         description=description,
-        pagination=Pagination(max_page_size=paginated) if paginated else None,
+        pagination=(
+            Pagination(max_page_size=paginated, sequential=sequential, list_key=list_key)
+            if paginated
+            else None
+        ),
     )
 
 
@@ -543,6 +555,10 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-vault/wechatgroupmsg/chatroomId",
         "List WeChat group chatroom IDs",
+        # No `total` in the response; list key is `chatRoomList`, server caps size at 50.
+        paginated=50,
+        sequential=True,
+        list_key="chatRoomList",
     ),
     "vault.stock-pool.list": _ep(
         "vault.stock-pool.list",

@@ -44,12 +44,17 @@ def test_pagination_registry_matches_ts_source():
         "vault.record.list": 50,
         "vault.my-conference.list": 50,
         "vault.wechat-message.list": 50,
+        "vault.wechat-chatroom.list": 50,
     }
     actual = {
         k: ep.pagination.max_page_size for k, ep in ENDPOINTS.items() if ep.pagination is not None
     }
     assert actual == expected
-    assert ENDPOINTS["vault.wechat-chatroom.list"].pagination is None
+    # wechat-chatroom paginates sequentially (no total; list key chatRoomList).
+    chatroom = ENDPOINTS["vault.wechat-chatroom.list"].pagination
+    assert chatroom is not None
+    assert chatroom.sequential is True
+    assert chatroom.list_key == "chatRoomList"
 
 
 def test_download_endpoints_have_kind_download():

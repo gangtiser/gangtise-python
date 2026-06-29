@@ -1,10 +1,15 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.20.0 功能对齐，覆盖 84 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.21.0 功能对齐，覆盖 84 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.1.11 - 2026-06-29
+- 对齐 CLI v0.21.0：`vault.wechat_chatroom_list` 省略 `size` 改为拉取全部群（接口不返回 total，按页串行翻到末页、单页上限 50；传 `size=N` 仅取前 N 条）；下载文件名额外剥离控制字符/NUL。
+- 安全：token 缓存与 title 缓存改为创建即 `0600`（`os.open(O_EXCL)`）+ 原子 rename，消除“先写后 chmod”的短暂可读窗口。
+- 数据完整性：扇出分页与 K 线分片遇 2xx 畸形响应时标记 `partial` 并告警、不再静默丢行；修复串行分页取满即误报 MAX_PAGES 截断；title 缓存加载丢弃半损坏 entry；pytest 默认 `-m "not live"`，裸跑不再打真实 API。
 
 ### 0.1.10 - 2026-06-27
 - 新增证券级数据指标（EDE）域 `gangtise.indicator.*`（同步+异步，对齐 CLI v0.19.0）：`search` 按关键词搜指标码、`cross_section` 取多指标×多证券单日截面、`time_series` 取多指标×单证券（或单指标×多证券）时序；自动把 `values` 矩阵摊平成宽表（每行一证券/一日期，指标名作列）、剥离内层双层信封（内层失败码抛 `ApiError`）；`indicator_param={"qte_close":{"adjustmentType":"2"}}` 设置前复权等单指标参数。
@@ -23,12 +28,6 @@
 - 修复并发下载临时文件竞态：两个解析到同一目标文件名的下载（同一 id 下载两次、标题相同、或显式相同 `output`）此前共用 `<目标>.part`，字节交错且互删对方临时文件（表现为 `DownloadError: No such file`）；改为每次下载用唯一后缀 `.part-<uuid>`。
 - 异步下载不再因 `mkdir`/`replace`/`unlink` 等元数据 syscall 阻塞事件循环（改走 `anyio.to_thread`）。
 - 内部清理：`reference.securities_search`、`alternative.edb_search` 改用共享 `_extract_rows`；测试从 413 增至 431（并发下载回归、财报列式矩阵转置、异步 body 映射、异步轮询重试）。
-
-### 0.1.6 - 2026-06-15
-- 对齐 TS CLI v0.16.0/v0.17.0：新增 5 个 `reference` 接口（constant/concept/sector），下线 6 个本地 lookup 表；4 个日程列表（路演/调研/策略会/论坛）各自精简为服务端实际支持的筛选项，传入不支持的参数现在抛 `TypeError` 而非静默返回空表；`announcement_list` 删除服务端始终忽略的 `announcement_type` 参数。
-- 修复 `ai.knowledge_batch` 传空列表时向服务端发送 `"resourceTypes":[]`（TS 会省略该字段，可能导致 API 报错）。
-- 修复 `is_all_market(["all", "000001.SZ"])` 误触发全市场分片（TS 只对恰好 `["all"]` 分片）。
-- 对齐 `410110`/`410111` 错误提示文案（提及 `*-check` 命令与"终态"描述）。
 
 ## 安装
 

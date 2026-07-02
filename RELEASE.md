@@ -11,7 +11,8 @@
    ```bash
    uv run pytest -m live
    ```
-3. Update `CHANGELOG.md` with the new version section.
+3. Update `CHANGELOG.md` with the new version section and `README.md` with the
+   matching "最近 5 个版本" entry; release CI checks both before publishing.
 4. Bump `src/gangtise_openapi/__about__.py` (`__version__`).
 5. Commit: `git add -A && git commit -m "release: vX.Y.Z"`. (Use `git add -A`, **not**
    `git commit -am` — `-am` skips new untracked files, so a release that adds a new
@@ -30,4 +31,6 @@ Before the first release, configure PyPI Trusted Publishing for the `gangtise-op
    - Repository: `gangtise-python`
    - Workflow: `release.yml`
    - Environment: (leave blank)
-3. Run the workflow once via TestPyPI by temporarily pointing `pypa/gh-action-pypi-publish@release/v1` at `repository-url: https://test.pypi.org/legacy/`. Revert before tagging the real `v0.1.0`.
+3. Run the workflow once via TestPyPI by temporarily adding
+   `repository-url: https://test.pypi.org/legacy/` to the pinned
+   `pypa/gh-action-pypi-publish` step. Revert before tagging the real `v0.1.0`.

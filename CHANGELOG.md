@@ -5,7 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.12] - 2026-07-02
+
+### Changed
+- **`insight.announcement_list` date-only strings now use local midnight** (same
+  anchor as `"YYYY-MM-DD 00:00:00"`) instead of UTC midnight, matching TS HEAD
+  and avoiding boundary-day drift for users outside UTC.
+
+### Fixed
+- **Module-level async facade** no longer reuses an `httpx.AsyncClient` across
+  separate `asyncio.run()` event loops, and `reset()`/`configure(replace=True)`
+  now close the cached async client when possible.
+- **Auto-named downloads** now suffix colliding names (`report.pdf`,
+  `report-1.pdf`) instead of silently overwriting the first file, and truncate
+  overlong UTF-8 filenames while preserving the extension.
+- **`Content-Disposition` filename parsing** now decodes RFC 5987
+  `filename*=UTF-8''...` values case-insensitively, so percent-encoded Chinese
+  filenames land decoded.
+- **Download auth retry** now reuses a token already refreshed by another
+  request instead of forcing another login, matching the JSON request path.
+- **Pagination** now enforces `MAX_PAGES` while generating fan-out requests,
+  marks async malformed/`None` fan-out pages as `partial`, marks sequential
+  shape loss as `partial`, and stops after an empty/short first page instead of
+  repeating the same offset.
+- **`fundamental.earning_forecast` default window** now anchors `start_date` to
+  the provided `end_date` when only `end_date` is supplied.
+- **`normalize_token`** canonicalizes `bearer ...` / `BEARER ...` to
+  `Bearer ...` instead of producing `Bearer bearer ...`.
+- **Async download cleanup** removes `.part-*` files synchronously in `finally`,
+  so cancellation cannot skip the unlink.
+
+### Security
+- Release CI now syncs with `uv --locked`, checks that README/CHANGELOG mention
+  the tag before publishing, and pins the PyPI publish action to a commit SHA
+  instead of the mutable `release/v1` branch.
 
 ## [0.1.11] - 2026-06-29
 

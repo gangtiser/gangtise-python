@@ -36,6 +36,11 @@ def test_normalize_token_preserves_bearer():
     assert normalize_token("Bearer abc") == "Bearer abc"
 
 
+def test_normalize_token_canonicalizes_case_insensitive_bearer_prefix():
+    assert normalize_token("bearer abc") == "Bearer abc"
+    assert normalize_token("BEARER abc") == "Bearer abc"
+
+
 def test_is_cache_valid_with_buffer():
     now = int(time.time())
     assert is_cache_valid(_make_cache(expires_at=now + 1000)) is True

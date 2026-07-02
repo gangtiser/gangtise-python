@@ -4,7 +4,7 @@ import pytest
 
 from gangtise_openapi._endpoints import EndpointDef, Pagination
 from gangtise_openapi._errors import ApiError, ValidationError
-from gangtise_openapi._pagination import collect_paginated
+from gangtise_openapi._pagination import _build_remaining_requests, collect_paginated
 
 
 def _ep(max_page_size: int = 50) -> EndpointDef:
@@ -107,6 +107,20 @@ def test_fanout_page_failure_returns_partial():
     assert all({"from", "size"} <= set(p) for p in out["failedPages"])
 
 
+def test_build_remaining_requests_caps_during_generation():
+    # The cap must apply while generating requests, not after materializing a list
+    # proportional to a corrupt server total.
+    requests, dropped = _build_remaining_requests(
+        initial={},
+        next_from=1,
+        end_from=10**12,
+        max_page_size=1,
+        max_pages=3,
+    )
+    assert requests == [{"from": 1, "size": 1}, {"from": 2, "size": 1}]
+    assert dropped > 0
+
+
 def test_max_pages_cap():
     # total=10000 with maxPageSize=1 would request 10000 pages; we cap at 1000 and
     # emit a UserWarning so the truncation is visible on the default DataFrame path.
@@ -117,6 +131,23 @@ def test_max_pages_cap():
     with pytest.warns(UserWarning, match="capped at MAX_PAGES"):
         out = collect_paginated(_ep(max_page_size=1), body={}, fetch=fetch, concurrency=2)
     assert len(out["list"]) == 1000
+
+
+def test_empty_first_page_with_nonzero_total_does_not_refetch_same_offset():
+    calls = 0
+
+    def fetch(body):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"total": 100, "list": []}
+        raise AssertionError("empty first page should stop instead of repeating from=0")
+
+    with pytest.warns(UserWarning, match="short first page"):
+        out = collect_paginated(_ep(max_page_size=50), body={}, fetch=fetch, concurrency=2)
+    assert calls == 1
+    assert out["partial"] is True
+    assert out["list"] == []
 
 
 def _seq_ep(max_page_size: int = 50) -> EndpointDef:
@@ -190,7 +221,7 @@ def test_sequential_later_page_shape_loss_is_partial():
 
     with pytest.warns(UserWarning, match="results are partial"):
         out = collect_paginated(_seq_ep(max_page_size=3), body={}, fetch=fetch, concurrency=4)
-    assert out == {"chatRoomList": [{"i": j} for j in range(3)]}
+    assert out == {"chatRoomList": [{"i": j} for j in range(3)], "partial": True}
 
 
 def test_sequential_invalid_size_raises():

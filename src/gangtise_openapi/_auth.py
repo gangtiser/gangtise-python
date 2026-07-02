@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,10 +25,12 @@ class TokenCache:
 
 
 _BUFFER_SECONDS = 300
+_BEARER_PREFIX_RE = re.compile(r"^bearer\s+", re.IGNORECASE)
 
 
 def normalize_token(token: str) -> str:
-    return token if token.startswith("Bearer ") else f"Bearer {token}"
+    match = _BEARER_PREFIX_RE.match(token)
+    return f"Bearer {token[match.end() :]}" if match else f"Bearer {token}"
 
 
 def is_cache_valid(cache: TokenCache | None, buffer_seconds: int = _BUFFER_SECONDS) -> bool:

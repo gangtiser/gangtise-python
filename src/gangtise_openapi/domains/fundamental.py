@@ -52,6 +52,17 @@ def _flatten_earning_forecast(result: Any, *, latest: bool) -> list[dict[str, An
     return rows
 
 
+def _earning_forecast_dates(
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[str, str]:
+    end = end_date or dt.date.today().isoformat()
+    if start_date is not None:
+        return start_date, end
+    anchor = dt.date.fromisoformat(end)
+    return (anchor - dt.timedelta(days=365)).isoformat(), end
+
+
 class Fundamental:
     """`gangtise.fundamental.*` — financial statements + valuation + holders + forecasts."""
 
@@ -525,12 +536,8 @@ class Fundamental:
         start_date/end_date 缺省时自动取最近一年；latest=True（默认）仅保留最新一次更新。
         consensus 取值 netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps，支持单值或列表。
         """
-        # TS CLI parity: endDate defaults to today, startDate to 365 days back.
-        today = dt.date.today()
-        if end_date is None:
-            end_date = today.isoformat()
-        if start_date is None:
-            start_date = (today - dt.timedelta(days=365)).isoformat()
+        # TS HEAD parity: default the window to the year before endDate.
+        start_date, end_date = _earning_forecast_dates(start_date, end_date)
         body = _strip_none(
             {
                 "securityCode": security_code,
@@ -1006,12 +1013,8 @@ class AsyncFundamental:
         start_date/end_date 缺省时自动取最近一年；latest=True（默认）仅保留最新一次更新。
         consensus 取值 netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps，支持单值或列表。
         """
-        # TS CLI parity: endDate defaults to today, startDate to 365 days back.
-        today = dt.date.today()
-        if end_date is None:
-            end_date = today.isoformat()
-        if start_date is None:
-            start_date = (today - dt.timedelta(days=365)).isoformat()
+        # TS HEAD parity: default the window to the year before endDate.
+        start_date, end_date = _earning_forecast_dates(start_date, end_date)
         body = _strip_none(
             {
                 "securityCode": security_code,

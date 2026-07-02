@@ -6,6 +6,13 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.12 - 2026-07-02
+- 对齐 CLI HEAD 对抗审查修复（含行为变更）：`insight.*` 纯日期串 `YYYY-MM-DD` 改按**本地午夜**锚定（此前 UTC 午夜，非 UTC 用户查询窗口偏一天）；`fundamental.earning_forecast` 仅传 `end_date` 时缺省起点改为锚定该日期前一年（此前锚定今天）；`normalize_token` 大小写不敏感剥 `bearer ` 前缀，避免 `Bearer bearer ...`。
+- 下载更稳：自动命名遇同名加 `-1..-99` 后缀防批量覆盖、超长名截到 ≤200 UTF-8 字节且保留扩展名、`Content-Disposition` 的 RFC 5987 `filename*=UTF-8''` 大小写不敏感百分号解码（中文名正确落地）；鉴权重试复用他处已刷新的 token；异步清理 `.part` 改同步 `finally`，取消时也不漏删。
+- 分页更稳：`MAX_PAGES` 上限改为生成扇出请求时即刻生效（损坏的 `total` 不再撑爆内存/挂死）；空或短首页不再重复请求同一偏移；异步畸形/空扇出页标 `partial`。
+- 异步门面：不再跨 `asyncio.run()` 复用旧事件循环的 `httpx.AsyncClient`（消除 “Event loop is closed”）；`reset()`/`configure(replace=True)` 会关闭缓存的异步客户端。
+- 发布 CI：`uv sync --locked`、发版前校验 README/CHANGELOG 含该 tag、PyPI 发布 action 钉到 commit SHA。
+
 ### 0.1.11 - 2026-06-29
 - 对齐 CLI v0.21.0：`vault.wechat_chatroom_list` 省略 `size` 改为拉取全部群（接口不返回 total，按页串行翻到末页、单页上限 50；传 `size=N` 仅取前 N 条）；下载文件名额外剥离控制字符/NUL。
 - 安全：token 缓存与 title 缓存改为创建即 `0600`（`os.open(O_EXCL)`）+ 原子 rename，消除“先写后 chmod”的短暂可读窗口。
@@ -23,11 +30,6 @@
 
 ### 0.1.8 - 2026-06-16
 - 服务端把 token 挤掉（他处登录）导致本会话失效时，自动重新登录并重试一次（错误码 `0000001008` 加入 auth 重试集合，`_call` 与下载、同步与异步四条路径全覆盖），不再需要手动重新登录；补充对应中文错误提示。对齐 CLI v0.17.2。
-
-### 0.1.7 - 2026-06-16
-- 修复并发下载临时文件竞态：两个解析到同一目标文件名的下载（同一 id 下载两次、标题相同、或显式相同 `output`）此前共用 `<目标>.part`，字节交错且互删对方临时文件（表现为 `DownloadError: No such file`）；改为每次下载用唯一后缀 `.part-<uuid>`。
-- 异步下载不再因 `mkdir`/`replace`/`unlink` 等元数据 syscall 阻塞事件循环（改走 `anyio.to_thread`）。
-- 内部清理：`reference.securities_search`、`alternative.edb_search` 改用共享 `_extract_rows`；测试从 413 增至 431（并发下载回归、财报列式矩阵转置、异步 body 映射、异步轮询重试）。
 
 ## 安装
 

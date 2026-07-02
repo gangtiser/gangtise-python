@@ -75,6 +75,22 @@ async def test_async_fanout_page_failure_returns_partial():
     assert all({"from", "size"} <= set(p) for p in out["failedPages"])
 
 
+@pytest.mark.anyio
+async def test_async_fanout_none_page_is_partial():
+    async def fetch(body):
+        if body["from"] == 0:
+            return {"total": 12, "list": [{"i": j} for j in range(5)]}
+        return None
+
+    with pytest.warns(UserWarning, match="results are partial"):
+        out = await collect_paginated_async(
+            _ep(max_page_size=5), body={}, fetch=fetch, concurrency=4
+        )
+    assert out["partial"] is True
+    assert out["failedPages"]
+    assert [r["i"] for r in out["list"]] == list(range(5))
+
+
 def test_first_leaf_exception_descends_nested_groups():
     leaf = ApiError("boom", code="100001")
     inner = ExceptionGroup("inner", [leaf, ApiError("other")])
@@ -100,6 +116,26 @@ async def test_async_max_pages_cap():
             _ep(max_page_size=1), body={}, fetch=fetch, concurrency=2
         )
     assert len(out["list"]) == 1000
+
+
+@pytest.mark.anyio
+async def test_async_empty_first_page_with_nonzero_total_does_not_refetch_same_offset():
+    calls = 0
+
+    async def fetch(body):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {"total": 100, "list": []}
+        raise AssertionError("empty first page should stop instead of repeating from=0")
+
+    with pytest.warns(UserWarning, match="short first page"):
+        out = await collect_paginated_async(
+            _ep(max_page_size=50), body={}, fetch=fetch, concurrency=2
+        )
+    assert calls == 1
+    assert out["partial"] is True
+    assert out["list"] == []
 
 
 def _seq_ep(max_page_size: int = 50) -> EndpointDef:
@@ -164,7 +200,7 @@ async def test_async_sequential_later_page_shape_loss_is_partial():
         out = await collect_paginated_async(
             _seq_ep(max_page_size=3), body={}, fetch=fetch, concurrency=4
         )
-    assert out == {"chatRoomList": [{"i": j} for j in range(3)]}
+    assert out == {"chatRoomList": [{"i": j} for j in range(3)], "partial": True}
 
 
 @pytest.mark.anyio

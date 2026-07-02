@@ -27,14 +27,9 @@ def _to_unix_ms(value: int | str | None) -> int | None:
         return value
     parsed = dt.datetime.fromisoformat(value)
     if parsed.tzinfo is None:
-        try:
-            dt.date.fromisoformat(value)
-        except ValueError:
-            # Naive datetime string: local timezone, matching `new Date()` in the CLI.
-            parsed = parsed.astimezone()
-        else:
-            # Date-only string: UTC midnight, matching `new Date("YYYY-MM-DD")`.
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        # Naive datetime and date-only strings are anchored to local timezone,
+        # matching TS HEAD's CLI argument parser.
+        parsed = parsed.astimezone()
     return int(parsed.timestamp() * 1000)
 
 

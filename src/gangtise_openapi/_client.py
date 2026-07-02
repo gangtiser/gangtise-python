@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from dataclasses import asdict
@@ -44,6 +45,13 @@ from gangtise_openapi._transport_async import (
 AUTH_RETRY_CODES = frozenset({"8000014", "8000015", "0000001008"})
 
 logger = get_logger()
+
+
+def _running_asyncio_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 class GangtiseClient:
@@ -297,6 +305,7 @@ class AsyncGangtiseClient:
         self._config = cfg
         configure_logging(cfg.verbose)
         self._http: httpx.AsyncClient | None = None
+        self._http_loop: asyncio.AbstractEventLoop | None = None
         self._memo_cache: TokenCache | None = None
         self._env_token_rejected = False
         self._lock = anyio.Lock()
@@ -320,12 +329,27 @@ class AsyncGangtiseClient:
 
     async def aclose(self) -> None:
         if self._http is not None:
-            await self._http.aclose()
+            http = self._http
             self._http = None
+            self._http_loop = None
+            await http.aclose()
 
     def _http_client(self) -> httpx.AsyncClient:
+        loop = _running_asyncio_loop()
+        if (
+            self._http is not None
+            and loop is not None
+            and self._http_loop is not None
+            and self._http_loop is not loop
+        ):
+            # httpx/anyio keepalive streams are bound to the loop that created them.
+            # Drop the closed-loop client; a fresh one avoids "Event loop is closed"
+            # when the module-level async facade is reused across asyncio.run().
+            self._http = None
+            self._http_loop = None
         if self._http is None:
             self._http = build_async_client(self._config)
+            self._http_loop = loop
         return self._http
 
     async def _get_token(

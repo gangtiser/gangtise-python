@@ -1,15 +1,19 @@
 import threading
+import time
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from urllib.parse import quote
 
 import anyio
 import httpx
 import pytest
 import respx
 
+from gangtise_openapi._auth import TokenCache
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._config import Config
 from gangtise_openapi._download import (
+    _parse_content_disposition,
     _sanitize_filename,
     _write_response_to_disk,
     _write_response_to_disk_async,
@@ -30,6 +34,26 @@ def _cfg(tmp_path: Path) -> Config:
     )
 
 
+def _cfg_without_token(tmp_path: Path) -> Config:
+    return Config(
+        base_url="https://api.test",
+        access_key="ak",
+        secret_key="sk",
+        token=None,
+        token_cache_path=tmp_path / "tok.json",
+        title_cache_path=tmp_path / "title.json",
+    )
+
+
+def _cache(token: str) -> TokenCache:
+    return TokenCache(
+        access_token=token,
+        expires_in=3600,
+        time=int(time.time()),
+        expires_at=int(time.time()) + 3600,
+    )
+
+
 def test_sanitize_filename_strips_control_chars_and_nul():
     # CLI v0.21.0 parity: control chars + NUL (\x00-\x1f) join the forbidden set so
     # a server-supplied filename can't break the file write or smuggle escapes.
@@ -37,6 +61,17 @@ def test_sanitize_filename_strips_control_chars_and_nul():
     assert _sanitize_filename("tab\tnew\nline") == "tab_new_line"
     # existing forbidden chars still handled alongside control chars
     assert _sanitize_filename("a/b\x01c") == "a_b_c"
+
+
+def test_parse_content_disposition_decodes_rfc5987_case_insensitively():
+    assert (
+        _parse_content_disposition("attachment; filename*=utf-8''%E5%B9%B4%E6%8A%A5.pdf")
+        == "年报.pdf"
+    )
+    assert (
+        _parse_content_disposition("attachment; filename*=UTF-8''%E5%B9%B4%E6%8A%A5.pdf")
+        == "年报.pdf"
+    )
 
 
 _LOGIN_JSON = {
@@ -109,6 +144,77 @@ def test_download_uses_content_disposition_filename(tmp_path: Path, monkeypatch:
                 fallback_name="report-r1",
             )
     assert path.name == "alpha.pdf"
+    assert path.read_bytes() == b"data"
+
+
+def test_download_auto_filename_suffixes_existing_file(tmp_path: Path, monkeypatch: object) -> None:
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    content=b"first",
+                    headers={
+                        "content-disposition": 'attachment; filename="same.pdf"',
+                        "content-type": "application/pdf",
+                    },
+                ),
+                httpx.Response(
+                    200,
+                    content=b"second",
+                    headers={
+                        "content-disposition": 'attachment; filename="same.pdf"',
+                        "content-type": "application/pdf",
+                    },
+                ),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            first = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+            second = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r2"},
+                output=None,
+                fallback_name="report-r2",
+            )
+    assert first.name == "same.pdf"
+    assert second.name == "same-1.pdf"
+    assert first.read_bytes() == b"first"
+    assert second.read_bytes() == b"second"
+
+
+def test_download_truncates_overlong_auto_filename(tmp_path: Path, monkeypatch: object) -> None:
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    long_name = ("会" * 90) + ".pdf"
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={
+                    "content-disposition": f"attachment; filename*=UTF-8''{quote(long_name)}",
+                    "content-type": "application/pdf",
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+    assert len(path.name.encode("utf8")) <= 210
+    assert path.name.endswith(".pdf")
     assert path.read_bytes() == b"data"
 
 
@@ -300,6 +406,46 @@ def test_download_refreshes_token_and_retries_on_auth_error(tmp_path: Path) -> N
     assert path.read_bytes() == b"%PDF-after-refresh"
     assert dl_route.call_count == 2
     assert dl_route.calls.last.request.headers["Authorization"] == "Bearer refreshed"
+
+
+def test_download_auth_retry_reuses_concurrent_refreshed_token(tmp_path: Path) -> None:
+    out_path = tmp_path / "out.pdf"
+    holder: dict[str, GangtiseClient] = {}
+
+    def download_side_effect(request: httpx.Request) -> httpx.Response:
+        auth = request.headers["Authorization"]
+        if auth == "Bearer stale":
+            holder["client"]._memo_cache = _cache("fresh")
+            return httpx.Response(
+                200,
+                json={"code": "0000001008", "status": False, "msg": "stale token"},
+                headers={"content-type": "application/json"},
+            )
+        assert auth == "Bearer fresh"
+        return httpx.Response(
+            200,
+            content=b"%PDF-after-shared-refresh",
+            headers={"content-type": "application/pdf"},
+        )
+
+    with respx.mock(
+        base_url="https://api.test", assert_all_called=True, assert_all_mocked=True
+    ) as router:
+        dl_route = router.get("/application/open-insight/broker-report/download/file").mock(
+            side_effect=download_side_effect
+        )
+        with GangtiseClient(_config=_cfg_without_token(tmp_path)) as client:
+            client._memo_cache = _cache("stale")
+            holder["client"] = client
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=out_path,
+                fallback_name="report-r1",
+            )
+    assert path.read_bytes() == b"%PDF-after-shared-refresh"
+    assert dl_route.call_count == 2
 
 
 def test_download_retries_on_503_then_succeeds(
@@ -673,6 +819,49 @@ async def test_async_download_refreshes_token_and_retries_on_auth_error(tmp_path
 
 
 @pytest.mark.anyio
+async def test_async_download_auth_retry_reuses_concurrent_refreshed_token(
+    tmp_path: Path,
+) -> None:
+    out_path = tmp_path / "out.pdf"
+    holder: dict[str, AsyncGangtiseClient] = {}
+
+    def download_side_effect(request: httpx.Request) -> httpx.Response:
+        auth = request.headers["Authorization"]
+        if auth == "Bearer stale":
+            holder["client"]._memo_cache = _cache("fresh")
+            return httpx.Response(
+                200,
+                json={"code": "0000001008", "status": False, "msg": "stale token"},
+                headers={"content-type": "application/json"},
+            )
+        assert auth == "Bearer fresh"
+        return httpx.Response(
+            200,
+            content=b"%PDF-after-shared-refresh",
+            headers={"content-type": "application/pdf"},
+        )
+
+    with respx.mock(
+        base_url="https://api.test", assert_all_called=True, assert_all_mocked=True
+    ) as router:
+        dl_route = router.get("/application/open-insight/broker-report/download/file").mock(
+            side_effect=download_side_effect
+        )
+        async with AsyncGangtiseClient(_config=_cfg_without_token(tmp_path)) as client:
+            client._memo_cache = _cache("stale")
+            holder["client"] = client
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=out_path,
+                fallback_name="report-r1",
+            )
+    assert path.read_bytes() == b"%PDF-after-shared-refresh"
+    assert dl_route.call_count == 2
+
+
+@pytest.mark.anyio
 async def test_async_download_retries_on_503_then_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -841,6 +1030,36 @@ async def test_async_download_cleans_up_part_file_on_midstream_failure(
                     fallback_name="report-r1",
                 )
     assert not out_path.exists()
+    assert list(tmp_path.glob("*.part*")) == []
+
+
+@pytest.mark.anyio
+async def test_async_download_cleanup_does_not_await_unlink_during_cancellation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_run_sync = anyio.to_thread.run_sync
+
+    async def fake_run_sync(func, *args, **kwargs):
+        target = getattr(func, "func", func)
+        if getattr(target, "__name__", "") == "unlink":
+            raise RuntimeError("unlink cleanup must not depend on cancellable to_thread")
+        return await original_run_sync(func, *args, **kwargs)
+
+    monkeypatch.setattr("gangtise_openapi._download.anyio.to_thread.run_sync", fake_run_sync)
+    response = httpx.Response(
+        200,
+        stream=_ExplodingAsyncStream(),
+        headers={"content-type": "application/pdf"},
+    )
+    async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+        with pytest.raises(httpx.ReadError):
+            await _write_response_to_disk_async(
+                client=client,
+                response=response,
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+                title_lookup=None,
+            )
     assert list(tmp_path.glob("*.part*")) == []
 
 

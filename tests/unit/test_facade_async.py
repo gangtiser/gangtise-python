@@ -1,3 +1,6 @@
+import asyncio
+
+import anyio
 import pytest
 
 from gangtise_openapi._facade import _AsyncFacade, _Facade
@@ -71,6 +74,36 @@ def test_reset_invalidates_cached_async_facade(env_keys):
     async_facade = f.async_
     f.reset()
     assert f.async_ is not async_facade
+
+
+def test_reset_closes_cached_async_client(env_keys):
+    f = _Facade()
+    f.configure(access_key="ak", secret_key="sk")
+
+    async def make_client():
+        client = f.async_._ensure_client()
+        client._http_client()
+        return client
+
+    async_client = anyio.run(make_client)
+    assert async_client._http is not None
+    f.reset()
+    assert async_client._http is None
+
+
+def test_async_facade_recreates_client_across_asyncio_run(env_keys):
+    f = _Facade()
+    clients = []
+
+    async def capture_client():
+        client = f.async_._ensure_client()
+        client._http_client()
+        clients.append(client)
+
+    asyncio.run(capture_client())
+    asyncio.run(capture_client())
+
+    assert clients[0] is not clients[1]
 
 
 @pytest.mark.parametrize("name", sorted(_AsyncFacade._DOMAIN_FACTORIES))

@@ -171,9 +171,11 @@ def test_to_unix_ms_naive_datetime_uses_local_timezone():
     assert _to_unix_ms("2026-06-01 09:00:00") == expected
 
 
-def test_to_unix_ms_date_only_stays_utc_midnight():
-    # Matches `new Date("2026-01-01")`: date-only strings are UTC midnight.
-    assert _to_unix_ms("2026-01-01") == 1767225600000
+def test_to_unix_ms_date_only_uses_local_midnight():
+    # TS HEAD parity: CLI date-only values are anchored to local midnight, matching
+    # "YYYY-MM-DD 00:00:00" and avoiding boundary-day drift for announcement_list.
+    expected = int(dt.datetime(2026, 1, 1).astimezone().timestamp() * 1000)
+    assert _to_unix_ms("2026-01-01") == expected
 
 
 def test_to_unix_ms_seconds_int_scaled():

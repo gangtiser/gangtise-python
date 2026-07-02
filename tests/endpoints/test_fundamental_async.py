@@ -110,6 +110,32 @@ async def test_async_earning_forecast_injects_default_dates(tmp_path):
     }
 
 
+@pytest.mark.anyio
+async def test_async_earning_forecast_start_date_defaults_to_year_before_end_date(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-fundamental/earning-forecast").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "securityCode": "000001.SZ",
+                        "securityName": "PAB",
+                        "updateList": [],
+                    },
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncFundamental(client).earning_forecast(
+                security_code="000001.SZ", end_date="2020-06-30"
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert body["endDate"] == "2020-06-30"
+    assert body["startDate"] == "2019-07-01"
+
+
 # ---------------------------------------------------------------------------
 # Body-mapping coverage for the 9 async methods that lacked an async test.
 #

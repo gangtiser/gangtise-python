@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import threading
 from typing import TYPE_CHECKING, Any, ClassVar
+
+import anyio
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._config import Config, load_config
@@ -45,6 +49,13 @@ _CONFIG_FIELDS_FOR_EQUALITY = (
 
 def _signature(cfg: Config) -> tuple[Any, ...]:
     return tuple(getattr(cfg, field) for field in _CONFIG_FIELDS_FOR_EQUALITY)
+
+
+def _running_asyncio_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 class _Facade:
@@ -129,6 +140,7 @@ class _Facade:
         self._domains.clear()
         # also reset async facade
         if hasattr(self, "_async_facade"):
+            self._async_facade.close()
             del self._async_facade
 
     def _ensure_client(self) -> GangtiseClient:
@@ -198,14 +210,57 @@ class _AsyncFacade:
     def __init__(self, parent: _Facade) -> None:
         self._parent = parent
         self._client: AsyncGangtiseClient | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._domains: dict[str, Any] = {}
 
     def _ensure_client(self) -> AsyncGangtiseClient:
+        loop = _running_asyncio_loop()
+        if (
+            self._client is not None
+            and loop is not None
+            and self._loop is not None
+            and self._loop is not loop
+        ):
+            # A previous asyncio.run() closed the old loop. Do not hand out domain
+            # wrappers bound to that loop's AsyncClient.
+            self._client = None
+            self._domains.clear()
         if self._client is None:
             parent_client = self._parent._client
             cfg = parent_client.config if parent_client is not None else load_config()
             self._client = AsyncGangtiseClient(_config=cfg)
+            self._loop = loop
+        elif self._loop is None:
+            self._loop = loop
         return self._client
+
+    async def aclose(self) -> None:
+        client = self._client
+        self._client = None
+        self._loop = None
+        self._domains.clear()
+        if client is not None:
+            await client.aclose()
+
+    def close(self) -> None:
+        client = self._client
+        self._client = None
+        self._loop = None
+        self._domains.clear()
+        if client is None:
+            return
+
+        async def close_client() -> None:
+            # Closing a client created on an already-closed event loop can raise
+            # from the transport. The facade must still drop the stale reference.
+            with contextlib.suppress(RuntimeError):
+                await client.aclose()
+
+        loop = _running_asyncio_loop()
+        if loop is None:
+            anyio.run(close_client)
+        else:
+            loop.create_task(close_client())
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):

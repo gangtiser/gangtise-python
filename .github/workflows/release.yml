@@ -18,12 +18,14 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
       - name: Sync deps
-        run: uv sync --all-extras
+        run: uv sync --all-extras --locked
       - name: Verify version matches tag
         run: |
           PKG_VERSION=$(uv run python -c "from gangtise_openapi.__about__ import __version__; print(__version__)")
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           test "$PKG_VERSION" = "$TAG_VERSION" || (echo "Version mismatch: $PKG_VERSION vs $TAG_VERSION"; exit 1)
+          grep -q "### ${TAG_VERSION} " README.md || (echo "README.md missing latest-version section for ${TAG_VERSION}"; exit 1)
+          grep -q "## \\[${TAG_VERSION}\\]" CHANGELOG.md || (echo "CHANGELOG.md missing section for ${TAG_VERSION}"; exit 1)
       - name: Lint + type-check + test
         run: |
           uv run ruff check .
@@ -33,7 +35,7 @@ jobs:
       - name: Build
         run: uv build
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           packages-dir: dist/
       - name: Create GitHub Release

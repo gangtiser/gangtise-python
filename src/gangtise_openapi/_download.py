@@ -7,6 +7,7 @@ import uuid
 from functools import partial
 from pathlib import Path
 from typing import NoReturn
+from urllib.parse import unquote
 
 import anyio
 import httpx
@@ -25,7 +26,10 @@ from gangtise_openapi._transport import (
 # Matches request_json's default max_retries (see _transport.py).
 _MAX_RETRIES = 2
 
-_DISPOSITION_RE = re.compile(r"filename\*?=(?:UTF-8''([^;]+)|\"?([^\";]+)\"?)")
+_DISPOSITION_RE = re.compile(
+    r"filename\*?\s*=\s*(?:(?:[^']*)''([^;]+)|\"?([^\";]+)\"?)",
+    re.IGNORECASE,
+)
 _MIME_EXTENSIONS = {
     "application/pdf": ".pdf",
     "application/zip": ".zip",
@@ -49,7 +53,8 @@ def _parse_content_disposition(header: str | None) -> str | None:
     match = _DISPOSITION_RE.search(header)
     if not match:
         return None
-    return match.group(1) or match.group(2)
+    raw = match.group(1) or match.group(2)
+    return unquote(raw)
 
 
 def _extension_for(content_type: str | None) -> str:
@@ -81,6 +86,32 @@ def _append_extension_if_needed(name: str, ext: str) -> str:
     if not ext or name.lower().endswith(ext.lower()) or _has_known_extension(name):
         return name
     return f"{name}{ext}"
+
+
+def _truncate_filename(name: str, max_bytes: int = 200) -> str:
+    if len(name.encode("utf8")) <= max_bytes:
+        return name
+    ext = Path(name).suffix
+    stem = name[: -len(ext)] if ext else name
+    while len(stem) > 1 and len(f"{stem}{ext}".encode()) > max_bytes:
+        stem = stem[:-1]
+    return f"{stem}{ext}"
+
+
+def _unique_path(target: Path) -> Path:
+    if not target.exists():
+        return target
+    ext = target.suffix
+    stem = target.name[: -len(ext)] if ext else target.name
+    for i in range(1, 100):
+        candidate = target.with_name(f"{stem}-{i}{ext}")
+        if not candidate.exists():
+            return candidate
+    return target
+
+
+def _auto_target(name: str) -> Path:
+    return _unique_path(Path.cwd() / _truncate_filename(name))
 
 
 def _raise_download_http_error(status_code: int, text: str) -> NoReturn:
@@ -154,7 +185,9 @@ def download_to_path(
                 and client._config.secret_key
             ):
                 auth_retried = True
-                token = client._get_token(force_refresh=True)
+                if token == client._config.token:
+                    client._env_token_rejected = True
+                token = client._get_token(force_refresh=True, stale_token=token)
                 continue
             if attempt >= _MAX_RETRIES or not is_retryable_error(error):
                 raise
@@ -315,14 +348,16 @@ def _decide_target(
         title = client._resolve_title(list_key, id_field, id_value)
         if title:
             sanitized = _sanitize_filename(title)
-            return Path.cwd() / _append_extension_if_needed(sanitized, ext_from_mime)
+            if sanitized:
+                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime))
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return Path.cwd() / _append_extension_if_needed(safe_name, ext_from_mime)
-    return Path.cwd() / f"{fallback_name}{ext_from_mime}"
+            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime))
+    safe_fallback = _sanitize_filename(fallback_name) or "download"
+    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime))
 
 
 async def download_to_path_async(
@@ -363,7 +398,9 @@ async def download_to_path_async(
                 and client._config.secret_key
             ):
                 auth_retried = True
-                token = await client._get_token(force_refresh=True)
+                if token == client._config.token:
+                    client._env_token_rejected = True
+                token = await client._get_token(force_refresh=True, stale_token=token)
                 continue
             if attempt >= _MAX_RETRIES or not is_retryable_error(error):
                 raise
@@ -465,7 +502,7 @@ async def _write_response_to_disk_async(
     finally:
         # No-op after a successful replace; cleans up the .part file when the
         # stream fails mid-flight (httpx errors are not OSError subclasses).
-        await anyio.to_thread.run_sync(partial(tmp.unlink, missing_ok=True))
+        tmp.unlink(missing_ok=True)
     return target
 
 
@@ -512,11 +549,13 @@ async def _decide_target_async(
         title = await client._resolve_title(list_key, id_field, id_value)
         if title:
             sanitized = _sanitize_filename(title)
-            return Path.cwd() / _append_extension_if_needed(sanitized, ext_from_mime)
+            if sanitized:
+                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime))
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return Path.cwd() / _append_extension_if_needed(safe_name, ext_from_mime)
-    return Path.cwd() / f"{fallback_name}{ext_from_mime}"
+            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime))
+    safe_fallback = _sanitize_filename(fallback_name) or "download"
+    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime))

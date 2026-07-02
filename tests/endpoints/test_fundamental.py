@@ -354,6 +354,18 @@ def test_earning_forecast_injects_default_dates(tmp_path):
     }
 
 
+def test_earning_forecast_start_date_defaults_to_year_before_end_date(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-fundamental/earning-forecast").mock(
+            return_value=_earning_forecast_response(),
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Fundamental(client).earning_forecast(security_code="000001.SZ", end_date="2020-06-30")
+        body = json.loads(route.calls.last.request.read())
+    assert body["endDate"] == "2020-06-30"
+    assert body["startDate"] == "2019-07-01"
+
+
 def test_earning_forecast_explicit_dates_kept(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-fundamental/earning-forecast").mock(

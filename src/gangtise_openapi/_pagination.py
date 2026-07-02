@@ -52,6 +52,47 @@ def _validate_paging_args(body: dict[str, Any]) -> None:
             raise ValidationError("Invalid 'size': expected a positive int")
 
 
+def _build_remaining_requests(
+    *,
+    initial: dict[str, Any],
+    next_from: int,
+    end_from: int,
+    max_page_size: int,
+    max_pages: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Build fan-out page requests while enforcing the page cap during generation."""
+    remaining_requests: list[dict[str, Any]] = []
+    dropped = 0
+    max_remaining_pages = max(max_pages - 1, 0)
+    while next_from < end_from:
+        if len(remaining_requests) >= max_remaining_pages:
+            remaining_rows = max(end_from - next_from, 0)
+            dropped = (remaining_rows + max_page_size - 1) // max_page_size
+            break
+        size = min(max_page_size, end_from - next_from)
+        remaining_requests.append({**initial, "from": next_from, "size": size})
+        next_from += size
+    return remaining_requests, dropped
+
+
+def _finalize_short_first_page(
+    first_page: dict[str, Any],
+    total: int,
+    collected: list[Any],
+    target: int,
+    endpoint: EndpointDef,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {**first_page, "total": total, "list": collected}
+    if len(collected) < target:
+        result["partial"] = True
+        warnings.warn(
+            f"short first page for {endpoint.key}; results are partial — "
+            f"got {len(collected)}/{total} rows",
+            stacklevel=2,
+        )
+    return result
+
+
 def collect_paginated(
     endpoint: EndpointDef,
     *,
@@ -86,29 +127,30 @@ def collect_paginated(
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])
 
-    if first_page["list"] and len(first_page["list"]) < first_page_size:
-        if requested_size is not None:
-            collected = collected[:requested_size]
-        return {**first_page, "total": total, "list": collected}
-
     available = max(total - start_from, 0)
     target = available if requested_size is None else min(requested_size, available)
+
+    if len(first_page["list"]) < first_page_size:
+        if requested_size is not None:
+            collected = collected[:requested_size]
+        return _finalize_short_first_page(first_page, total, collected, target, endpoint)
 
     if len(collected) >= target:
         if requested_size is not None:
             collected = collected[:requested_size]
         return {**first_page, "total": total, "list": collected}
 
-    remaining_requests: list[dict[str, Any]] = []
     next_from = start_from + len(first_page["list"])
     end_from = start_from + target
-    while next_from < end_from:
-        size = min(max_page_size, end_from - next_from)
-        remaining_requests.append({**initial, "from": next_from, "size": size})
-        next_from += size
-    if len(remaining_requests) + 1 > MAX_PAGES:
-        _warn_capped(endpoint, len(remaining_requests) + 1 - MAX_PAGES)
-        remaining_requests = remaining_requests[: MAX_PAGES - 1]
+    remaining_requests, dropped_pages = _build_remaining_requests(
+        initial=initial,
+        next_from=next_from,
+        end_from=end_from,
+        max_page_size=max_page_size,
+        max_pages=MAX_PAGES,
+    )
+    if dropped_pages:
+        _warn_capped(endpoint, dropped_pages)
 
     # Fail-soft fan-out (TS parity): a hard page failure (rate limit, no-perm,
     # retries exhausted) must NOT discard the pages already fetched. Catch per
@@ -204,6 +246,7 @@ def _collect_sequential(
     first_page: Any = None
     next_from = start_from
     truncated = False
+    partial = False
     page = 0
     while True:
         remaining = max_page_size if requested_size is None else requested_size - len(collected)
@@ -221,6 +264,7 @@ def _collect_sequential(
             if page == 0:
                 return first_page
             _warn_sequential_partial(endpoint, len(collected))
+            partial = True
             break
         collected.extend(rows)
         if len(rows) < size:  # short page ⇒ no more rows
@@ -229,6 +273,7 @@ def _collect_sequential(
             break  # filled the request exactly — the page cap below must not fire
         if page + 1 >= MAX_PAGES:
             truncated = True
+            partial = True
             break
         next_from += len(rows)
         page += 1
@@ -236,7 +281,10 @@ def _collect_sequential(
     if truncated:
         _warn_sequential_capped(endpoint, len(collected))
     result = collected if requested_size is None else collected[:requested_size]
-    return {list_key: result}
+    out: dict[str, Any] = {list_key: result}
+    if partial:
+        out["partial"] = True
+    return out
 
 
 def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
@@ -309,28 +357,30 @@ async def collect_paginated_async(
         return first_page
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])
-    if first_page["list"] and len(first_page["list"]) < first_page_size:
-        if requested_size is not None:
-            collected = collected[:requested_size]
-        return {**first_page, "total": total, "list": collected}
     available = max(total - start_from, 0)
     target = available if requested_size is None else min(requested_size, available)
+    if len(first_page["list"]) < first_page_size:
+        if requested_size is not None:
+            collected = collected[:requested_size]
+        return _finalize_short_first_page(first_page, total, collected, target, endpoint)
     if len(collected) >= target:
         if requested_size is not None:
             collected = collected[:requested_size]
         return {**first_page, "total": total, "list": collected}
-    remaining_requests: list[dict[str, Any]] = []
     next_from = start_from + len(first_page["list"])
     end_from = start_from + target
-    while next_from < end_from:
-        size = min(max_page_size, end_from - next_from)
-        remaining_requests.append({**initial, "from": next_from, "size": size})
-        next_from += size
-    if len(remaining_requests) + 1 > MAX_PAGES:
-        _warn_capped(endpoint, len(remaining_requests) + 1 - MAX_PAGES)
-        remaining_requests = remaining_requests[: MAX_PAGES - 1]
+    remaining_requests, dropped_pages = _build_remaining_requests(
+        initial=initial,
+        next_from=next_from,
+        end_from=end_from,
+        max_page_size=max_page_size,
+        max_pages=MAX_PAGES,
+    )
+    if dropped_pages:
+        _warn_capped(endpoint, dropped_pages)
 
-    pages: list[Any | None] = [None] * len(remaining_requests)
+    missing = object()
+    pages: list[Any] = [missing] * len(remaining_requests)
     # Fail-soft fan-out (TS parity): keep pages already fetched when a later page
     # hits a non-retryable error; record the failures and stop starting new
     # requests. See the sync sibling in collect_paginated.
@@ -357,7 +407,7 @@ async def collect_paginated_async(
                 tg.start_soon(run_one, idx, req)
 
     for idx, page in enumerate(pages):
-        if page is None:
+        if page is missing:
             continue  # run_one already recorded this failure (the exception path)
         if not _is_paginated_response(page):
             # 2xx but malformed: record so it surfaces as partial, don't drop silently
@@ -393,6 +443,7 @@ async def _collect_sequential_async(
     first_page: Any = None
     next_from = start_from
     truncated = False
+    partial = False
     page = 0
     while True:
         remaining = max_page_size if requested_size is None else requested_size - len(collected)
@@ -407,6 +458,7 @@ async def _collect_sequential_async(
             if page == 0:
                 return first_page
             _warn_sequential_partial(endpoint, len(collected))
+            partial = True
             break
         collected.extend(rows)
         if len(rows) < size:  # short page ⇒ no more rows
@@ -415,6 +467,7 @@ async def _collect_sequential_async(
             break  # filled the request exactly — the page cap below must not fire
         if page + 1 >= MAX_PAGES:
             truncated = True
+            partial = True
             break
         next_from += len(rows)
         page += 1
@@ -422,4 +475,7 @@ async def _collect_sequential_async(
     if truncated:
         _warn_sequential_capped(endpoint, len(collected))
     result = collected if requested_size is None else collected[:requested_size]
-    return {list_key: result}
+    out: dict[str, Any] = {list_key: result}
+    if partial:
+        out["partial"] = True
+    return out

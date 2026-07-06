@@ -7,9 +7,14 @@ diverged into two incompatible variants (one handled bare lists, one did not).
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, TypeAlias
 
 from gangtise_openapi._normalize import normalize_rows
+
+# A filter argument accepting a single value or a list of values. Domain wrappers
+# funnel these through ``_as_list`` into camelCase ``...List`` body fields.
+StrOrList: TypeAlias = str | Sequence[str]
 
 
 def _as_list(value: Any) -> list[Any] | None:

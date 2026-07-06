@@ -218,6 +218,11 @@ def _download_once(
         endpoint.path,
         params=query,
         headers=headers,
+        # A download endpoint may 302 to a presigned object-store URL; follow it so the
+        # file bytes (not an empty redirect body) reach disk. httpx drops Authorization on
+        # the cross-origin hop, matching the TS redirect loop (client.ts). API/JSON calls
+        # keep the client default (no follow) — only downloads opt in.
+        follow_redirects=True,
     ) as response:
         if response.status_code >= 400:
             response.read()
@@ -315,7 +320,7 @@ def _download_presigned_url(
 ) -> Path:
     http = client._http_client()
     try:
-        with http.stream("GET", url) as response:
+        with http.stream("GET", url, follow_redirects=True) as response:
             if response.status_code >= 400:
                 raise DownloadError(
                     f"presigned URL fetch failed: HTTP {response.status_code} ({url})"
@@ -431,6 +436,11 @@ async def _download_once_async(
         endpoint.path,
         params=query,
         headers=headers,
+        # A download endpoint may 302 to a presigned object-store URL; follow it so the
+        # file bytes (not an empty redirect body) reach disk. httpx drops Authorization on
+        # the cross-origin hop, matching the TS redirect loop (client.ts). API/JSON calls
+        # keep the client default (no follow) — only downloads opt in.
+        follow_redirects=True,
     ) as response:
         if response.status_code >= 400:
             await response.aread()
@@ -516,7 +526,7 @@ async def _download_presigned_url_async(
 ) -> Path:
     http = client._http_client()
     try:
-        async with http.stream("GET", url) as response:
+        async with http.stream("GET", url, follow_redirects=True) as response:
             if response.status_code >= 400:
                 raise DownloadError(
                     f"presigned URL fetch failed: HTTP {response.status_code} ({url})"

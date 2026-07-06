@@ -16,10 +16,9 @@ def normalize_rows(payload: Any) -> Any:
          top-level keys are preserved as metadata. (income-statement,
          balance-sheet, valuation-analysis, main-business, ... use this form.)
       2. ``{"list": [...]}`` — list of objects, passed through (meta preserved).
-      3. ``{"chatRoomList": [...]}`` — aliased to ``list`` (WeChat endpoints).
-      4. ``{"constants": [...]}`` — aliased to ``list`` (reference.constant-list).
-      5. Bare array ``[...]`` — returned unchanged.
-      6. Anything else — returned unchanged.
+      3. ``{"constants": [...]}`` — aliased to ``list`` (reference.constant-list).
+      4. Bare array ``[...]`` — returned unchanged.
+      5. Anything else — returned unchanged.
 
     Returns either a bare list (when there is no surrounding metadata) or a dict
     with a ``list`` key. Mirrors ``normalizeRows`` in the TS CLI
@@ -53,19 +52,13 @@ def normalize_rows(payload: Any) -> Any:
         meta = {k: v for k, v in payload.items() if k != "list"}
         return {**meta, "list": list_val} if meta else list_val
 
-    # Case 3: WeChat chat-room alias.
-    chat = payload.get("chatRoomList")
-    if isinstance(chat, list):
-        meta = {k: v for k, v in payload.items() if k != "chatRoomList"}
-        return {**meta, "list": chat} if meta else chat
-
-    # Case 4: constant-list alias (category/structureType/... kept as meta).
+    # Case 3: constant-list alias (category/structureType/... kept as meta).
     constants = payload.get("constants")
     if isinstance(constants, list):
         meta = {k: v for k, v in payload.items() if k != "constants"}
         return {**meta, "list": constants} if meta else constants
 
-    # Cases 5 & 6: nothing to normalize.
+    # Cases 4 & 5: nothing to normalize.
     return payload
 
 

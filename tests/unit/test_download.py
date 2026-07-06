@@ -122,6 +122,64 @@ def test_download_with_explicit_output(tmp_path: Path) -> None:
     assert path.read_bytes() == b"%PDF-fake"
 
 
+def test_download_follows_302_to_presigned_url_and_drops_auth(tmp_path: Path) -> None:
+    # A download endpoint may 302 to a presigned object-store URL on another host.
+    # httpx defaults to follow_redirects=False, so without the explicit opt-in the empty
+    # redirect body would land on disk. It must follow the hop AND, because it's
+    # cross-origin, must not forward the Authorization bearer to the storage host.
+    out_path = tmp_path / "report.pdf"
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://api.test/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://storage.test/signed/report.pdf"}
+            )
+        )
+        storage = router.get("https://storage.test/signed/report.pdf").mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF-signed", headers={"content-type": "application/pdf"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=out_path,
+                fallback_name="report-r1",
+            )
+    assert path == out_path
+    assert path.read_bytes() == b"%PDF-signed"
+    # Bearer must not leak to the object store (httpx strips it on the cross-origin hop).
+    assert "authorization" not in {k.lower() for k in storage.calls.last.request.headers}
+
+
+@pytest.mark.anyio
+async def test_download_async_follows_302_to_presigned_url_and_drops_auth(tmp_path: Path) -> None:
+    out_path = tmp_path / "report.pdf"
+    with respx.mock(assert_all_called=True) as router:
+        router.get("https://api.test/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://storage.test/signed/report.pdf"}
+            )
+        )
+        storage = router.get("https://storage.test/signed/report.pdf").mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF-signed", headers={"content-type": "application/pdf"}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=out_path,
+                fallback_name="report-r1",
+            )
+    assert path == out_path
+    assert path.read_bytes() == b"%PDF-signed"
+    assert "authorization" not in {k.lower() for k in storage.calls.last.request.headers}
+
+
 def test_download_uses_content_disposition_filename(tmp_path: Path, monkeypatch: object) -> None:
     monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:

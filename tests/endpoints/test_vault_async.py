@@ -106,6 +106,19 @@ async def test_async_my_conference_list_body_shape(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_async_my_conference_list_source_maps_to_numeric_source_list(tmp_path):
+    # v0.23.0 async sibling: --source 1/2 → numeric sourceList.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-vault/my-conference/getList").mock(
+            return_value=_row_response({"conferenceId": "c1", "title": "策略会"})
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncVault(client).my_conference_list(source=[1, 2])
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"sourceList":[1,2]' in body
+
+
+@pytest.mark.anyio
 async def test_async_wechat_message_list_body_shape(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/wechatgroupmsg/list").mock(
@@ -150,19 +163,21 @@ async def test_async_wechat_chatroom_list_joins_room_names(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_wechat_chatroom_list_paginates_sequentially(tmp_path):
-    # Async sibling of test_wechat_chatroom_list_paginates_sequentially: a full first
-    # page (50) then a short page, consumed through the sequential collector → DataFrame.
+async def test_async_wechat_chatroom_list_paginates_by_total(tmp_path):
+    # Async sibling of test_wechat_chatroom_list_paginates_by_total (v0.23.0 {total, list}):
+    # first page (50) learns total=52, one more page completes it via the fan-out.
     page1 = [{"chatroomId": f"r{i}", "roomName": f"g{i}"} for i in range(50)]
     page2 = [{"chatroomId": "r50", "roomName": "g50"}, {"chatroomId": "r51", "roomName": "g51"}]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/wechatgroupmsg/chatroomId").mock(
             side_effect=[
                 httpx.Response(
-                    200, json={"code": "000000", "status": True, "data": {"chatRoomList": page1}}
+                    200,
+                    json={"code": "000000", "status": True, "data": {"total": 52, "list": page1}},
                 ),
                 httpx.Response(
-                    200, json={"code": "000000", "status": True, "data": {"chatRoomList": page2}}
+                    200,
+                    json={"code": "000000", "status": True, "data": {"total": 52, "list": page2}},
                 ),
             ]
         )
@@ -171,7 +186,7 @@ async def test_async_wechat_chatroom_list_paginates_sequentially(tmp_path):
     assert route.call_count == 2
     body2 = route.calls[1].request.read().replace(b" ", b"")
     assert b'"from":50' in body2
-    assert b'"size":50' in body2
+    assert b'"size":2' in body2
     assert len(df) == 52
     assert df.iloc[0]["chatroomId"] == "r0"
     assert df.iloc[-1]["chatroomId"] == "r51"

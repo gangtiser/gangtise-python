@@ -111,9 +111,13 @@ class Vault:
         security: Any = None,
         institution: Any = None,
         category: Any = None,
+        source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询我的会议列表（vault.my-conference.list）。"""
+        """查询我的会议列表（vault.my-conference.list）。
+
+        source 录制来源（数字，可单值或列表）: 1=企微会议助理 2=会议服务微信群。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -125,6 +129,7 @@ class Vault:
                 "securityList": _as_list(security),
                 "institutionList": _as_list(institution),
                 "categoryList": _as_list(category),
+                "sourceList": _as_list(source),
             }
         )
         result = self._client._call("vault.my-conference.list", body=body)
@@ -190,7 +195,7 @@ class Vault:
         """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
 
         room_name 支持单值或列表; 请求时会拼成逗号分隔字符串。
-        省略 size 拉取全部群（该接口不返回 total，按页串行翻页到末页为止，
+        省略 size 拉取全部群（接口返回 {total, list}，按 total 并发翻页，
         单页上限 50）；传 size=N 仅取前 N 条。
         """
         names = _as_list(room_name) or []
@@ -398,9 +403,13 @@ class AsyncVault:
         security: Any = None,
         institution: Any = None,
         category: Any = None,
+        source: Any = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询我的会议列表（vault.my-conference.list）。"""
+        """查询我的会议列表（vault.my-conference.list）。
+
+        source 录制来源（数字，可单值或列表）: 1=企微会议助理 2=会议服务微信群。
+        """
         body = _strip_none(
             {
                 "from": from_,
@@ -412,6 +421,7 @@ class AsyncVault:
                 "securityList": _as_list(security),
                 "institutionList": _as_list(institution),
                 "categoryList": _as_list(category),
+                "sourceList": _as_list(source),
             }
         )
         result = await self._client._call("vault.my-conference.list", body=body)
@@ -477,7 +487,7 @@ class AsyncVault:
         """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
 
         room_name 支持单值或列表; 请求时会拼成逗号分隔字符串。
-        省略 size 拉取全部群（该接口不返回 total，按页串行翻页到末页为止，
+        省略 size 拉取全部群（接口返回 {total, list}，按 total 并发翻页，
         单页上限 50）；传 size=N 仅取前 N 条。
         """
         names = _as_list(room_name) or []

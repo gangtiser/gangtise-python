@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.13] - 2026-07-06
+
+Synced with `gangtise-openapi-cli` v0.23.0.
+
+### Changed
+- **Default API host migrated** `https://open.gangtise.com` →
+  `https://openapi.gangtise.com` (equivalent across endpoints in practice; the old
+  host still works — set `GANGTISE_BASE_URL=https://open.gangtise.com` to pin it).
+- **`vault.wechat_chatroom_list`** now consumes the server's new `{total, list}`
+  response, fanning out pages by `total` like every other paginated endpoint. The
+  bespoke sequential (no-`total`, `chatRoomList`) pagination path was removed.
+- **Pagination truncation is now visible.** Every paginated endpoint flags the result
+  `partial` (visible with `raw=True`) and emits a `UserWarning` when the server's
+  reported `total` drifts above the rows actually returned, or when the `MAX_PAGES`
+  (1000) safety cap truncates the fan-out. Both cases were previously silent.
+- **`limit` on the quote endpoints is validated locally.** A value outside `1..10000`,
+  or a non-integer (`1.5`, `True`, `"10"`, …), now raises `ValidationError` before any
+  request instead of reaching the server or leaking a raw `TypeError` from the range
+  comparison.
+
+### Added
+- **`quote.fund_flow`** — A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge
+  order inflow/outflow amounts and ratios + main net inflow; free). Pass a specific
+  `security` (one or a list) or `aShares` for the whole market — full-market requests
+  are date-sharded by day and merged concurrently and require both `start_date` and
+  `end_date` (a missing range raises `ValidationError`). Single-security requests are
+  not paginated; a row count reaching the sent `limit` (default 6000, max 10000) flags
+  the result `partial` and warns. Sync + async.
+- **`reference.institution_search`** — institution ID search across five categories
+  (`domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/
+  `foreignOpinionInstitution`); results carry `usageScopes` and cover the
+  broker/institution inputs of the existing endpoints. Free. Sync + async.
+- **`vault.my_conference_list`** gained a `source` parameter (recording source; numeric
+  `1`=企微会议助理 `2`=会议服务微信群) → `sourceList` in the body.
+
+### Fixed
+- **Silent-truncation guard for non-paginated quote endpoints** (`fund_flow`
+  single-security, `minute_kline`, and explicit multi-security
+  `day_kline`/`-hk`/`-us`/`index_day_kline`): these report `total` as the returned row
+  count, so a count equal to the sent `limit` now flags the result `partial` (visible
+  with `raw=True`) and emits a `UserWarning` instead of silently dropping rows. `limit`
+  now defaults to 6000, sent explicitly so the request limit and the truncation cap
+  always match.
+- **Full-market shard merge**: the merged result's `total` now reflects the combined
+  row count (previously carried a single shard's smaller `total`), and a shard that hits
+  its per-request cap flags the whole result `partial`. The merge also keeps the first
+  non-empty `fieldList`, so a trailing empty shard can no longer blank the columns.
+- **Download follows presigned-URL redirects.** A download endpoint that answers with a
+  `302` to a presigned object-store URL is now followed to fetch the actual file
+  (the `200` + JSON `{url}` variant was already handled); httpx drops the `Authorization`
+  bearer on the cross-origin hop so it never reaches the storage host. Ports the last
+  outstanding CLI v0.22.0 download behavior.
+
 ## [0.1.12] - 2026-07-02
 
 ### Changed

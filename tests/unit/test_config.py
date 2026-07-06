@@ -8,6 +8,16 @@ from gangtise_openapi._config import (
 )
 
 
+def test_default_base_url_is_openapi_host(monkeypatch):
+    # v0.23.0: default host migrated open.gangtise.com -> openapi.gangtise.com.
+    # GANGTISE_BASE_URL still pins the old host for anyone who needs it.
+    monkeypatch.delenv("GANGTISE_BASE_URL", raising=False)
+    assert DEFAULT_BASE_URL == "https://openapi.gangtise.com"
+    assert load_config().base_url == "https://openapi.gangtise.com"
+    monkeypatch.setenv("GANGTISE_BASE_URL", "https://open.gangtise.com")
+    assert load_config().base_url == "https://open.gangtise.com"
+
+
 def test_defaults(monkeypatch):
     for k in [
         "GANGTISE_BASE_URL",

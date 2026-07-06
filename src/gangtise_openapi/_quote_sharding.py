@@ -14,9 +14,17 @@ SHARD_DAYS: dict[str, int] = {
     "quote.day-kline-hk": 2,
     "quote.day-kline-us": 1,
     "quote.index-day-kline": 30,
+    # fund-flow errors server-side (430012/430013) on a multi-day full-market request
+    # instead of truncating, so date-shard by day (~5.4k A-share rows/day, under the cap).
+    "quote.fund-flow": 1,
 }
 
+# Full-market ("all"/"aShares") requests lift the per-request cap to the API max.
 DEFAULT_FULL_MARKET_LIMIT = 10_000
+# Explicit-security, non-paginated quote endpoints (fund-flow, kline, minute-kline) default
+# to this server-side row cap. Sent EXPLICITLY when `limit` is omitted so the request limit
+# and the truncation cap are always the same number — never a guess at the server default.
+DEFAULT_QUOTE_LIMIT = 6_000
 
 
 def plan_shards(
@@ -61,15 +69,12 @@ def drop_weekend_shards(
     ]
 
 
-def is_all_market(security: Any) -> bool:
-    # TS only shards when securityList is exactly ["all"]; mirror that here.
-    if security == "all":
+def is_full_market(security: Any, full_market_value: str) -> bool:
+    # Whole-market sharding fires only when securityList is exactly [full_market_value]
+    # (``all`` for kline, ``aShares`` for fund-flow); mirror the TS predicate.
+    if security == full_market_value:
         return True
-    return isinstance(security, (list, tuple)) and list(security) == ["all"]
-
-
-def needs_limit_injection(*, security: Any, explicit_limit: int | None) -> bool:
-    return is_all_market(security) and explicit_limit is None
+    return isinstance(security, (list, tuple)) and list(security) == [full_market_value]
 
 
 ShardFetcher = Callable[[tuple[dt.date, dt.date]], Any]

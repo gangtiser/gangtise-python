@@ -213,3 +213,44 @@ def test_chiefs_search(tmp_path):
         assert body == {"keyword": "张三", "top": 5}
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["chiefId"] == "c1"
+
+
+def test_institution_search(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-reference/institutions/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": [{"institutionId": "i1", "institutionName": "招商证券"}],
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Reference(client).institution_search(
+                keyword="招商", category=["domesticBroker", "opinionInstitution"], top=5
+            )
+        body = json.loads(route.calls.last.request.read())
+        assert body == {
+            "keyword": "招商",
+            "categoryList": ["domesticBroker", "opinionInstitution"],
+            "top": 5,
+        }
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["institutionId"] == "i1"
+
+
+def test_institution_search_omits_category_when_unset(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-reference/institutions/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": []},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Reference(client).institution_search(keyword="招商")
+        body = json.loads(route.calls.last.request.read())
+        # categoryList dropped by _strip_none when no category is passed.
+        assert body == {"keyword": "招商", "top": 10}

@@ -204,3 +204,26 @@ async def test_async_chiefs_search(tmp_path):
         assert body == {"keyword": "张三", "top": 5}
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["chiefId"] == "c1"
+
+
+@pytest.mark.anyio
+async def test_async_institution_search(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-reference/institutions/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": [{"institutionId": "i1", "institutionName": "招商证券"}],
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncReference(client).institution_search(
+                keyword="招商", category="domesticBroker", top=5
+            )
+        body = json.loads(route.calls.last.request.read())
+        assert body == {"keyword": "招商", "categoryList": ["domesticBroker"], "top": 5}
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["institutionId"] == "i1"

@@ -103,9 +103,6 @@ def collect_paginated(
     if endpoint.pagination is None:
         return fetch(body)
 
-    if endpoint.pagination.sequential:
-        return _collect_sequential(endpoint, body=body, fetch=fetch)
-
     initial = dict(body)
     _validate_paging_args(initial)
 
@@ -149,8 +146,6 @@ def collect_paginated(
         max_page_size=max_page_size,
         max_pages=MAX_PAGES,
     )
-    if dropped_pages:
-        _warn_capped(endpoint, dropped_pages)
 
     # Fail-soft fan-out (TS parity): a hard page failure (rate limit, no-perm,
     # retries exhausted) must NOT discard the pages already fetched. Catch per
@@ -192,99 +187,16 @@ def collect_paginated(
 
     if requested_size is not None:
         collected = collected[:requested_size]
-    return _finalize_partial(first_page, total, collected, failed_pages, state, endpoint)
-
-
-def _extract_list_by_key(page: Any, list_key: str) -> list[Any] | None:
-    """Return ``page[list_key]`` if it's a list, else ``None`` (shape mismatch)."""
-    if not isinstance(page, dict):
-        return None
-    arr = page.get(list_key)
-    return arr if isinstance(arr, list) else None
-
-
-def _warn_sequential_partial(endpoint: EndpointDef, collected: int) -> None:
-    warnings.warn(
-        f"a page response had an unexpected shape for {endpoint.key}; "
-        f"results are partial — {collected} row(s) fetched",
-        stacklevel=2,
+    return _finalize_partial(
+        first_page,
+        total,
+        collected,
+        failed_pages,
+        state,
+        endpoint,
+        target=target,
+        dropped_pages=dropped_pages,
     )
-
-
-def _warn_sequential_capped(endpoint: EndpointDef, collected: int) -> None:
-    warnings.warn(
-        f"sequential pagination hit the MAX_PAGES={MAX_PAGES} cap for {endpoint.key}; "
-        f"fetched {collected} row(s) — pass size= to bound the result",
-        stacklevel=2,
-    )
-
-
-def _collect_sequential(
-    endpoint: EndpointDef,
-    *,
-    body: dict[str, Any],
-    fetch: PageFetcher,
-) -> Any:
-    """Serial offset pagination for endpoints with NO ``total`` and a non-standard
-    list key (wechat chatroom's ``chatRoomList``). Without ``total`` the page count
-    is unknown, so we can't fan out — page serially until a short page (fewer rows
-    than requested) signals the end. Returns ``{list_key: rows}`` so normalize /
-    ``_extract_rows`` treat it like any list. Mirrors ``requestSequentialPaginated``
-    in the TS CLI (core/client.ts)."""
-    initial = dict(body)
-    _validate_paging_args(initial)
-    pagination = endpoint.pagination
-    assert pagination is not None  # caller guards; narrows for mypy
-    list_key = pagination.list_key or "list"
-    max_page_size = pagination.max_page_size
-    raw_from = initial.get("from")
-    start_from = raw_from if isinstance(raw_from, int) else 0
-    raw_size = initial.get("size")
-    requested_size = raw_size if isinstance(raw_size, int) else None
-
-    collected: list[Any] = []
-    first_page: Any = None
-    next_from = start_from
-    truncated = False
-    partial = False
-    page = 0
-    while True:
-        remaining = max_page_size if requested_size is None else requested_size - len(collected)
-        if requested_size is not None and remaining <= 0:
-            break
-        size = min(max_page_size, remaining)
-        page_data = fetch({**initial, "from": next_from, "size": size})
-        if first_page is None:
-            first_page = page_data
-        rows = _extract_list_by_key(page_data, list_key)
-        if rows is None:
-            # First response isn't a list shape → hand it back untouched. A LATER
-            # page losing shape must NOT discard rows already collected (mirrors the
-            # fail-soft fan-out): stop, keep them, warn.
-            if page == 0:
-                return first_page
-            _warn_sequential_partial(endpoint, len(collected))
-            partial = True
-            break
-        collected.extend(rows)
-        if len(rows) < size:  # short page ⇒ no more rows
-            break
-        if requested_size is not None and len(collected) >= requested_size:
-            break  # filled the request exactly — the page cap below must not fire
-        if page + 1 >= MAX_PAGES:
-            truncated = True
-            partial = True
-            break
-        next_from += len(rows)
-        page += 1
-
-    if truncated:
-        _warn_sequential_capped(endpoint, len(collected))
-    result = collected if requested_size is None else collected[:requested_size]
-    out: dict[str, Any] = {list_key: result}
-    if partial:
-        out["partial"] = True
-    return out
 
 
 def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
@@ -305,9 +217,16 @@ def _finalize_partial(
     failed_pages: list[dict[str, Any]],
     state: dict[str, Any],
     endpoint: EndpointDef,
+    *,
+    target: int,
+    dropped_pages: int = 0,
 ) -> dict[str, Any]:
-    """Assemble the paginated result, tagging it ``partial`` when fan-out pages
-    failed. Shared by the sync and async collectors."""
+    """Assemble the paginated result, tagging it ``partial`` whenever it is
+    incomplete — fan-out pages failed, the ``MAX_PAGES`` cap dropped pages, or the
+    server drifted (fewer rows came back than the reported ``total`` implied). Each
+    cause sets ``partial`` and warns so scripts can machine-detect the gap and the
+    default DataFrame path still surfaces it. Shared by the sync and async collectors.
+    Mirrors the TS ``requestPaginated`` partial markers (core/client.ts)."""
     result: dict[str, Any] = {**first_page, "total": total, "list": collected}
     if failed_pages:
         result["partial"] = True
@@ -322,6 +241,21 @@ def _finalize_partial(
             f"{len(failed_pages)} page(s) not fetched for {endpoint.key}{detail}; "
             f"results are partial — got {len(collected)}/{total} rows "
             "(see failedPages in raw output)",
+            stacklevel=2,
+        )
+    if dropped_pages:
+        # MAX_PAGES safety cap: pages beyond the limit were never requested, so the
+        # result is truncated. Flag it (not just warn) so it's machine-readable.
+        result["partial"] = True
+        _warn_capped(endpoint, dropped_pages)
+    elif not failed_pages and len(collected) < target:
+        # Total drift: the server reported a larger `total` than it actually returned
+        # (a short/empty mid page). Treat the smaller result as the end of data but
+        # flag it so callers don't mistake it for the full set (TS client.ts:242).
+        result["partial"] = True
+        warnings.warn(
+            f"server reported total={total} but only {len(collected)} row(s) came back "
+            f"for {endpoint.key}; treating it as the end of data — results may be incomplete",
             stacklevel=2,
         )
     return result
@@ -339,8 +273,6 @@ async def collect_paginated_async(
 ) -> Any:
     if endpoint.pagination is None:
         return await fetch(body)
-    if endpoint.pagination.sequential:
-        return await _collect_sequential_async(endpoint, body=body, fetch=fetch)
     initial = dict(body)
     _validate_paging_args(initial)
     raw_from = initial.get("from")
@@ -376,8 +308,6 @@ async def collect_paginated_async(
         max_page_size=max_page_size,
         max_pages=MAX_PAGES,
     )
-    if dropped_pages:
-        _warn_capped(endpoint, dropped_pages)
 
     missing = object()
     pages: list[Any] = [missing] * len(remaining_requests)
@@ -417,65 +347,13 @@ async def collect_paginated_async(
         collected.extend(page["list"])  # may be [] — a legitimately empty page
     if requested_size is not None:
         collected = collected[:requested_size]
-    return _finalize_partial(first_page, total, collected, failed_pages, state, endpoint)
-
-
-async def _collect_sequential_async(
-    endpoint: EndpointDef,
-    *,
-    body: dict[str, Any],
-    fetch: Callable[[dict[str, Any]], Any],
-) -> Any:
-    """Async sibling of :func:`_collect_sequential` — serial offset pagination for
-    no-``total`` endpoints, awaiting each page before fetching the next."""
-    initial = dict(body)
-    _validate_paging_args(initial)
-    pagination = endpoint.pagination
-    assert pagination is not None  # caller guards; narrows for mypy
-    list_key = pagination.list_key or "list"
-    max_page_size = pagination.max_page_size
-    raw_from = initial.get("from")
-    start_from = raw_from if isinstance(raw_from, int) else 0
-    raw_size = initial.get("size")
-    requested_size = raw_size if isinstance(raw_size, int) else None
-
-    collected: list[Any] = []
-    first_page: Any = None
-    next_from = start_from
-    truncated = False
-    partial = False
-    page = 0
-    while True:
-        remaining = max_page_size if requested_size is None else requested_size - len(collected)
-        if requested_size is not None and remaining <= 0:
-            break
-        size = min(max_page_size, remaining)
-        page_data = await fetch({**initial, "from": next_from, "size": size})
-        if first_page is None:
-            first_page = page_data
-        rows = _extract_list_by_key(page_data, list_key)
-        if rows is None:
-            if page == 0:
-                return first_page
-            _warn_sequential_partial(endpoint, len(collected))
-            partial = True
-            break
-        collected.extend(rows)
-        if len(rows) < size:  # short page ⇒ no more rows
-            break
-        if requested_size is not None and len(collected) >= requested_size:
-            break  # filled the request exactly — the page cap below must not fire
-        if page + 1 >= MAX_PAGES:
-            truncated = True
-            partial = True
-            break
-        next_from += len(rows)
-        page += 1
-
-    if truncated:
-        _warn_sequential_capped(endpoint, len(collected))
-    result = collected if requested_size is None else collected[:requested_size]
-    out: dict[str, Any] = {list_key: result}
-    if partial:
-        out["partial"] = True
-    return out
+    return _finalize_partial(
+        first_page,
+        total,
+        collected,
+        failed_pages,
+        state,
+        endpoint,
+        target=target,
+        dropped_pages=dropped_pages,
+    )

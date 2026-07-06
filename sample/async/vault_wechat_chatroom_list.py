@@ -14,7 +14,7 @@ from gangtise_openapi import gangtise
 
 
 async def main():
-    # 示例 1 · 最简调用: 省略 size 拉取全部群（接口不返回 total，按页串行翻到末页）
+    # 示例 1 · 最简调用: 省略 size 拉取全部群（接口返回 {total, list}，按 total 并发翻页）
     show_result(await gangtise.async_.vault.wechat_chatroom_list(), __file__)
 
     # 示例 2 · 按群名称过滤 + 分页

@@ -1,5 +1,3 @@
-import warnings
-
 import pytest
 
 from gangtise_openapi._endpoints import EndpointDef, Pagination
@@ -131,6 +129,22 @@ def test_max_pages_cap():
     with pytest.warns(UserWarning, match="capped at MAX_PAGES"):
         out = collect_paginated(_ep(max_page_size=1), body={}, fetch=fetch, concurrency=2)
     assert len(out["list"]) == 1000
+    assert out["partial"] is True  # cap-truncation is machine-readable, not just a warning
+
+
+def test_fanout_total_drift_flags_partial():
+    # Server reports total=12 but the data runs out early (a short mid page). No page
+    # FAILED, yet collected < total → flag partial + warn (TS client.ts:242 parity).
+    def fetch(body):
+        f, s = body["from"], body["size"]
+        # Server actually holds only 8 rows despite reporting total=12.
+        return {"total": 12, "list": [{"i": j} for j in range(f, min(f + s, 8))]}
+
+    with pytest.warns(UserWarning, match="end of data"):
+        out = collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
+    assert out["partial"] is True
+    assert "failedPages" not in out  # a drift shortfall, not a page failure
+    assert [r["i"] for r in out["list"]] == list(range(8))
 
 
 def test_empty_first_page_with_nonzero_total_does_not_refetch_same_offset():
@@ -150,126 +164,10 @@ def test_empty_first_page_with_nonzero_total_does_not_refetch_same_offset():
     assert out["list"] == []
 
 
-def _seq_ep(max_page_size: int = 50) -> EndpointDef:
-    # Sequential mode (TS v0.21.0): no `total`, list key `chatRoomList` (wechat chatroom).
-    return EndpointDef(
-        key="vault.wechat-chatroom.list",
-        method="POST",
-        path="/p",
-        kind="json",
-        description="d",
-        pagination=Pagination(
-            max_page_size=max_page_size, sequential=True, list_key="chatRoomList"
-        ),
-    )
-
-
-def test_sequential_pages_until_short_page():
-    # No `total`: page serially until a page shorter than `size` ends it.
-    pages_seen: list[tuple[int, int]] = []
-
-    def fetch(body):
-        pages_seen.append((body["from"], body["size"]))
-        f, s = body["from"], body["size"]
-        return {"chatRoomList": [{"i": j} for j in range(f, min(f + s, 7))]}
-
-    out = collect_paginated(_seq_ep(max_page_size=3), body={}, fetch=fetch, concurrency=4)
-    assert out == {"chatRoomList": [{"i": j} for j in range(7)]}
-    assert pages_seen == [(0, 3), (3, 3), (6, 3)]  # 3,3,1 → short page stops
-
-
-def test_sequential_single_short_first_page():
-    pages_seen: list[tuple[int, int]] = []
-
-    def fetch(body):
-        pages_seen.append((body["from"], body["size"]))
-        return {"chatRoomList": [{"i": 1}, {"i": 2}]}  # 2 < 50 ⇒ stop after one page
-
-    out = collect_paginated(_seq_ep(), body={}, fetch=fetch, concurrency=4)
-    assert out == {"chatRoomList": [{"i": 1}, {"i": 2}]}
-    assert pages_seen == [(0, 50)]
-
-
-def test_sequential_requested_size_truncates_and_stops_early():
-    pages_seen: list[tuple[int, int]] = []
-
-    def fetch(body):
-        pages_seen.append((body["from"], body["size"]))
-        f, s = body["from"], body["size"]
-        return {"chatRoomList": [{"i": j} for j in range(f, f + s)]}
-
-    out = collect_paginated(_seq_ep(max_page_size=3), body={"size": 5}, fetch=fetch, concurrency=4)
-    assert out == {"chatRoomList": [{"i": j} for j in range(5)]}
-    # size 5 capped to max_page_size 3 ⇒ page(0,3) then page(3,2); stops once 5 rows collected
-    assert pages_seen == [(0, 3), (3, 2)]
-
-
-def test_sequential_first_page_unexpected_shape_returned_as_is():
-    def fetch(body):
-        return {"unexpected": "shape"}
-
-    out = collect_paginated(_seq_ep(), body={}, fetch=fetch, concurrency=4)
-    assert out == {"unexpected": "shape"}
-
-
-def test_sequential_later_page_shape_loss_is_partial():
-    # A later page losing the list shape keeps the rows already collected and warns.
-    def fetch(body):
-        if body["from"] == 0:
-            return {"chatRoomList": [{"i": j} for j in range(3)]}  # full page (size 3)
-        return {"unexpected": "shape"}
-
-    with pytest.warns(UserWarning, match="results are partial"):
-        out = collect_paginated(_seq_ep(max_page_size=3), body={}, fetch=fetch, concurrency=4)
-    assert out == {"chatRoomList": [{"i": j} for j in range(3)], "partial": True}
-
-
-def test_sequential_invalid_size_raises():
-    # Validation still fires on the sequential path (different entry than fan-out).
-    def fetch(body):
-        raise AssertionError("should not call")
-
-    with pytest.raises(ValidationError):
-        collect_paginated(_seq_ep(), body={"size": 0}, fetch=fetch, concurrency=4)
-
-
-def test_sequential_no_false_cap_when_requested_size_filled_exactly(monkeypatch):
-    # Regression: requested_size == MAX_PAGES * max_page_size with the server holding
-    # exactly that many rows is a COMPLETE result, not a truncation — the page cap
-    # must not fire. (The TS client.ts loop has this same off-by-one; we don't.)
-    monkeypatch.setattr("gangtise_openapi._pagination.MAX_PAGES", 3)
-
-    def fetch(body):
-        f, s = body["from"], body["size"]
-        return {"chatRoomList": [{"i": j} for j in range(f, f + s)]}
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        out = collect_paginated(
-            _seq_ep(max_page_size=2), body={"size": 6}, fetch=fetch, concurrency=4
-        )
-    assert out == {"chatRoomList": [{"i": j} for j in range(6)]}
-    assert not caught, [str(w.message) for w in caught]
-
-
-def test_sequential_cap_warns_when_truly_truncated(monkeypatch):
-    # The page cap still fires (with a warning) when the server keeps returning full
-    # pages past MAX_PAGES and no size bounds the request.
-    monkeypatch.setattr("gangtise_openapi._pagination.MAX_PAGES", 3)
-
-    def fetch(body):
-        f, s = body["from"], body["size"]
-        return {"chatRoomList": [{"i": j} for j in range(f, f + s)]}  # never short
-
-    with pytest.warns(UserWarning, match="MAX_PAGES"):
-        out = collect_paginated(_seq_ep(max_page_size=2), body={}, fetch=fetch, concurrency=4)
-    assert len(out["chatRoomList"]) == 6  # 3 pages * 2 rows, then capped
-
-
 def test_fanout_malformed_page_is_partial():
     # A 2xx fan-out page with a malformed shape (no total/list) must not silently drop
     # rows: it's recorded as a failed page so the result is tagged partial — symmetry
-    # with the exception path and the sequential collector's shape-loss handling.
+    # with the exception path.
     def fetch(body):
         if body["from"] == 0:
             return {"total": 12, "list": [{"i": j} for j in range(5)]}

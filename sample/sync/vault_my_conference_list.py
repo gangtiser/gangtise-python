@@ -40,9 +40,10 @@ def main():
         ),
         __file__,
     )
-    # 其余可选过滤参数（均支持单值或列表, 需传入真实 ID）:
+    # 其余可选过滤参数（均支持单值或列表）:
     #   research_area=<研究领域ID>   见 reference.constant_list(category="citicIndustry")
-    #   institution=<机构ID>         见 lookup.broker_orgs
+    #   institution=<机构ID>         见 reference.institution_search(keyword=...)
+    #   source=1 或 [1, 2]           录制来源: 1=企微会议助理 2=会议服务微信群
 
 
 if __name__ == "__main__":

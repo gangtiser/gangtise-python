@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 86
+    assert len(ENDPOINTS) == 88
 
 
 def test_lookup_known_endpoint():
@@ -50,11 +50,11 @@ def test_pagination_registry_matches_ts_source():
         k: ep.pagination.max_page_size for k, ep in ENDPOINTS.items() if ep.pagination is not None
     }
     assert actual == expected
-    # wechat-chatroom paginates sequentially (no total; list key chatRoomList).
+    # v0.23.0: wechat-chatroom now returns {total, list} and paginates like any other
+    # total-driven endpoint (the sequential/list_key mechanism was removed).
     chatroom = ENDPOINTS["vault.wechat-chatroom.list"].pagination
     assert chatroom is not None
-    assert chatroom.sequential is True
-    assert chatroom.list_key == "chatRoomList"
+    assert chatroom.max_page_size == 50
 
 
 def test_download_endpoints_have_kind_download():
@@ -135,6 +135,7 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.official-account.download",
         "reference.securities-search",
         "reference.chiefs-search",
+        "reference.institution-search",
         "reference.constant-category",
         "reference.constant-list",
         "reference.concept-search",
@@ -146,6 +147,7 @@ def test_all_endpoint_keys_match_ts_source():
         "quote.index-day-kline",
         "quote.minute-kline",
         "quote.realtime",
+        "quote.fund-flow",
         "fundamental.income-statement",
         "fundamental.income-statement-quarterly",
         "fundamental.balance-sheet",

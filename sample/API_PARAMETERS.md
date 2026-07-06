@@ -1,6 +1,6 @@
 # API Parameter Reference
 
-本文档按当前 Python SDK wrapper 自动整理，覆盖 87 个公开 SDK 方法（对应 84 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
+本文档按当前 Python SDK wrapper 自动整理，覆盖 89 个公开 SDK 方法（对应 86 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
 
 运行示例前请配置：
 
@@ -21,6 +21,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `lookup` | `meeting_orgs` | [lookup_meeting_orgs.py](sync/lookup_meeting_orgs.py) | [lookup_meeting_orgs.py](async/lookup_meeting_orgs.py) |
 | `reference` | `securities_search` | [reference_securities_search.py](sync/reference_securities_search.py) | [reference_securities_search.py](async/reference_securities_search.py) |
 | `reference` | `chiefs_search` | [reference_chiefs_search.py](sync/reference_chiefs_search.py) | [reference_chiefs_search.py](async/reference_chiefs_search.py) |
+| `reference` | `institution_search` | [reference_institution_search.py](sync/reference_institution_search.py) | [reference_institution_search.py](async/reference_institution_search.py) |
 | `reference` | `constant_category` | [reference_constant_category.py](sync/reference_constant_category.py) | [reference_constant_category.py](async/reference_constant_category.py) |
 | `reference` | `constant_list` | [reference_constant_list.py](sync/reference_constant_list.py) | [reference_constant_list.py](async/reference_constant_list.py) |
 | `reference` | `concept_search` | [reference_concept_search.py](sync/reference_concept_search.py) | [reference_concept_search.py](async/reference_concept_search.py) |
@@ -32,6 +33,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `quote` | `index_day_kline` | [quote_index_day_kline.py](sync/quote_index_day_kline.py) | [quote_index_day_kline.py](async/quote_index_day_kline.py) |
 | `quote` | `minute_kline` | [quote_minute_kline.py](sync/quote_minute_kline.py) | [quote_minute_kline.py](async/quote_minute_kline.py) |
 | `quote` | `realtime` | [quote_realtime.py](sync/quote_realtime.py) | [quote_realtime.py](async/quote_realtime.py) |
+| `quote` | `fund_flow` | [quote_fund_flow.py](sync/quote_fund_flow.py) | [quote_fund_flow.py](async/quote_fund_flow.py) |
 | `insight` | `opinion_list` | [insight_opinion_list.py](sync/insight_opinion_list.py) | [insight_opinion_list.py](async/insight_opinion_list.py) |
 | `insight` | `summary_list` | [insight_summary_list.py](sync/insight_summary_list.py) | [insight_summary_list.py](async/insight_summary_list.py) |
 | `insight` | `roadshow_list` | [insight_roadshow_list.py](sync/insight_roadshow_list.py) | [insight_roadshow_list.py](async/insight_roadshow_list.py) |
@@ -179,6 +181,20 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `keyword` | `str` | 是 | - | `"电子"` | 搜索关键词，支持 首席姓名 / 机构 / 团队。 |
+| `top` | `int` | 否 | `10` | `5` | 最大返回数，默认 10，上限 10。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.institution_search`
+
+- Endpoint: `reference.institution-search` `POST /application/open-reference/institutions/search` - Search institution IDs by keyword (domestic broker / foreign / lead / opinion)
+- Sync sample: `sample/sync/reference_institution_search.py`
+- Async sample: `sample/async/reference_institution_search.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"招商"` | 搜索关键词，机构名 / 简称。 |
+| `category` | `Any` | 否 | `None` | `["domesticBroker", "opinionInstitution"]` | 机构类型，支持单值或列表，省略=全部；枚举：`domesticBroker` / `foreignInstitution` / `leadInstitution` / `opinionInstitution` / `foreignOpinionInstitution`。 |
 | `top` | `int` | 否 | `10` | `5` | 最大返回数，默认 10，上限 10。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -337,6 +353,22 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `quote.fund_flow`
+
+- Endpoint: `quote.fund-flow` `POST /application/open-quote/fund-flow/daily` - Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)
+- Sync sample: `sample/sync/quote_fund_flow.py`
+- Async sample: `sample/async/quote_fund_flow.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security` | `Any` | 是 | - | `"600519.SH"` | A 股代码（.SH/.SZ/.BJ）或代码列表；`"aShares"`=全市场（按日自动分片，须同时传日期区间）。 |
+| `start_date` | `str \| date` | 否 | `None` | `"2026-05-01"` | 开始日期 YYYY-MM-DD；省略默认结束日往前 1 年（`aShares` 全市场必填）。 |
+| `end_date` | `str \| date` | 否 | `None` | `"2026-05-28"` | 结束日期 YYYY-MM-DD；省略默认最新交易日（`aShares` 全市场必填）。 |
+| `limit` | `int` | 否 | `None` | `6000` | 单只证券单次返回条数上限，默认 6000、最大 10000；撞上限标 `partial` 并告警。 |
+| `field` | `Any` | 否 | `None` | `["mainNetInflow", "largeInflow"]` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 
@@ -1331,6 +1363,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall / strategyMeeting / fundRoadshow / shareholdersMeeting / maMeeting / specialMeeting / companyAnalysis / industryAnalysis / other。 |
+| `source` | `Any` | 否 | `None` | `[1, 2]` | 录制来源（数字，支持单值或列表）：1=企微会议助理 2=会议服务微信群。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `vault.wechat_message_list`
@@ -1364,7 +1397,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int \| None` | 否 | `None` | `5` | 省略则拉取全部群（接口不返回 total，按页串行翻到末页，单页上限 50）；传 N 仅取前 N 条。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 省略则拉取全部群（接口返回 {total, list}，按 total 并发翻页，单页上限 50）；传 N 仅取前 N 条。 |
 | `room_name` | `Any` | 否 | `None` | `"投研"` | 微信群名称或名称列表；请求时会拼成逗号分隔字符串。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 

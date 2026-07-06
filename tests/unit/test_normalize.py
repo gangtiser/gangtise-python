@@ -72,10 +72,6 @@ def test_normalize_rows_bare_list_unchanged():
     assert normalize_rows([{"a": 1}]) == [{"a": 1}]
 
 
-def test_normalize_rows_chatroomlist_aliased():
-    assert normalize_rows({"chatRoomList": [{"id": 1}]}) == [{"id": 1}]
-
-
 def test_normalize_rows_constants_aliased_preserving_metadata():
     # Mirrors normalize.test.ts "unwraps constants rows preserving category metadata".
     result = normalize_rows(

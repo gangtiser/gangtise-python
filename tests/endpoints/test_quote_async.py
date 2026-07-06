@@ -9,7 +9,7 @@ import respx
 
 from gangtise_openapi._client import AsyncGangtiseClient
 from gangtise_openapi._config import Config
-from gangtise_openapi._errors import ApiError
+from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi.domains.quote import AsyncQuote, _normalize_quote_rows
 
@@ -138,7 +138,7 @@ async def test_async_day_kline_partial_shard_failure_sets_flags(tmp_path):
             side_effect=_partial_failure_responder
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            with pytest.warns(UserWarning, match="1/3 kline shards failed"):
+            with pytest.warns(UserWarning, match="1/3 day-kline shards failed"):
                 out = await AsyncQuote(client).day_kline(
                     security="all",
                     start_date="2026-01-05",  # Mon
@@ -300,3 +300,113 @@ async def test_async_realtime(tmp_path):
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             df = await AsyncQuote(client).realtime(security=["000001.SH"])
     assert df.iloc[0]["price"] == 12.34
+
+
+@pytest.mark.anyio
+async def test_async_fund_flow_single_security_body_and_default_limit(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/fund-flow/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "fieldList": ["securityCode", "tradeDate", "mainNetInflow"],
+                        "list": [["600519.SH", "2026-06-03", 1234.5]],
+                    },
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncQuote(client).fund_flow(
+                security="600519.SH",
+                start_date="2026-06-01",
+                end_date="2026-06-05",
+            )
+        body = json.loads(route.calls.last.request.read())
+        assert body == {
+            "securityList": ["600519.SH"],
+            "startDate": "2026-06-01",
+            "endDate": "2026-06-05",
+            "limit": 6000,
+        }
+    assert df.iloc[0]["mainNetInflow"] == 1234.5
+
+
+@pytest.mark.anyio
+async def test_async_fund_flow_ashares_shards_by_day(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/fund-flow/daily").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"list": []}}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncQuote(client).fund_flow(
+                security="aShares",
+                start_date="2026-06-29",  # Mon
+                end_date="2026-07-01",  # Wed
+            )
+    assert route.call_count == 3
+    body = json.loads(route.calls[0].request.read())
+    assert body["limit"] == 10000
+
+
+@pytest.mark.anyio
+async def test_async_fund_flow_ashares_without_dates_rejected(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/fund-flow/daily").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"list": []}}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match="requires both start_date and end_date"):
+                await AsyncQuote(client).fund_flow(security="aShares")
+    assert route.call_count == 0
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_rejects_out_of_range_limit(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"list": []}}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            for bad in (0, 10001):
+                with pytest.raises(ValidationError, match="between 1 and 10000"):
+                    await AsyncQuote(client).day_kline(security="000001.SZ", limit=bad)
+    assert route.call_count == 0
+
+
+@pytest.mark.anyio
+async def test_async_minute_kline_rejects_out_of_range_limit(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/minute").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"list": []}}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match="between 1 and 10000"):
+                await AsyncQuote(client).minute_kline(security="000001.SZ", limit=-5)
+    assert route.call_count == 0
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_rejects_non_int_limit(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"list": []}}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            for bad in (1.5, True, "10"):
+                with pytest.raises(ValidationError, match="integer between 1 and 10000"):
+                    await AsyncQuote(client).day_kline(security="000001.SZ", limit=bad)
+    assert route.call_count == 0

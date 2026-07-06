@@ -1,10 +1,20 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://open.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.21.0 功能对齐，覆盖 84 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.23.0 功能对齐，覆盖 86 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.1.13 - 2026-07-06
+- 对齐 CLI v0.23.0。**默认接口域名迁移** `open.gangtise.com` → `openapi.gangtise.com`（新旧多接口实测等价；设 `GANGTISE_BASE_URL=https://open.gangtise.com` 可固定回旧域名）。
+- 新增 `quote.fund_flow`（A 股个股日资金流向，沪深京；小/中/大/特大单流入流出及主力净流入；免费）：`security` 传具体代码或 `aShares` 拉全市场——全市场按日自动分片并发合并、须同时传 `start_date`/`end_date`（缺日期抛 `ValidationError`）；单只证券无翻页，返回行数撞上 `limit`（默认 6000、上限 10000）标 `partial` 并告警。同步+异步。
+- 新增 `reference.institution_search`（机构 ID 搜索，5 类机构 `domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/`foreignOpinionInstitution`，结果自带 `usageScopes`，覆盖各接口 broker/institution 入参；免费）；`vault.my_conference_list` 新增 `source`（录制来源 1=企微会议助理 2=会议服务微信群）。
+- `vault.wechat_chatroom_list` 接口改版为 `{total, list}`：改为按 total 并发翻页（移除已无端点使用的串行翻页机制）。
+- 无翻页行情端点（`fund_flow` 单只 / `minute_kline` / 显式多标的 `day_kline`·`-hk`·`-us`·`index_day_kline`）返回行数撞上 `limit` 时标 `partial`（`raw` 可见）并发 `UserWarning`，避免静默截断；全市场分片合并结果 `total` 改为合并后行数、撞每片上限也标 `partial`，并保留首个非空 `fieldList`（尾部空分片不再清空列）。
+- 下载端点若返回 `302` 跳转到预签名/对象存储 URL，现会跟随取回真正的文件（此前可能把空跳转体写盘；`200`+JSON `{url}` 变体本就已支持）；跨域跳转自动丢弃 `Authorization`，bearer 不外泄到存储域。补齐 CLI v0.22.0 遗留的下载行为。
+- **所有分页端点行为变更**：服务端 `total` 虚高（实际返回行数更少）或触及 `MAX_PAGES`（1000）安全上限截断时，现标 `partial`（`raw` 可见）并发 `UserWarning`——此前两种情况均静默。
+- 行情端点 `limit` 改为本地校验：超出 `1..10000` 或非整数（如 `1.5`、`True`、`"10"`）在发请求前即抛 `ValidationError`（此前可能打到服务端或抛出原始 `TypeError`）。
 
 ### 0.1.12 - 2026-07-02
 - 对齐 CLI HEAD 对抗审查修复（含行为变更）：`insight.*` 纯日期串 `YYYY-MM-DD` 改按**本地午夜**锚定（此前 UTC 午夜，非 UTC 用户查询窗口偏一天）；`fundamental.earning_forecast` 仅传 `end_date` 时缺省起点改为锚定该日期前一年（此前锚定今天）；`normalize_token` 大小写不敏感剥 `bearer ` 前缀，避免 `Bearer bearer ...`。
@@ -27,9 +37,6 @@
 
 ### 0.1.9 - 2026-06-17
 - 新增产业公众号资讯接口（对齐 CLI v0.18.0）：`insight.official_account_list` 按关键词/公众号/证券/文章类型（枚举）/行业分页检索，支持 `search_type`（1=标题 2=全文）与 `rank_type`（1=综合 2=时间倒序）；`insight.official_account_download` 按 `article_id` 下载文章为 txt（默认 `file_type=1`）或 HTML（`file_type=2`）。同步+异步双实现，下载走 title 缓存解析文件名。
-
-### 0.1.8 - 2026-06-16
-- 服务端把 token 挤掉（他处登录）导致本会话失效时，自动重新登录并重试一次（错误码 `0000001008` 加入 auth 重试集合，`_call` 与下载、同步与异步四条路径全覆盖），不再需要手动重新登录；补充对应中文错误提示。对齐 CLI v0.17.2。
 
 ## 安装
 
@@ -87,13 +94,13 @@ uv run python sample/async/quote_day_kline.py
 
 ## 接口
 
-SDK 覆盖 10 个领域下的 84 个上游接口：
+SDK 覆盖 10 个领域下的 86 个上游接口：
 
 - `gangtise.auth.*` — 登录、状态
 - `gangtise.lookup.*` — 本地查表（券商机构、会议机构）
-- `gangtise.reference.*` — 证券搜索（GTS 代码）、常量分类与常量值（行业/城市/公告分类/区域）、题材 ID 搜索、板块 ID 搜索与成分股
+- `gangtise.reference.*` — 证券搜索（GTS 代码）、机构 ID 搜索、常量分类与常量值（行业/城市/公告分类/区域）、题材 ID 搜索、板块 ID 搜索与成分股
 - `gangtise.insight.*` — 观点、研报、公告、日程
-- `gangtise.quote.*` — K 线、实时行情
+- `gangtise.quote.*` — K 线、实时行情、A 股资金流向
 - `gangtise.fundamental.*` — 财务报表、估值、股东、盈利预测
 - `gangtise.ai.*` — AI 生成的洞察（一页通、同业对比、业绩点评等）
 - `gangtise.vault.*` — 个人云盘、会议记录、股票池、微信

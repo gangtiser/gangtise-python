@@ -81,6 +81,23 @@ def test_my_conference_list(tmp_path):
     assert df.iloc[0]["id"] == "c1"
 
 
+def test_my_conference_list_source_maps_to_numeric_source_list(tmp_path):
+    # v0.23.0: --source 1/2 (录制来源) → numeric sourceList in the body.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-vault/my-conference/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"total": 0, "list": []}},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Vault(client).my_conference_list(source=[1, 2], category="earningsCall")
+        body = route.calls.last.request.read().replace(b" ", b"")
+        # sourceList is numeric (not stringified), categoryList is a string list.
+        assert b'"sourceList":[1,2]' in body
+        assert b'"categoryList":["earningsCall"]' in body
+
+
 def test_wechat_message_list_body_shape(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/wechatgroupmsg/list").mock(
@@ -133,30 +150,32 @@ def test_wechat_chatroom_list_joins_room_names(tmp_path):
     assert df.iloc[0]["chatroomId"] == "r1"
 
 
-def test_wechat_chatroom_list_paginates_sequentially(tmp_path):
-    # Real chatRoomList shape, no `total`: a full first page (50) then a short page
-    # ends it. Exercises the wrapper's whole consume chain — sequential collector →
-    # {"chatRoomList": rows} → normalize_rows → one merged DataFrame.
+def test_wechat_chatroom_list_paginates_by_total(tmp_path):
+    # v0.23.0: the server now returns {total, list}, so the wrapper fans out by total
+    # like any other paginated endpoint — first page (50) learns total=52, one more page
+    # completes it. Exercises the whole consume chain → normalize_rows → merged DataFrame.
     page1 = [{"chatroomId": f"r{i}", "roomName": f"g{i}"} for i in range(50)]
     page2 = [{"chatroomId": "r50", "roomName": "g50"}, {"chatroomId": "r51", "roomName": "g51"}]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-vault/wechatgroupmsg/chatroomId").mock(
             side_effect=[
                 httpx.Response(
-                    200, json={"code": "000000", "status": True, "data": {"chatRoomList": page1}}
+                    200,
+                    json={"code": "000000", "status": True, "data": {"total": 52, "list": page1}},
                 ),
                 httpx.Response(
-                    200, json={"code": "000000", "status": True, "data": {"chatRoomList": page2}}
+                    200,
+                    json={"code": "000000", "status": True, "data": {"total": 52, "list": page2}},
                 ),
             ]
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Vault(client).wechat_chatroom_list()
     assert route.call_count == 2
-    # second request advanced from=50 and kept the 50-row page size
+    # the fan-out advanced from=50 for the 2 remaining rows (size clamped to what's left)
     body2 = route.calls[1].request.read().replace(b" ", b"")
     assert b'"from":50' in body2
-    assert b'"size":50' in body2
+    assert b'"size":2' in body2
     assert len(df) == 52
     assert df.iloc[0]["chatroomId"] == "r0"
     assert df.iloc[-1]["chatroomId"] == "r51"

@@ -153,6 +153,34 @@ class Reference:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)
 
+    def institution_search(
+        self,
+        *,
+        keyword: str,
+        category: Any = None,
+        top: int = 10,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索机构 ID（reference.institution-search）。
+
+        category 机构类型（可单值或列表，省略=全部）: domesticBroker=境内券商,
+        foreignInstitution=外资机构, leadInstitution=牵头机构,
+        opinionInstitution=观点机构, foreignOpinionInstitution=外资观点机构；
+        top 默认 10、上限 10。结果自带 usageScopes 标明每个 ID 适用的接口/参数，
+        覆盖各接口的 broker / institution 入参。免费。
+        """
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "categoryList": _as_list(category),
+                "top": top,
+            }
+        )
+        result = self._client._call("reference.institution-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
 
 class AsyncReference:
     """Async mirror of `Reference`."""
@@ -288,6 +316,34 @@ class AsyncReference:
         """
         body = {"keyword": keyword, "top": top}
         result = await self._client._call("reference.chiefs-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def institution_search(
+        self,
+        *,
+        keyword: str,
+        category: Any = None,
+        top: int = 10,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索机构 ID（reference.institution-search）。
+
+        category 机构类型（可单值或列表，省略=全部）: domesticBroker=境内券商,
+        foreignInstitution=外资机构, leadInstitution=牵头机构,
+        opinionInstitution=观点机构, foreignOpinionInstitution=外资观点机构；
+        top 默认 10、上限 10。结果自带 usageScopes 标明每个 ID 适用的接口/参数，
+        覆盖各接口的 broker / institution 入参。免费。
+        """
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "categoryList": _as_list(category),
+                "top": top,
+            }
+        )
+        result = await self._client._call("reference.institution-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return to_dataframe(_extract_rows(result), schema=None)

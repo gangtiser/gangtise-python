@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_BASE_URL = "https://open.gangtise.com"
+DEFAULT_BASE_URL = "https://openapi.gangtise.com"
 DEFAULT_TIMEOUT_MS = 30_000
 DEFAULT_PAGE_CONCURRENCY = 5
 DEFAULT_TOKEN_CACHE_PATH = Path.home() / ".config" / "gangtise" / "token.json"

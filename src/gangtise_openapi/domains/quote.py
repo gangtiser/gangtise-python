@@ -10,15 +10,16 @@ from typing import Any
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
+from gangtise_openapi._errors import ValidationError
 from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi._quote_sharding import (
     DEFAULT_FULL_MARKET_LIMIT,
+    DEFAULT_QUOTE_LIMIT,
     SHARD_DAYS,
     drop_weekend_shards,
     fetch_shards,
     fetch_shards_async,
-    is_all_market,
-    needs_limit_injection,
+    is_full_market,
     plan_shards,
 )
 from gangtise_openapi.domains._common import _as_list, _strip_none
@@ -95,6 +96,134 @@ def _quote_rows_and_fields(result: Any) -> tuple[list[Any], Any]:
     return [], None
 
 
+def _finalize_quote_result(
+    page_results: list[Any],
+    *,
+    label: str,
+    limit: int,
+    sharded: bool,
+    shard_count: int,
+    failed_shards: list[tuple[dt.date, dt.date]],
+) -> tuple[dict[str, Any], list[Any]]:
+    """Merge quote page/shard payloads into one result and flag ``partial``.
+
+    Pure post-processing shared by the sync and async fetch paths (no I/O). Flags
+    ``partial`` — and emits a ``warnings.warn`` visible on the default DataFrame path —
+    on any of: a failed shard (``failedShards``), a malformed 2xx shape (rows dropped),
+    or limit-truncation (a page/shard whose row count reached the sent ``limit``). Mirrors
+    the TS ``quoteSharding`` merge + ``flagIfLimitTruncated`` guards. Returns
+    ``(result_payload, rows)``.
+    """
+    merged: dict[str, Any] = {}
+    field_list: Any = None
+    rows: list[Any] = []
+    malformed = 0
+    truncated = 0
+    for result in page_results:
+        if isinstance(result, dict) and isinstance(result.get("list"), list):
+            # Keep the FIRST non-empty fieldList (TS parity): a later shard with an empty
+            # or missing fieldList must not blank the columns and drop every merged row.
+            if (
+                field_list is None
+                and isinstance(result.get("fieldList"), list)
+                and result["fieldList"]
+            ):
+                field_list = result["fieldList"]
+            merged.update({k: v for k, v in result.items() if k not in ("list", "fieldList")})
+            page_rows = result["list"]
+            rows.extend(page_rows)
+            if len(page_rows) >= limit:
+                truncated += 1
+        elif isinstance(result, list):
+            rows.extend(result)
+            if len(result) >= limit:
+                truncated += 1
+        elif result is not None:
+            # 2xx but neither {list:[...]} nor a bare list — count it instead of silently
+            # dropping, so the result is flagged partial. (None marks a shard already in
+            # failed_shards; don't double-count.)
+            malformed += 1
+
+    result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
+    if field_list is not None:
+        result_payload["fieldList"] = field_list
+    if sharded and merged:
+        # A shard's own `total` is just that shard's row count; overwrite it with the
+        # merged count so `total` reflects the whole combined result. Skipped when there
+        # is no merged header (e.g. an all-weekend range → zero shards) so the empty
+        # result stays a bare {"list": []} — TS parity (`if (!header) return {list: []}`).
+        result_payload["total"] = len(rows)
+    if failed_shards:
+        result_payload["partial"] = True
+        result_payload["failedShards"] = [
+            {"startDate": s.isoformat(), "endDate": e.isoformat()} for s, e in failed_shards
+        ]
+        warnings.warn(
+            f"{len(failed_shards)}/{shard_count} {label} shards failed; results are partial "
+            "(see failedShards in raw output)",
+            stacklevel=3,
+        )
+    if malformed:
+        result_payload["partial"] = True
+        warnings.warn(
+            f"{malformed} {label} response(s) had an unexpected shape; their rows were "
+            "dropped — results are partial",
+            stacklevel=3,
+        )
+    if truncated:
+        result_payload["partial"] = True
+        if sharded:
+            warnings.warn(
+                f"{truncated}/{shard_count} {label} shard(s) hit the {limit}-row limit; "
+                "results are likely truncated — narrow the range or raise limit (max 10000)",
+                stacklevel=3,
+            )
+        else:
+            warnings.warn(
+                f"{label} returned {len(rows)} rows = the {limit}-row limit; results are "
+                "likely truncated (this endpoint has no pagination) — narrow the date range "
+                "or raise limit (max 10000)",
+                stacklevel=3,
+            )
+    return result_payload, rows
+
+
+def _validate_limit(limit: int | None) -> None:
+    """The limit-capped quote endpoints accept an integer 1..10000 (TS ``parseNumberOption``).
+
+    Reject out-of-range values locally: ``limit <= 0`` would make the ``rows >= limit``
+    truncation check fire spuriously (and is a nonsensical request), and ``> 10000``
+    exceeds the server row cap so the truncation ``cap`` could hide a real truncation.
+    Also reject non-int inputs so a mistyped ``"10"`` raises ValidationError (not a raw
+    ``TypeError`` from the comparison) and ``1.5`` / ``True`` can't slip past the range
+    check — ``bool`` is excluded explicitly because it is an ``int`` subclass.
+    """
+    if limit is not None and (
+        not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 10000
+    ):
+        raise ValidationError(f"limit must be an integer between 1 and 10000 (got {limit!r})")
+
+
+def _flag_single_truncation(result: Any, rows: list[Any], limit: int, label: str) -> None:
+    """Flag ``partial`` + warn when a non-paginated single-request quote endpoint
+    (minute-kline) returns rows == the sent ``limit`` — its only truncation signal.
+    ``limit`` MUST be the exact value sent on the request so the cap can't hide a
+    truncation. Mirrors the TS ``flagIfLimitTruncated``.
+    """
+    if isinstance(result, dict) and result.get("partial") is True:
+        return
+    if len(rows) < limit:
+        return
+    if isinstance(result, dict):
+        result["partial"] = True
+    warnings.warn(
+        f"{label} returned {len(rows)} rows = the {limit}-row limit; results are likely "
+        "truncated (this endpoint has no pagination) — narrow the time range or raise limit "
+        "(max 10000)",
+        stacklevel=3,
+    )
+
+
 class Quote:
     """`gangtise.quote.*` — K-line + realtime quote endpoints."""
 
@@ -111,13 +240,24 @@ class Quote:
         limit: int | None = None,
         field: Any = None,
         raw: bool = False,
+        full_market_value: str = "all",
+        require_dates_for_full_market: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        _validate_limit(limit)
         days_per_shard = SHARD_DAYS[endpoint_key]
-        if needs_limit_injection(security=security, explicit_limit=limit):
-            limit = DEFAULT_FULL_MARKET_LIMIT
+        label = endpoint_key.split(".", 1)[-1]
+        full_market = is_full_market(security, full_market_value)
+        if require_dates_for_full_market and full_market and not (start_date and end_date):
+            raise ValidationError(
+                f"quote {label} full-market ('{full_market_value}') requires both start_date "
+                "and end_date (the full market is fetched via per-day shards)"
+            )
+        # Full-market lifts the per-request cap to the API max; explicit securities pin to
+        # the default so the sent limit and the truncation cap are the same number.
+        if limit is None:
+            limit = DEFAULT_FULL_MARKET_LIMIT if full_market else DEFAULT_QUOTE_LIMIT
 
-        sharded = False
-        if is_all_market(security) and start_date and end_date:
+        if full_market and start_date and end_date:
             sharded = True
             shards = drop_weekend_shards(
                 plan_shards(
@@ -127,6 +267,7 @@ class Quote:
                 )
             )
         else:
+            sharded = False
             shards = []
 
         def fetch_shard(window: tuple[dt.date, dt.date]) -> Any:
@@ -161,42 +302,17 @@ class Quote:
             )
             page_results = [self._client._call(endpoint_key, body=body)]
 
-        merged: dict[str, Any] = {}
-        rows: list[Any] = []
-        malformed = 0
-        for result in page_results:
-            if isinstance(result, dict) and isinstance(result.get("list"), list):
-                merged.update({k: v for k, v in result.items() if k != "list"})
-                rows.extend(result["list"])
-            elif isinstance(result, list):
-                rows.extend(result)
-            elif result is not None:
-                # 2xx but neither {list:[...]} nor a bare list — count it instead of
-                # silently dropping, so the result is flagged partial below. (A None
-                # marks a shard already recorded in failed_shards; don't double-count.)
-                malformed += 1
-        result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
-        if failed_shards:
-            # Mirror TS quoteSharding partial-failure flags (camelCase).
-            result_payload["partial"] = True
-            result_payload["failedShards"] = [
-                {"startDate": s.isoformat(), "endDate": e.isoformat()} for s, e in failed_shards
-            ]
-            warnings.warn(
-                f"{len(failed_shards)}/{len(shards)} kline shards failed; results are partial "
-                "(see failedShards in raw output)",
-                stacklevel=3,
-            )
-        if malformed:
-            result_payload["partial"] = True
-            warnings.warn(
-                f"{malformed} kline shard response(s) had an unexpected shape; their rows "
-                "were dropped — results are partial",
-                stacklevel=3,
-            )
+        result_payload, rows = _finalize_quote_result(
+            page_results,
+            label=label,
+            limit=limit,
+            sharded=sharded,
+            shard_count=len(shards),
+            failed_shards=failed_shards,
+        )
         if raw:
             return result_payload
-        return _kline_dataframe(rows, merged.get("fieldList"))
+        return _kline_dataframe(rows, result_payload.get("fieldList"))
 
     def day_kline(
         self,
@@ -302,6 +418,36 @@ class Quote:
             raw=raw,
         )
 
+    def fund_flow(
+        self,
+        *,
+        security: Any,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股个股日资金流向（quote.fund-flow）。
+
+        沪深京个股，返回小/中/大/特大单流入流出金额及占比、主力净流入等；免费。
+        security 传具体代码（单值或列表，如 600519.SH / 872931.BJ），或 "aShares"
+        拉全 A 股——全市场按日自动分片并发合并，须同时传 start_date/end_date
+        （缺日期本地报错）。单只证券无翻页，返回行数撞上 limit（默认 6000、最大 10000）
+        时结果标 partial（raw 可见）并发 warning。
+        """
+        return self._day_kline(
+            "quote.fund-flow",
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
+            full_market_value="aShares",
+            require_dates_for_full_market=True,
+        )
+
     def minute_kline(
         self,
         *,
@@ -314,9 +460,13 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询 A 股分钟 K 线（quote.minute-kline）。
 
-        仅支持单只 A 股代码（不支持列表 / "all"）；
-        start_time/end_time 格式 yyyy-MM-dd HH:mm:ss。limit 默认 5000，最大 10000。
+        仅支持单只 A 股代码（不支持列表 / "all"）；start_time/end_time 格式
+        yyyy-MM-dd HH:mm:ss。limit 默认 6000、最大 10000；该接口无翻页，返回行数撞上
+        limit 时结果标 partial（raw 可见）并发 warning，提示缩小时间范围或分批取数。
         """
+        _validate_limit(limit)
+        if limit is None:
+            limit = DEFAULT_QUOTE_LIMIT
         body = _strip_none(
             {
                 "securityCode": security,
@@ -327,9 +477,10 @@ class Quote:
             }
         )
         result = self._client._call("quote.minute-kline", body=body)
+        rows, fields = _quote_rows_and_fields(result)
+        _flag_single_truncation(result, rows, limit, "minute-kline")
         if raw:
             return result  # type: ignore[no-any-return]
-        rows, fields = _quote_rows_and_fields(result)
         return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
 
     def realtime(
@@ -373,13 +524,24 @@ class AsyncQuote:
         limit: int | None = None,
         field: Any = None,
         raw: bool = False,
+        full_market_value: str = "all",
+        require_dates_for_full_market: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        _validate_limit(limit)
         days_per_shard = SHARD_DAYS[endpoint_key]
-        if needs_limit_injection(security=security, explicit_limit=limit):
-            limit = DEFAULT_FULL_MARKET_LIMIT
+        label = endpoint_key.split(".", 1)[-1]
+        full_market = is_full_market(security, full_market_value)
+        if require_dates_for_full_market and full_market and not (start_date and end_date):
+            raise ValidationError(
+                f"quote {label} full-market ('{full_market_value}') requires both start_date "
+                "and end_date (the full market is fetched via per-day shards)"
+            )
+        # Full-market lifts the per-request cap to the API max; explicit securities pin to
+        # the default so the sent limit and the truncation cap are the same number.
+        if limit is None:
+            limit = DEFAULT_FULL_MARKET_LIMIT if full_market else DEFAULT_QUOTE_LIMIT
 
-        sharded = False
-        if is_all_market(security) and start_date and end_date:
+        if full_market and start_date and end_date:
             sharded = True
             shards = drop_weekend_shards(
                 plan_shards(
@@ -389,6 +551,7 @@ class AsyncQuote:
                 )
             )
         else:
+            sharded = False
             shards = []
 
         async def fetch_shard(window: tuple[dt.date, dt.date]) -> Any:
@@ -425,42 +588,17 @@ class AsyncQuote:
             )
             page_results = [await self._client._call(endpoint_key, body=body)]
 
-        merged: dict[str, Any] = {}
-        rows: list[Any] = []
-        malformed = 0
-        for result in page_results:
-            if isinstance(result, dict) and isinstance(result.get("list"), list):
-                merged.update({k: v for k, v in result.items() if k != "list"})
-                rows.extend(result["list"])
-            elif isinstance(result, list):
-                rows.extend(result)
-            elif result is not None:
-                # 2xx but neither {list:[...]} nor a bare list — count it instead of
-                # silently dropping, so the result is flagged partial below. (A None
-                # marks a shard already recorded in failed_shards; don't double-count.)
-                malformed += 1
-        result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
-        if failed_shards:
-            # Mirror TS quoteSharding partial-failure flags (camelCase).
-            result_payload["partial"] = True
-            result_payload["failedShards"] = [
-                {"startDate": s.isoformat(), "endDate": e.isoformat()} for s, e in failed_shards
-            ]
-            warnings.warn(
-                f"{len(failed_shards)}/{len(shards)} kline shards failed; results are partial "
-                "(see failedShards in raw output)",
-                stacklevel=3,
-            )
-        if malformed:
-            result_payload["partial"] = True
-            warnings.warn(
-                f"{malformed} kline shard response(s) had an unexpected shape; their rows "
-                "were dropped — results are partial",
-                stacklevel=3,
-            )
+        result_payload, rows = _finalize_quote_result(
+            page_results,
+            label=label,
+            limit=limit,
+            sharded=sharded,
+            shard_count=len(shards),
+            failed_shards=failed_shards,
+        )
         if raw:
             return result_payload
-        return _kline_dataframe(rows, merged.get("fieldList"))
+        return _kline_dataframe(rows, result_payload.get("fieldList"))
 
     async def day_kline(
         self,
@@ -566,6 +704,36 @@ class AsyncQuote:
             raw=raw,
         )
 
+    async def fund_flow(
+        self,
+        *,
+        security: Any,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: Any = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询 A 股个股日资金流向（quote.fund-flow）。
+
+        沪深京个股，返回小/中/大/特大单流入流出金额及占比、主力净流入等；免费。
+        security 传具体代码（单值或列表，如 600519.SH / 872931.BJ），或 "aShares"
+        拉全 A 股——全市场按日自动分片并发合并，须同时传 start_date/end_date
+        （缺日期本地报错）。单只证券无翻页，返回行数撞上 limit（默认 6000、最大 10000）
+        时结果标 partial（raw 可见）并发 warning。
+        """
+        return await self._day_kline(
+            "quote.fund-flow",
+            security=security,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            field=field,
+            raw=raw,
+            full_market_value="aShares",
+            require_dates_for_full_market=True,
+        )
+
     async def minute_kline(
         self,
         *,
@@ -578,9 +746,13 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询 A 股分钟 K 线（quote.minute-kline）。
 
-        仅支持单只 A 股代码（不支持列表 / "all"）；
-        start_time/end_time 格式 yyyy-MM-dd HH:mm:ss。limit 默认 5000，最大 10000。
+        仅支持单只 A 股代码（不支持列表 / "all"）；start_time/end_time 格式
+        yyyy-MM-dd HH:mm:ss。limit 默认 6000、最大 10000；该接口无翻页，返回行数撞上
+        limit 时结果标 partial（raw 可见）并发 warning，提示缩小时间范围或分批取数。
         """
+        _validate_limit(limit)
+        if limit is None:
+            limit = DEFAULT_QUOTE_LIMIT
         body = _strip_none(
             {
                 "securityCode": security,
@@ -591,9 +763,10 @@ class AsyncQuote:
             }
         )
         result = await self._client._call("quote.minute-kline", body=body)
+        rows, fields = _quote_rows_and_fields(result)
+        _flag_single_truncation(result, rows, limit, "minute-kline")
         if raw:
             return result  # type: ignore[no-any-return]
-        rows, fields = _quote_rows_and_fields(result)
         return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
 
     async def realtime(

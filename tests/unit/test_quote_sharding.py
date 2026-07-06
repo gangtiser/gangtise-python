@@ -8,7 +8,7 @@ from gangtise_openapi._quote_sharding import (
     drop_weekend_shards,
     fetch_shards,
     fetch_shards_async,
-    needs_limit_injection,
+    is_full_market,
     plan_shards,
 )
 
@@ -18,6 +18,7 @@ def test_shard_days_table():
     assert SHARD_DAYS["quote.day-kline-hk"] == 2
     assert SHARD_DAYS["quote.day-kline-us"] == 1
     assert SHARD_DAYS["quote.index-day-kline"] == 30
+    assert SHARD_DAYS["quote.fund-flow"] == 1
 
 
 def test_plan_shards_single_day():
@@ -75,14 +76,19 @@ def test_plan_shards_invalid_order():
         )
 
 
-def test_needs_limit_injection_only_for_all_market():
-    assert needs_limit_injection(security="all", explicit_limit=None) is True
-    assert needs_limit_injection(security="all", explicit_limit=5000) is False
-    assert needs_limit_injection(security="000001.SH", explicit_limit=None) is False
-    assert needs_limit_injection(security=["all"], explicit_limit=None) is True
-    assert needs_limit_injection(security=["000001.SH"], explicit_limit=None) is False
-    # Mixed list with "all" must NOT shard — TS only shards for exactly ["all"].
-    assert needs_limit_injection(security=["all", "000001.SZ"], explicit_limit=None) is False
+def test_is_full_market_matches_only_the_exact_keyword():
+    # Kline uses "all"; fund-flow uses "aShares". Sharding fires only for exactly
+    # [keyword] (scalar or single-element list) — mirrors the TS predicate.
+    assert is_full_market("all", "all") is True
+    assert is_full_market(["all"], "all") is True
+    assert is_full_market("aShares", "aShares") is True
+    assert is_full_market(["aShares"], "aShares") is True
+    # Wrong keyword for the endpoint must not trigger full-market sharding.
+    assert is_full_market("all", "aShares") is False
+    assert is_full_market("aShares", "all") is False
+    assert is_full_market("000001.SH", "all") is False
+    # Mixed list must NOT shard — only exactly [keyword].
+    assert is_full_market(["all", "000001.SZ"], "all") is False
 
 
 def test_plan_shards_zero_days_per_shard_raises():

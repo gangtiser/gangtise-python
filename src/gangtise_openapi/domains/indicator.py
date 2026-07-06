@@ -8,9 +8,13 @@ from typing import Any
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
-from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi._transport import unwrap_envelope
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 # The EDE cross-section / time-series endpoints return a `values` matrix plus
 # parallel code/name/date lists rather than ready-made rows. The helpers below
@@ -174,7 +178,7 @@ class Indicator:
         result = self._client._call("indicator.search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(_unwrap_indicator_data(result)), schema=None)
+        return _result_to_dataframe(_unwrap_indicator_data(result))
 
     def cross_section(
         self,
@@ -207,7 +211,7 @@ class Indicator:
         if raw:
             return result  # type: ignore[no-any-return]
         flattened = _flatten_cross_section(_unwrap_indicator_data(result))
-        return to_dataframe(_extract_rows(flattened), schema=None)
+        return _result_to_dataframe(flattened)
 
     def time_series(
         self,
@@ -243,7 +247,7 @@ class Indicator:
         if raw:
             return result  # type: ignore[no-any-return]
         flattened = _flatten_time_series(_unwrap_indicator_data(result))
-        return to_dataframe(_extract_rows(flattened), schema=None)
+        return _result_to_dataframe(flattened)
 
 
 class AsyncIndicator:
@@ -268,7 +272,7 @@ class AsyncIndicator:
         result = await self._client._call("indicator.search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(_unwrap_indicator_data(result)), schema=None)
+        return _result_to_dataframe(_unwrap_indicator_data(result))
 
     async def cross_section(
         self,
@@ -301,7 +305,7 @@ class AsyncIndicator:
         if raw:
             return result  # type: ignore[no-any-return]
         flattened = _flatten_cross_section(_unwrap_indicator_data(result))
-        return to_dataframe(_extract_rows(flattened), schema=None)
+        return _result_to_dataframe(flattened)
 
     async def time_series(
         self,
@@ -337,4 +341,4 @@ class AsyncIndicator:
         if raw:
             return result  # type: ignore[no-any-return]
         flattened = _flatten_time_series(_unwrap_indicator_data(result))
-        return to_dataframe(_extract_rows(flattened), schema=None)
+        return _result_to_dataframe(flattened)

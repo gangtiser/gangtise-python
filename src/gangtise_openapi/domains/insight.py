@@ -12,7 +12,13 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _extract_rows,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 
 def _to_unix_ms(value: int | str | None) -> int | None:
@@ -82,7 +88,7 @@ class Insight:
         result = self._client._call("insight.opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- summary ----
 
@@ -198,7 +204,7 @@ class Insight:
         result = self._client._call("insight.roadshow.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def site_visit_list(
         self,
@@ -245,7 +251,7 @@ class Insight:
         result = self._client._call("insight.site-visit.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def strategy_list(
         self,
@@ -278,7 +284,7 @@ class Insight:
         result = self._client._call("insight.strategy.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def forum_list(
         self,
@@ -311,7 +317,7 @@ class Insight:
         result = self._client._call("insight.forum.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- research ----
 
@@ -619,7 +625,7 @@ class Insight:
         result = self._client._call("insight.foreign-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- independent-opinion ----
 
@@ -939,7 +945,7 @@ class AsyncInsight:
         result = await self._client._call("insight.opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def summary_list(
         self,
@@ -1047,7 +1053,7 @@ class AsyncInsight:
         result = await self._client._call("insight.roadshow.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def site_visit_list(
         self,
@@ -1094,7 +1100,7 @@ class AsyncInsight:
         result = await self._client._call("insight.site-visit.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def strategy_list(
         self,
@@ -1127,7 +1133,7 @@ class AsyncInsight:
         result = await self._client._call("insight.strategy.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def forum_list(
         self,
@@ -1160,7 +1166,7 @@ class AsyncInsight:
         result = await self._client._call("insight.forum.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def research_list(
         self,
@@ -1456,7 +1462,7 @@ class AsyncInsight:
         result = await self._client._call("insight.foreign-opinion.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def independent_opinion_list(
         self,

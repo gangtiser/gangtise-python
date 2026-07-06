@@ -10,7 +10,13 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _extract_rows,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 
 def _flatten_earning_forecast(result: Any, *, latest: bool) -> list[dict[str, Any]]:
@@ -98,7 +104,7 @@ class Fundamental:
         result = self._client._call(endpoint_key, body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- 8 statement endpoints ----
 
@@ -441,7 +447,7 @@ class Fundamental:
         result = self._client._call("fundamental.main-business", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- valuation-analysis (with client-side skip_null filter) ----
 
@@ -517,7 +523,7 @@ class Fundamental:
         result = self._client._call("fundamental.top-holders", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- earning-forecast ----
 
@@ -585,7 +591,7 @@ class AsyncFundamental:
         result = await self._client._call(endpoint_key, body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def income_statement(
         self,
@@ -924,7 +930,7 @@ class AsyncFundamental:
         result = await self._client._call("fundamental.main-business", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def valuation_analysis(
         self,
@@ -996,7 +1002,7 @@ class AsyncFundamental:
         result = await self._client._call("fundamental.top-holders", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def earning_forecast(
         self,

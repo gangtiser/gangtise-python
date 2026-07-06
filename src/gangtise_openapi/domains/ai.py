@@ -12,8 +12,12 @@ from gangtise_openapi._async_content import poll_content, poll_content_async
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._errors import ApiError, ValidationError
-from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 _HOT_TOPIC_DEFAULT_CATEGORIES = [
     "morningBriefing",
@@ -62,7 +66,7 @@ class AI:
         result = self._client._call("ai.knowledge-batch", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- security-clue.list ----
 
@@ -96,7 +100,7 @@ class AI:
         result = self._client._call("ai.security-clue.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- stock-summary (个股看点) ----
 
@@ -122,7 +126,7 @@ class AI:
         result = self._client._call("ai.stock-summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- security-only agent endpoints ----
 
@@ -201,7 +205,7 @@ class AI:
         result = self._client._call("ai.hot-topic", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- management-discuss ----
 
@@ -405,7 +409,7 @@ class AsyncAI:
         result = await self._client._call("ai.knowledge-batch", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def security_clue_list(
         self,
@@ -437,7 +441,7 @@ class AsyncAI:
         result = await self._client._call("ai.security-clue.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def stock_summary_list(
         self,
@@ -461,7 +465,7 @@ class AsyncAI:
         result = await self._client._call("ai.stock-summary.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def _security_only(self, endpoint_key: str, security_code: str) -> Any:
         return await self._client._call(endpoint_key, body={"securityCode": security_code})
@@ -544,7 +548,7 @@ class AsyncAI:
         result = await self._client._call("ai.hot-topic", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def management_discuss_announcement(
         self,

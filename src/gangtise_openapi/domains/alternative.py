@@ -9,7 +9,12 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 # Stable columns for the flattened concept-securities frame. Used only to shape
 # the *empty* result (a concept with no constituents) so the columns match the
@@ -77,7 +82,7 @@ class Alternative:
         result = self._client._call("alternative.edb-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def edb_data(
         self,
@@ -164,7 +169,7 @@ class AsyncAlternative:
         result = await self._client._call("alternative.edb-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def edb_data(
         self,

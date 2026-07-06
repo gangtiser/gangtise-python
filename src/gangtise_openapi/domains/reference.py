@@ -8,8 +8,12 @@ from typing import Any
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
-from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 
 class Reference:
@@ -43,7 +47,7 @@ class Reference:
         result = self._client._call("reference.securities-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def constant_category(
         self,
@@ -58,7 +62,7 @@ class Reference:
         result = self._client._call("reference.constant-category")
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def constant_list(
         self,
@@ -77,7 +81,7 @@ class Reference:
         result = self._client._call("reference.constant-list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def concept_search(
         self,
@@ -96,7 +100,7 @@ class Reference:
         result = self._client._call("reference.concept-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def sector_search(
         self,
@@ -115,7 +119,7 @@ class Reference:
         result = self._client._call("reference.sector-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def sector_constituents(
         self,
@@ -133,7 +137,7 @@ class Reference:
         result = self._client._call("reference.sector-constituents", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def chiefs_search(
         self,
@@ -151,7 +155,7 @@ class Reference:
         result = self._client._call("reference.chiefs-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def institution_search(
         self,
@@ -179,7 +183,7 @@ class Reference:
         result = self._client._call("reference.institution-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
 
 class AsyncReference:
@@ -210,7 +214,7 @@ class AsyncReference:
         result = await self._client._call("reference.securities-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def constant_category(
         self,
@@ -225,7 +229,7 @@ class AsyncReference:
         result = await self._client._call("reference.constant-category")
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def constant_list(
         self,
@@ -244,7 +248,7 @@ class AsyncReference:
         result = await self._client._call("reference.constant-list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def concept_search(
         self,
@@ -263,7 +267,7 @@ class AsyncReference:
         result = await self._client._call("reference.concept-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def sector_search(
         self,
@@ -282,7 +286,7 @@ class AsyncReference:
         result = await self._client._call("reference.sector-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def sector_constituents(
         self,
@@ -300,7 +304,7 @@ class AsyncReference:
         result = await self._client._call("reference.sector-constituents", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def chiefs_search(
         self,
@@ -318,7 +322,7 @@ class AsyncReference:
         result = await self._client._call("reference.chiefs-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def institution_search(
         self,
@@ -346,4 +350,4 @@ class AsyncReference:
         result = await self._client._call("reference.institution-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)

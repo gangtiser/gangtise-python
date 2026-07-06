@@ -11,7 +11,13 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _extract_rows,
+    _result_to_dataframe,
+    _strip_none,
+)
 
 
 class Vault:
@@ -182,7 +188,7 @@ class Vault:
         result = self._client._call("vault.wechat-message.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def wechat_chatroom_list(
         self,
@@ -209,7 +215,7 @@ class Vault:
         result = self._client._call("vault.wechat-chatroom.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
         """查询用户股票池 ID 与名称列表（vault.stock-pool.list）。"""
@@ -240,7 +246,7 @@ class Vault:
         result = self._client._call("vault.stock-pool.stocks", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     # ---- download endpoints ----
 
@@ -474,7 +480,7 @@ class AsyncVault:
         result = await self._client._call("vault.wechat-message.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def wechat_chatroom_list(
         self,
@@ -501,7 +507,7 @@ class AsyncVault:
         result = await self._client._call("vault.wechat-chatroom.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
         """查询用户股票池 ID 与名称列表（vault.stock-pool.list）。"""
@@ -531,7 +537,7 @@ class AsyncVault:
         result = await self._client._call("vault.stock-pool.stocks", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_extract_rows(result), schema=None)
+        return _result_to_dataframe(result)
 
     async def drive_download(
         self,

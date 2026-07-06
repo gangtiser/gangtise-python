@@ -312,6 +312,29 @@ def test_day_kline_ragged_matrix_rows_fall_back_to_normalize(tmp_path):
     assert pd.isna(df.iloc[1]["close"])
 
 
+def test_day_kline_duplicate_fields_fall_back_to_normalize(tmp_path):
+    # Duplicate fieldList must NOT take the fast path: pd.DataFrame(columns=fields)
+    # would emit two same-named columns, whereas the normalize dict-transpose
+    # collapses the repeat to a single column (last value wins). Fall back to stay equal.
+    fields = ["securityCode", "close", "close"]
+    rows = [["000001.SH", 1.0, 2.0], ["000002.SZ", 3.0, 4.0]]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"fieldList": fields, "list": rows},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
+    assert list(df.columns) == ["securityCode", "close"]
+    assert df["close"].tolist() == [2.0, 4.0]
+
+
 def test_day_kline_hk_shard_count(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         route = router.post("/application/open-quote/kline-hk/daily").mock(

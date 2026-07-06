@@ -71,14 +71,17 @@ def _kline_dataframe(rows: list[Any], fields: Any) -> pd.DataFrame:
     When ``fields`` is a list of column names and every row is a list of
     exactly ``len(fields)`` values, ``pd.DataFrame(rows, columns=fields)``
     skips the dict-per-row transpose (2-3x faster, ~half the peak memory at
-    full-market scale). Any other shape — dict rows, ragged rows, missing or
-    non-string ``fieldList`` — falls back to the normalize path, preserving
-    its pad/drop behavior for ragged rows.
+    full-market scale). Any other shape — dict rows, ragged rows, missing,
+    non-string, or duplicate ``fieldList`` — falls back to the normalize path,
+    preserving its pad/drop (and duplicate-name dedupe) behavior. The duplicate
+    guard keeps the two paths equivalent: the dict transpose collapses a repeated
+    field to one column, whereas ``pd.DataFrame(columns=fields)`` would emit two.
     """
     if (
         isinstance(fields, list)
         and fields
         and all(isinstance(f, str) for f in fields)
+        and len(set(fields)) == len(fields)
         and rows
         and all(isinstance(r, list) and len(r) == len(fields) for r in rows)
     ):

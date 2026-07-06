@@ -13,7 +13,7 @@ from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import StrOrList, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
 
 _HOT_TOPIC_DEFAULT_CATEGORIES = [
     "morningBriefing",
@@ -34,10 +34,10 @@ class AI:
     def knowledge_batch(
         self,
         *,
-        query: StrOrList,
+        query: FilterValue,
         top: int = 10,
-        resource_type: StrOrList | None = None,
-        knowledge_name: StrOrList | None = None,
+        resource_type: FilterValue | None = None,
+        knowledge_name: FilterValue | None = None,
         start_time: int | None = None,
         end_time: int | None = None,
         raw: bool = False,
@@ -74,8 +74,8 @@ class AI:
         query_mode: str,
         from_: int = 0,
         size: int | None = None,
-        gts_code: StrOrList | None = None,
-        source: StrOrList | None = None,
+        gts_code: FilterValue | None = None,
+        source: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 AI 证券线索列表（ai.security-clue.list）。
@@ -103,7 +103,7 @@ class AI:
     def stock_summary_list(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
@@ -152,7 +152,7 @@ class AI:
         *,
         theme_id: str,
         date: str,
-        type_: StrOrList | None = None,
+        type_: FilterValue | None = None,
         raw: bool = False,
     ) -> dict[str, Any]:
         """获取主题/题材跟踪日报（ai.theme-tracking）。
@@ -177,7 +177,7 @@ class AI:
         size: int | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
-        category: StrOrList | None = None,
+        category: FilterValue | None = None,
         with_related_securities: bool = True,
         with_close_reading: bool = True,
         raw: bool = False,
@@ -377,10 +377,10 @@ class AsyncAI:
     async def knowledge_batch(
         self,
         *,
-        query: StrOrList,
+        query: FilterValue,
         top: int = 10,
-        resource_type: StrOrList | None = None,
-        knowledge_name: StrOrList | None = None,
+        resource_type: FilterValue | None = None,
+        knowledge_name: FilterValue | None = None,
         start_time: int | None = None,
         end_time: int | None = None,
         raw: bool = False,
@@ -415,8 +415,8 @@ class AsyncAI:
         query_mode: str,
         from_: int = 0,
         size: int | None = None,
-        gts_code: StrOrList | None = None,
-        source: StrOrList | None = None,
+        gts_code: FilterValue | None = None,
+        source: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 AI 证券线索列表（ai.security-clue.list）。
@@ -442,7 +442,7 @@ class AsyncAI:
     async def stock_summary_list(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
@@ -495,7 +495,7 @@ class AsyncAI:
         *,
         theme_id: str,
         date: str,
-        type_: StrOrList | None = None,
+        type_: FilterValue | None = None,
         raw: bool = False,
     ) -> dict[str, Any]:
         """获取主题/题材跟踪日报（ai.theme-tracking）。
@@ -520,7 +520,7 @@ class AsyncAI:
         size: int | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
-        category: StrOrList | None = None,
+        category: FilterValue | None = None,
         with_related_securities: bool = True,
         with_close_reading: bool = True,
         raw: bool = False,

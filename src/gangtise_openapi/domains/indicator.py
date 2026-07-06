@@ -10,7 +10,7 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi._transport import unwrap_envelope
-from gangtise_openapi.domains._common import StrOrList, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
 
 # The EDE cross-section / time-series endpoints return a `values` matrix plus
 # parallel code/name/date lists rather than ready-made rows. The helpers below
@@ -180,8 +180,8 @@ class Indicator:
         self,
         *,
         date: str,
-        indicator: StrOrList | None = None,
-        security: StrOrList | None = None,
+        indicator: FilterValue | None = None,
+        security: FilterValue | None = None,
         currency: str | None = None,
         scale: str | None = None,
         indicator_param: dict[str, dict[str, Any]] | None = None,
@@ -214,8 +214,8 @@ class Indicator:
         *,
         start_date: str,
         end_date: str,
-        indicator: StrOrList | None = None,
-        security: StrOrList | None = None,
+        indicator: FilterValue | None = None,
+        security: FilterValue | None = None,
         calendar_type: str | None = None,
         currency: str | None = None,
         scale: str | None = None,
@@ -274,8 +274,8 @@ class AsyncIndicator:
         self,
         *,
         date: str,
-        indicator: StrOrList | None = None,
-        security: StrOrList | None = None,
+        indicator: FilterValue | None = None,
+        security: FilterValue | None = None,
         currency: str | None = None,
         scale: str | None = None,
         indicator_param: dict[str, dict[str, Any]] | None = None,
@@ -308,8 +308,8 @@ class AsyncIndicator:
         *,
         start_date: str,
         end_date: str,
-        indicator: StrOrList | None = None,
-        security: StrOrList | None = None,
+        indicator: FilterValue | None = None,
+        security: FilterValue | None = None,
         calendar_type: str | None = None,
         currency: str | None = None,
         scale: str | None = None,

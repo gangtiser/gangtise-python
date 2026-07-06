@@ -9,7 +9,7 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import StrOrList, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
 
 
 class Reference:
@@ -22,7 +22,7 @@ class Reference:
         self,
         *,
         keyword: str,
-        category: StrOrList | None = None,
+        category: FilterValue | None = None,
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
@@ -157,7 +157,7 @@ class Reference:
         self,
         *,
         keyword: str,
-        category: StrOrList | None = None,
+        category: FilterValue | None = None,
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
@@ -192,7 +192,7 @@ class AsyncReference:
         self,
         *,
         keyword: str,
-        category: StrOrList | None = None,
+        category: FilterValue | None = None,
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
@@ -324,7 +324,7 @@ class AsyncReference:
         self,
         *,
         keyword: str,
-        category: StrOrList | None = None,
+        category: FilterValue | None = None,
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:

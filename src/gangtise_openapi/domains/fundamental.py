@@ -10,7 +10,7 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import StrOrList, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
 
 
 def _flatten_earning_forecast(result: Any, *, latest: bool) -> list[dict[str, Any]]:
@@ -78,10 +78,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         body = _strip_none(
@@ -108,10 +108,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表累计口径（fundamental.income-statement）。
@@ -136,10 +136,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表单季口径（fundamental.income-statement-quarterly）。
@@ -164,10 +164,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股资产负债表（fundamental.balance-sheet）。
@@ -192,10 +192,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表累计口径（fundamental.cash-flow）。
@@ -220,10 +220,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表单季口径（fundamental.cash-flow-quarterly）。
@@ -248,10 +248,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
@@ -276,10 +276,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
@@ -304,10 +304,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
@@ -332,10 +332,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股利润表（fundamental.income-statement-us）。
@@ -360,10 +360,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股资产负债表（fundamental.balance-sheet-us）。
@@ -388,10 +388,10 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股现金流量表（fundamental.cash-flow-us）。
@@ -419,8 +419,8 @@ class Fundamental:
         start_date: str | None = None,
         end_date: str | None = None,
         breakdown: str = "product",
-        period: StrOrList | None = None,
-        field: StrOrList | None = None,
+        period: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询主营业务构成（fundamental.main-business）。
@@ -453,7 +453,7 @@ class Fundamental:
         start_date: str | None = None,
         end_date: str | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         skip_null: bool = False,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
@@ -495,8 +495,8 @@ class Fundamental:
         holder_type: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询前十大股东 / 前十大流通股东（fundamental.top-holders）。
@@ -527,7 +527,7 @@ class Fundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        consensus: StrOrList | None = None,
+        consensus: FilterValue | None = None,
         latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
@@ -565,10 +565,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         body = _strip_none(
@@ -593,10 +593,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表累计口径（fundamental.income-statement）。
@@ -621,10 +621,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表单季口径（fundamental.income-statement-quarterly）。
@@ -649,10 +649,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股资产负债表（fundamental.balance-sheet）。
@@ -677,10 +677,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表累计口径（fundamental.cash-flow）。
@@ -705,10 +705,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表单季口径（fundamental.cash-flow-quarterly）。
@@ -733,10 +733,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
@@ -761,10 +761,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
@@ -789,10 +789,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
@@ -817,10 +817,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股利润表（fundamental.income-statement-us）。
@@ -845,10 +845,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股资产负债表（fundamental.balance-sheet-us）。
@@ -873,10 +873,10 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
-        report_type: StrOrList | None = None,
-        field: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
+        report_type: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股现金流量表（fundamental.cash-flow-us）。
@@ -902,8 +902,8 @@ class AsyncFundamental:
         start_date: str | None = None,
         end_date: str | None = None,
         breakdown: str = "product",
-        period: StrOrList | None = None,
-        field: StrOrList | None = None,
+        period: FilterValue | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询主营业务构成（fundamental.main-business）。
@@ -934,7 +934,7 @@ class AsyncFundamental:
         start_date: str | None = None,
         end_date: str | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         skip_null: bool = False,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
@@ -974,8 +974,8 @@ class AsyncFundamental:
         holder_type: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        fiscal_year: StrOrList | None = None,
-        period: StrOrList | None = None,
+        fiscal_year: FilterValue | None = None,
+        period: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询前十大股东 / 前十大流通股东（fundamental.top-holders）。
@@ -1004,7 +1004,7 @@ class AsyncFundamental:
         security_code: str,
         start_date: str | None = None,
         end_date: str | None = None,
-        consensus: StrOrList | None = None,
+        consensus: FilterValue | None = None,
         latest: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:

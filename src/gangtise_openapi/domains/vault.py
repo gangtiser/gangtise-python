@@ -11,7 +11,7 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import StrOrList, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
 
 
 class Vault:
@@ -28,8 +28,8 @@ class Vault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        file_type: StrOrList | None = None,
-        space_type: StrOrList | None = None,
+        file_type: FilterValue | None = None,
+        space_type: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个人网盘文件列表（vault.drive.list）。
@@ -67,8 +67,8 @@ class Vault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        category: StrOrList | None = None,
-        space_type: StrOrList | None = None,
+        category: FilterValue | None = None,
+        space_type: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询录音转写记录列表（vault.record.list）。
@@ -107,11 +107,11 @@ class Vault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        research_area: StrOrList | None = None,
-        security: StrOrList | None = None,
-        institution: StrOrList | None = None,
-        category: StrOrList | None = None,
-        source: StrOrList | None = None,
+        research_area: FilterValue | None = None,
+        security: FilterValue | None = None,
+        institution: FilterValue | None = None,
+        category: FilterValue | None = None,
+        source: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询我的会议列表（vault.my-conference.list）。
@@ -152,11 +152,11 @@ class Vault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        security: StrOrList | None = None,
-        wechat_group_id: StrOrList | None = None,
-        industry: StrOrList | None = None,
-        category: StrOrList | None = None,
-        tag: StrOrList | None = None,
+        security: FilterValue | None = None,
+        wechat_group_id: FilterValue | None = None,
+        industry: FilterValue | None = None,
+        category: FilterValue | None = None,
+        tag: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群消息列表（vault.wechat-message.list）。
@@ -189,7 +189,7 @@ class Vault:
         *,
         from_: int = 0,
         size: int | None = None,
-        room_name: StrOrList | None = None,
+        room_name: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
@@ -229,7 +229,7 @@ class Vault:
     def stock_pool_stocks(
         self,
         *,
-        pool_id: StrOrList = "all",
+        pool_id: FilterValue = "all",
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询股票池内的证券列表（vault.stock-pool.stocks）。
@@ -320,8 +320,8 @@ class AsyncVault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        file_type: StrOrList | None = None,
-        space_type: StrOrList | None = None,
+        file_type: FilterValue | None = None,
+        space_type: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个人网盘文件列表（vault.drive.list）。
@@ -359,8 +359,8 @@ class AsyncVault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        category: StrOrList | None = None,
-        space_type: StrOrList | None = None,
+        category: FilterValue | None = None,
+        space_type: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询录音转写记录列表（vault.record.list）。
@@ -399,11 +399,11 @@ class AsyncVault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        research_area: StrOrList | None = None,
-        security: StrOrList | None = None,
-        institution: StrOrList | None = None,
-        category: StrOrList | None = None,
-        source: StrOrList | None = None,
+        research_area: FilterValue | None = None,
+        security: FilterValue | None = None,
+        institution: FilterValue | None = None,
+        category: FilterValue | None = None,
+        source: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询我的会议列表（vault.my-conference.list）。
@@ -444,11 +444,11 @@ class AsyncVault:
         start_time: str | None = None,
         end_time: str | None = None,
         keyword: str | None = None,
-        security: StrOrList | None = None,
-        wechat_group_id: StrOrList | None = None,
-        industry: StrOrList | None = None,
-        category: StrOrList | None = None,
-        tag: StrOrList | None = None,
+        security: FilterValue | None = None,
+        wechat_group_id: FilterValue | None = None,
+        industry: FilterValue | None = None,
+        category: FilterValue | None = None,
+        tag: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群消息列表（vault.wechat-message.list）。
@@ -481,7 +481,7 @@ class AsyncVault:
         *,
         from_: int = 0,
         size: int | None = None,
-        room_name: StrOrList | None = None,
+        room_name: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群 chatroomId 列表（vault.wechat-chatroom.list）。
@@ -520,7 +520,7 @@ class AsyncVault:
     async def stock_pool_stocks(
         self,
         *,
-        pool_id: StrOrList = "all",
+        pool_id: FilterValue = "all",
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询股票池内的证券列表（vault.stock-pool.stocks）。

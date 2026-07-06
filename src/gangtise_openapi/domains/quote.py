@@ -22,7 +22,7 @@ from gangtise_openapi._quote_sharding import (
     is_full_market,
     plan_shards,
 )
-from gangtise_openapi.domains._common import StrOrList, _as_list, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _strip_none
 
 
 def _parse_date(value: str | dt.date) -> dt.date:
@@ -234,11 +234,11 @@ class Quote:
         self,
         endpoint_key: str,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
         full_market_value: str = "all",
         require_dates_for_full_market: bool = False,
@@ -317,11 +317,11 @@ class Quote:
     def day_kline(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股日 K 线（quote.day-kline）。
@@ -343,11 +343,11 @@ class Quote:
     def day_kline_hk(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股日 K 线（quote.day-kline-hk）。
@@ -369,11 +369,11 @@ class Quote:
     def day_kline_us(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股日 K 线（quote.day-kline-us）。
@@ -395,11 +395,11 @@ class Quote:
     def index_day_kline(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股指数日 K 线（quote.index-day-kline）。
@@ -421,11 +421,11 @@ class Quote:
     def fund_flow(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股个股日资金流向（quote.fund-flow）。
@@ -455,7 +455,7 @@ class Quote:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询 A 股分钟 K 线（quote.minute-kline）。
@@ -486,8 +486,8 @@ class Quote:
     def realtime(
         self,
         *,
-        security: StrOrList,
-        field: StrOrList | None = None,
+        security: FilterValue,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询实时行情快照（quote.realtime）。
@@ -518,11 +518,11 @@ class AsyncQuote:
         self,
         endpoint_key: str,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
         full_market_value: str = "all",
         require_dates_for_full_market: bool = False,
@@ -603,11 +603,11 @@ class AsyncQuote:
     async def day_kline(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股日 K 线（quote.day-kline）。
@@ -629,11 +629,11 @@ class AsyncQuote:
     async def day_kline_hk(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股日 K 线（quote.day-kline-hk）。
@@ -655,11 +655,11 @@ class AsyncQuote:
     async def day_kline_us(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股日 K 线（quote.day-kline-us）。
@@ -681,11 +681,11 @@ class AsyncQuote:
     async def index_day_kline(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股指数日 K 线（quote.index-day-kline）。
@@ -707,11 +707,11 @@ class AsyncQuote:
     async def fund_flow(
         self,
         *,
-        security: StrOrList,
+        security: FilterValue,
         start_date: str | dt.date | None = None,
         end_date: str | dt.date | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股个股日资金流向（quote.fund-flow）。
@@ -741,7 +741,7 @@ class AsyncQuote:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
-        field: StrOrList | None = None,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询 A 股分钟 K 线（quote.minute-kline）。
@@ -772,8 +772,8 @@ class AsyncQuote:
     async def realtime(
         self,
         *,
-        security: StrOrList,
-        field: StrOrList | None = None,
+        security: FilterValue,
+        field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询实时行情快照（quote.realtime）。

@@ -9,7 +9,7 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains._common import StrOrList, _as_list, _extract_rows, _strip_none
+from gangtise_openapi.domains._common import FilterValue, _as_list, _extract_rows, _strip_none
 
 # Stable columns for the flattened concept-securities frame. Used only to shape
 # the *empty* result (a concept with no constituents) so the columns match the
@@ -82,7 +82,7 @@ class Alternative:
     def edb_data(
         self,
         *,
-        indicator_id: StrOrList,
+        indicator_id: FilterValue,
         start_date: str,
         end_date: str,
         raw: bool = False,
@@ -169,7 +169,7 @@ class AsyncAlternative:
     async def edb_data(
         self,
         *,
-        indicator_id: StrOrList,
+        indicator_id: FilterValue,
         start_date: str,
         end_date: str,
         raw: bool = False,

@@ -458,4 +458,4 @@ async def test_async_stock_summary_list(tmp_path):
 async def test_async_stock_summary_list_requires_security(tmp_path):
     async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
         with pytest.raises(ValidationError):
-            await AsyncAI(client).stock_summary_list(security=None)
+            await AsyncAI(client).stock_summary_list(security=[])

@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.14] - 2026-07-07
+
+Type-experience, performance, and validation improvements from a review pass — no
+endpoint or API-surface changes (still `gangtise-openapi-cli` v0.23.0 parity, 86
+endpoints).
+
+### Changed
+- **Domain filter parameters are now typed** `str | int | Sequence[str | int]` (the
+  new `FilterValue` alias) instead of `Any`. A security code, industry ID, rating,
+  … — single value or list — now gets IDE completion and mypy checking, while both
+  ints (`industry=1`, `fiscal_year=2025`) and strings stay valid, matching what the
+  API accepts.
+- **Matrix endpoints build DataFrames 2-5x faster.** Columnar `{fieldList, list}`
+  responses (financial statements, EDE indicators, …) are built directly from the
+  column matrix instead of transposing to per-row dicts and back; output is
+  byte-for-byte identical (values and dtypes).
+- **Pagination `from` / `size` reject `bool`** (an `int` subclass) with
+  `ValidationError`, matching the quote `limit` guard, instead of passing as `0`/`1`.
+- Package classifier bumped to `Development Status :: 4 - Beta`.
+
+### Added
+- `User-Agent: gangtise-openapi-python/<version>` on every request (sync + async),
+  so server-side logs can distinguish the Python SDK from the npm CLI.
+
+### Internal
+- Coverage tooling (`pytest-cov`), CI matrix widened to Python 3.11 / 3.12, and a
+  columnar-DataFrame regression suite (`tests/unit/test_common.py`).
+
 ## [0.1.13] - 2026-07-06
 
 Synced with `gangtise-openapi-cli` v0.23.0.

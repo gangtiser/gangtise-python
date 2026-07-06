@@ -6,6 +6,13 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.14 - 2026-07-07
+- **域层过滤参数类型化**：`security`/`industry`/`rating` 等过滤参数由 `Any` 收窄为 `str | int | Sequence[str | int]`（`FilterValue` 别名），单值或列表均可——IDE 补全 + mypy 拦误用；int（如 `industry=1`、`fiscal_year=2025`）与 str 都保持有效（与接口一致）。无端点/API 表面变更，仍对齐 CLI v0.23.0、86 接口。
+- **矩阵端点 DataFrame 构建 2-5x 提速**：列式 `{fieldList, list}` 响应（财报、EDE 指标等）直接按列矩阵构建，不再转成逐行 dict 再转回；输出逐值 + dtype 完全一致。
+- 分页 `from`/`size` 拒绝 `bool`（`int` 子类）抛 `ValidationError`，与行情 `limit` 校验一致。
+- 每个请求带 `User-Agent: gangtise-openapi-python/<version>`（同步 + 异步），便于服务端区分 Python SDK 与 npm CLI。
+- 包成熟度 classifier 升至 `Development Status :: 4 - Beta`；新增 pytest-cov 覆盖率、CI 补测 Python 3.11/3.12。
+
 ### 0.1.13 - 2026-07-06
 - 对齐 CLI v0.23.0。**默认接口域名迁移** `open.gangtise.com` → `openapi.gangtise.com`（新旧多接口实测等价；设 `GANGTISE_BASE_URL=https://open.gangtise.com` 可固定回旧域名）。
 - 新增 `quote.fund_flow`（A 股个股日资金流向，沪深京；小/中/大/特大单流入流出及主力净流入；免费）：`security` 传具体代码或 `aShares` 拉全市场——全市场按日自动分片并发合并、须同时传 `start_date`/`end_date`（缺日期抛 `ValidationError`）；单只证券无翻页，返回行数撞上 `limit`（默认 6000、上限 10000）标 `partial` 并告警。同步+异步。
@@ -34,9 +41,6 @@
 - 新增 `ai.stock_summary_list`（个股看点，每证券精炼研究摘要；`security` 必填，空值抛 `ValidationError` 防全市场积分误耗）与 `reference.chiefs_search`（按姓名/机构/团队搜首席 ID）。
 - `ai.hot_topic` 的 `with_related_securities`/`with_close_reading` 改为按布尔下发，传 `False` 真正发送 `false`（此前省略字段、服务端走默认）；`announcement_hk_download` 新增 `file_type`（1=原文 2=Markdown）；缺失凭证报错改为指明缺哪个变量并提示 `export` / `gangtise.configure(...)`。
 - 分页改为 fail-soft：扇出分页某页遇不可重试错误（限频/无权限）时保留已取页并发出 `UserWarning`，不再整体抛错；raw 结果带 `partial`/`failedPages`（`raw=True` 可见；默认 DataFrame 路径丢这些键、以 warning 为准），与 K 线分片容错一致（同步+异步）；`ai.knowledge_batch` 传空 `query` 改为抛 `ValidationError`。
-
-### 0.1.9 - 2026-06-17
-- 新增产业公众号资讯接口（对齐 CLI v0.18.0）：`insight.official_account_list` 按关键词/公众号/证券/文章类型（枚举）/行业分页检索，支持 `search_type`（1=标题 2=全文）与 `rank_type`（1=综合 2=时间倒序）；`insight.official_account_download` 按 `article_id` 下载文章为 txt（默认 `file_type=1`）或 HTML（`file_type=2`）。同步+异步双实现，下载走 title 缓存解析文件名。
 
 ## 安装
 

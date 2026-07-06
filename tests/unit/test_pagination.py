@@ -87,6 +87,17 @@ def test_invalid_size_raises():
         collect_paginated(_ep(), body={"size": 0}, fetch=fetch, concurrency=3)
 
 
+def test_bool_paging_args_rejected():
+    # bool is an int subclass; from=True / size=True must raise, not slip through as 1.
+    def fetch(body):
+        raise AssertionError("should not call")
+
+    with pytest.raises(ValidationError):
+        collect_paginated(_ep(), body={"from": True}, fetch=fetch, concurrency=3)
+    with pytest.raises(ValidationError):
+        collect_paginated(_ep(), body={"size": True}, fetch=fetch, concurrency=3)
+
+
 def test_fanout_page_failure_returns_partial():
     # TS v0.20.0 fail-soft: a non-first page failing in the fan-out must NOT
     # discard the pages already fetched; the result is tagged `partial` with the

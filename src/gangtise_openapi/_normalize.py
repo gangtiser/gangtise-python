@@ -74,8 +74,15 @@ def to_dataframe(
     df = pd.DataFrame(rows)
     if schema is None:
         return df
-    for col in schema:
-        if col not in df.columns:
-            df[col] = pd.Series([None] * len(df), dtype="object")
+    # Add all missing columns in one concat rather than a per-column ``df[col] =``
+    # loop, which fragments the frame (and triggers a PerformanceWarning) on wide
+    # schemas. Fill stays ``None``/object to preserve the output contract — a plain
+    # ``reindex`` would fill NaN and change the column dtype.
+    missing = [col for col in schema if col not in df.columns]
+    if missing:
+        filler = pd.DataFrame(
+            {col: [None] * len(df) for col in missing}, index=df.index, dtype="object"
+        )
+        df = pd.concat([df, filler], axis=1)
     result: pd.DataFrame = df[list(schema)]
     return result

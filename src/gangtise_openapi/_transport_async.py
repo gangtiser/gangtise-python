@@ -13,6 +13,7 @@ from gangtise_openapi._endpoints import EndpointDef
 from gangtise_openapi._errors import ApiError
 from gangtise_openapi._logging import get_logger
 from gangtise_openapi._transport import (
+    USER_AGENT,
     _backoff_delay,
     is_envelope,
     is_retryable_error,
@@ -36,7 +37,7 @@ async def _do_request(
     token: str | None,
     query: dict[str, str | int] | None,
 ) -> tuple[int, Any]:
-    headers: dict[str, str] = {"content-type": "application/json"}
+    headers: dict[str, str] = {"content-type": "application/json", "user-agent": USER_AGENT}
     if token is not None:
         headers["Authorization"] = normalize_token(token)
     started = time.monotonic()

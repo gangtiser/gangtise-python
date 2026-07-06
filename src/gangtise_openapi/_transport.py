@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from gangtise_openapi.__about__ import __version__
 from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef
@@ -14,6 +15,8 @@ from gangtise_openapi._errors import ApiError
 from gangtise_openapi._logging import get_logger
 
 logger = get_logger()
+
+USER_AGENT = f"gangtise-openapi-python/{__version__}"
 
 RETRYABLE_HTTP_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 RETRYABLE_API_CODES: frozenset[str] = frozenset({"999999"})
@@ -85,7 +88,7 @@ def _do_request(
     token: str | None,
     query: dict[str, str | int] | None,
 ) -> tuple[int, Any]:
-    headers: dict[str, str] = {"content-type": "application/json"}
+    headers: dict[str, str] = {"content-type": "application/json", "user-agent": USER_AGENT}
     if token is not None:
         headers["Authorization"] = normalize_token(token)
     started = time.monotonic()

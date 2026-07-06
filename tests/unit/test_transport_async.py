@@ -107,3 +107,4 @@ async def test_request_json_async_attaches_authorization_header(respx_mock, cfg)
     async with build_async_client(cfg) as http:
         await request_json_async(http, _endpoint(), body={}, token="tok")
     assert route.calls.last.request.headers["Authorization"] == "Bearer tok"
+    assert route.calls.last.request.headers["user-agent"].startswith("gangtise-openapi-python/")

@@ -116,3 +116,4 @@ def test_request_json_attaches_authorization_header(respx_mock, config: Config):
     with build_sync_client(config) as http:
         request_json(http, _endpoint("/p"), body={}, token="tok")
     assert route.calls.last.request.headers["Authorization"] == "Bearer tok"
+    assert route.calls.last.request.headers["user-agent"].startswith("gangtise-openapi-python/")

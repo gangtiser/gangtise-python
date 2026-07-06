@@ -42,13 +42,15 @@ def _is_paginated_response(value: Any) -> bool:
 
 
 def _validate_paging_args(body: dict[str, Any]) -> None:
+    # ``bool`` is an ``int`` subclass; reject it explicitly (mirrors quote's
+    # ``_validate_limit``) so ``from=True`` can't slip through as ``1``.
     if "from" in body:
         v = body["from"]
-        if not isinstance(v, int) or v < 0:
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
             raise ValidationError("Invalid 'from': expected a non-negative int")
     if "size" in body and body["size"] is not None:
         v = body["size"]
-        if not isinstance(v, int) or v <= 0:
+        if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
             raise ValidationError("Invalid 'size': expected a positive int")
 
 

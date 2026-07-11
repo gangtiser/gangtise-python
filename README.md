@@ -50,10 +50,18 @@
 ## 安装
 
 ```bash
-pip install gangtise-openapi
+pip3 install gangtise-openapi        # 或 pip
 ```
 
 需要 Python 3.10+。
+
+### 更新到最新版
+
+```bash
+pip3 install --upgrade gangtise-openapi
+```
+
+（刚发版时若提示找不到新版本，是 PyPI/pip 缓存滞后，加 `--no-cache-dir` 强制刷新。）
 
 ## 配置
 

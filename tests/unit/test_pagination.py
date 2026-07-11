@@ -189,3 +189,15 @@ def test_fanout_malformed_page_is_partial():
     assert out["partial"] is True
     assert out["failedPages"]
     assert [r["i"] for r in out["list"]] == list(range(5))  # only the valid first page
+
+
+def test_first_page_shape_drift_warns_and_returns_as_is(config):
+    # A paginated endpoint answering a non-{total,list} shape silently degrades
+    # fetch-all to a single page — surface it (TS v0.27.0 parity).
+    from gangtise_openapi._endpoints import lookup
+
+    endpoint = lookup("insight.summary.list")
+    drifted = {"total": "123", "list": []}
+    with pytest.warns(UserWarning, match="unexpected shape"):
+        out = collect_paginated(endpoint, body={}, fetch=lambda body: drifted, concurrency=2)
+    assert out is drifted

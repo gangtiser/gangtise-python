@@ -5,6 +5,75 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.15] - 2026-07-11
+
+Sync with `gangtise-openapi-cli` v0.24.0–v0.27.0: billing-safe retry policies, 4 new
+endpoints (86 → 90), local validation for silently-truncating params, and reliability
+hardening across polling, sharding, pagination, and downloads.
+
+### Changed
+- **Billing safety (important).** 16 per-call-billed endpoints — the 7 synchronous AI
+  generators, `earnings_review`/`viewpoint_debate` get-id, `hot_topic`,
+  `knowledge_batch`, `concept_info`/`concept_securities`, and the
+  `summary`/`foreign_report`/`my_conference` downloads — now use a **no-replay retry
+  policy**: 5xx / response timeouts / API code 999999 are no longer automatically
+  resent (the platform bills per call with no cache-hit exemption, so a replay
+  double-bills). Only connect-phase errors (the request provably never reached the
+  server), 429 rate limits and the token self-heal still retry. Cheap per-row list
+  endpoints keep the full default retry.
+- **EDE indicator endpoints no longer retry 999999.** The server answers a no-data
+  query (holiday / future date / uncovered security) with HTTP 500 + code 999999;
+  each empty query used to burn 3 requests + ~4s. The error hint now points at
+  checking the query window instead of "retry later".
+- **7 synchronous AI generation endpoints get a 120s timeout floor**
+  (`one_pager`, `investment_logic`, `peer_comparison`, `theme_tracking`,
+  `research_outline`, `management_discuss_*` ×2) — long generations no longer hit
+  the 30s default timeout; an explicitly higher client timeout still wins (max).
+- **429 responses honor `Retry-After`** (delta-seconds or HTTP-date, capped at 60s),
+  taking precedence over exponential backoff on both the JSON and download paths.
+- **Local caps for params the server silently truncates** (probed on the CLI side):
+  `top`/`limit` — the six `reference` searches ≤ 10, `report_image_list` /
+  `knowledge_batch` ≤ 20, `edb_search` ≤ 200, `indicator.search` ≤ 100 — and
+  category whitelists for `securities_search` / `institution_search` /
+  `official_account_search` (a typo used to masquerade as "no results"). Violations
+  raise `ValidationError` before any request is issued.
+- **Full-market kline sharding aborts after a hard error**: remaining shards are not
+  dispatched (saving quota) and are recorded in `failedShards`; a 2xx shard without
+  a `list` array now also lands in `failedShards` with its window. Shards that hit
+  the per-shard row cap are listed in **`truncatedShards`** with concrete date
+  windows (mirroring `failedShards`) so consumers can re-pull narrower ranges.
+- **AI async polling tolerates transient errors**: one 5xx / network blip (after the
+  transport's own retries) consumes a single poll attempt instead of voiding the
+  whole multi-minute wait; terminal errors (no credits, bad params) still abort.
+- `GANGTISE_PAGE_CONCURRENCY` is parsed defensively: invalid / non-positive values
+  fall back to the default 5, and values are capped at 32 (a negative value used to
+  silently degrade to a single serial worker).
+
+### Added
+- **4 new endpoints** (registry 88 → 92 incl. the 2 local lookup tables):
+  - `insight.qa_list` — investor Q&A per security (interactive platform / earnings
+    call / survey sources, 11 question categories, auto-pagination at 500/page;
+    0.1 credit/row).
+  - `insight.report_image_list` / `insight.report_image_download` — search research
+    report images by keyword (returns `chunkId` + metadata; free) and download the
+    original JPEG by `chunkId` (0.1 credit/image).
+  - `reference.official_account_search` — WeChat official-account ID search
+    (feeds `accountId` into `insight.official_account_list`; free).
+- `ERROR_HINTS` entry for code `100003` (invalid enum parameter value).
+- Sample scripts (sync + async) and `sample/API_PARAMETERS.md` entries for all four
+  new methods.
+
+### Fixed
+- EDE matrix columns named `date` / `security` / `name` no longer overwrite the
+  metadata columns — they get a code suffix like any other duplicate.
+- Auto-derived download filenames raise `DownloadError` once 100 same-named files
+  exist instead of silently overwriting the first one.
+- A paginated endpoint whose first page arrives in an unexpected shape (e.g. `total`
+  as a string) now emits a `UserWarning` instead of silently degrading to one page.
+- Presigned-URL downloads get an overall hard deadline (10× the request timeout):
+  idle-type read timeouts reset on every byte, so a slow-drip CDN could previously
+  hang a download indefinitely.
+
 ## [0.1.14] - 2026-07-07
 
 Type-experience, performance, and validation improvements from a review pass — no

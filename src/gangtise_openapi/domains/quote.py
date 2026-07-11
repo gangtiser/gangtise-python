@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import warnings
+from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -107,22 +108,33 @@ def _finalize_quote_result(
     sharded: bool,
     shard_count: int,
     failed_shards: list[tuple[dt.date, dt.date]],
+    shards: Sequence[tuple[dt.date, dt.date]] | None = None,
 ) -> tuple[dict[str, Any], list[Any]]:
     """Merge quote page/shard payloads into one result and flag ``partial``.
 
     Pure post-processing shared by the sync and async fetch paths (no I/O). Flags
     ``partial`` — and emits a ``warnings.warn`` visible on the default DataFrame path —
     on any of: a failed shard (``failedShards``), a malformed 2xx shape (rows dropped),
-    or limit-truncation (a page/shard whose row count reached the sent ``limit``). Mirrors
-    the TS ``quoteSharding`` merge + ``flagIfLimitTruncated`` guards. Returns
-    ``(result_payload, rows)``.
+    or limit-truncation (a page/shard whose row count reached the sent ``limit``).
+    ``shards`` (aligned with ``page_results``) lets the sharded path also record WHICH
+    windows maxed out as ``truncatedShards`` — a script/agent consumer needs the concrete
+    date ranges to re-pull narrower windows (mirrors ``failedShards``; TS v0.27.0).
+    Returns ``(result_payload, rows)``.
     """
     merged: dict[str, Any] = {}
     field_list: Any = None
     rows: list[Any] = []
     malformed = 0
     truncated = 0
-    for result in page_results:
+    truncated_windows: list[tuple[dt.date, dt.date]] = []
+
+    def note_truncated(index: int) -> None:
+        nonlocal truncated
+        truncated += 1
+        if shards is not None and index < len(shards):
+            truncated_windows.append(shards[index])
+
+    for i, result in enumerate(page_results):
         if isinstance(result, dict) and isinstance(result.get("list"), list):
             # Keep the FIRST non-empty fieldList (TS parity): a later shard with an empty
             # or missing fieldList must not blank the columns and drop every merged row.
@@ -136,15 +148,16 @@ def _finalize_quote_result(
             page_rows = result["list"]
             rows.extend(page_rows)
             if len(page_rows) >= limit:
-                truncated += 1
+                note_truncated(i)
         elif isinstance(result, list):
             rows.extend(result)
             if len(result) >= limit:
-                truncated += 1
+                note_truncated(i)
         elif result is not None:
             # 2xx but neither {list:[...]} nor a bare list — count it instead of silently
             # dropping, so the result is flagged partial. (None marks a shard already in
-            # failed_shards; don't double-count.)
+            # failed_shards; don't double-count. The sharded fan-out pre-filters broken
+            # shapes into failed_shards, so this only fires on the single-request path.)
             malformed += 1
 
     result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
@@ -175,10 +188,15 @@ def _finalize_quote_result(
         )
     if truncated:
         result_payload["partial"] = True
+        if truncated_windows:
+            result_payload["truncatedShards"] = [
+                {"startDate": s.isoformat(), "endDate": e.isoformat()} for s, e in truncated_windows
+            ]
         if sharded:
             warnings.warn(
                 f"{truncated}/{shard_count} {label} shard(s) hit the {limit}-row limit; "
-                "results are likely truncated — narrow the range or raise limit (max 10000)",
+                "results are likely truncated (see truncatedShards in raw output) — "
+                "narrow the range or raise limit (max 10000)",
                 stacklevel=3,
             )
         else:
@@ -312,6 +330,7 @@ class Quote:
             sharded=sharded,
             shard_count=len(shards),
             failed_shards=failed_shards,
+            shards=shards if sharded else None,
         )
         if raw:
             return result_payload
@@ -598,6 +617,7 @@ class AsyncQuote:
             sharded=sharded,
             shard_count=len(shards),
             failed_shards=failed_shards,
+            shards=shards if sharded else None,
         )
         if raw:
             return result_payload

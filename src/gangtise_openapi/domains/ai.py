@@ -17,6 +17,7 @@ from gangtise_openapi.domains._common import (
     _as_list,
     _result_to_dataframe,
     _strip_none,
+    _validate_top,
 )
 
 _HOT_TOPIC_DEFAULT_CATEGORIES = [
@@ -56,7 +57,7 @@ class AI:
         body = _strip_none(
             {
                 "queries": queries,
-                "top": top,
+                "top": _validate_top(top, name="top", max_value=20),
                 "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
                 "startTime": start_time,
@@ -399,7 +400,7 @@ class AsyncAI:
         body = _strip_none(
             {
                 "queries": queries,
-                "top": top,
+                "top": _validate_top(top, name="top", max_value=20),
                 "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
                 "startTime": start_time,

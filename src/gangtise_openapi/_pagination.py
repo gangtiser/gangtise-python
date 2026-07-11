@@ -41,6 +41,17 @@ def _is_paginated_response(value: Any) -> bool:
     )
 
 
+def _warn_first_page_shape_drift(endpoint: EndpointDef) -> None:
+    """Shape drift (e.g. ``total`` arriving as a string) silently degrades
+    fetch-all to a single page with no partial marker — make it visible
+    (TS v0.27.0 parity)."""
+    warnings.warn(
+        f"{endpoint.key} is marked paginated but the first page has an unexpected "
+        "shape (no numeric total + list); returning it as-is",
+        stacklevel=4,
+    )
+
+
 def _validate_paging_args(body: dict[str, Any]) -> None:
     # ``bool`` is an ``int`` subclass; reject it explicitly (mirrors quote's
     # ``_validate_limit``) so ``from=True`` can't slip through as ``1``.
@@ -121,6 +132,7 @@ def collect_paginated(
     first_page = fetch(first_body)
 
     if not _is_paginated_response(first_page):
+        _warn_first_page_shape_drift(endpoint)
         return first_page
 
     total = first_page["total"]
@@ -288,6 +300,7 @@ async def collect_paginated_async(
     first_body = {**initial, "from": start_from, "size": first_page_size}
     first_page = await fetch(first_body)
     if not _is_paginated_response(first_page):
+        _warn_first_page_shape_drift(endpoint)
         return first_page
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])

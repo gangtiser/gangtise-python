@@ -227,3 +227,32 @@ async def test_async_institution_search(tmp_path):
         assert body == {"keyword": "招商", "categoryList": ["domesticBroker"], "top": 5}
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["institutionId"] == "i1"
+
+
+@pytest.mark.anyio
+async def test_official_account_search_async(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-reference/officialAccount/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "returnedCount": 1,
+                        "list": [
+                            {
+                                "accountId": "gh_1",
+                                "accountName": "研究所",
+                                "category": None,
+                                "matchScore": 0.5,
+                            }
+                        ],
+                    },
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncReference(client).official_account_search(keyword="研究所")
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["accountId"] == "gh_1"

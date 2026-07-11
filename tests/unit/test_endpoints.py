@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 88
+    assert len(ENDPOINTS) == 92
 
 
 def test_lookup_known_endpoint():
@@ -38,6 +38,7 @@ def test_pagination_registry_matches_ts_source():
         "insight.foreign-opinion.list": 50,
         "insight.independent-opinion.list": 50,
         "insight.official-account.list": 50,
+        "insight.qa.list": 500,
         "ai.security-clue.list": 500,
         "ai.hot-topic": 20,
         "vault.drive.list": 50,
@@ -106,6 +107,53 @@ def test_dataclass_equality():
     assert a == b
 
 
+def test_retry_policy_registry_matches_ts_source():
+    # Translated 1:1 from gangtise-openapi-cli v0.26.0/v0.27.0 endpoints.ts.
+    # These annotations are billing-safety-critical — a drifted entry either
+    # double-bills (missing no-replay) or degrades reliability (spurious one).
+    expected_no_replay = {
+        "insight.summary.download",
+        "insight.foreign-report.download",
+        "ai.knowledge-batch",
+        "ai.one-pager",
+        "ai.investment-logic",
+        "ai.peer-comparison",
+        "ai.earnings-review.get-id",
+        "ai.theme-tracking",
+        "ai.research-outline",
+        "ai.hot-topic",
+        "ai.management-discuss-announcement",
+        "ai.management-discuss-earnings-call",
+        "ai.viewpoint-debate.get-id",
+        "vault.my-conference.download",
+        "alternative.concept-info",
+        "alternative.concept-securities",
+    }
+    expected_no_999999 = {
+        "indicator.search",
+        "indicator.cross-section",
+        "indicator.time-series",
+    }
+    assert {k for k, ep in ENDPOINTS.items() if ep.retry == "no-replay"} == expected_no_replay
+    assert {k for k, ep in ENDPOINTS.items() if ep.retry == "no-999999"} == expected_no_999999
+
+
+def test_timeout_floor_registry_matches_ts_source():
+    # The 7 synchronous AI generation endpoints get a 120s floor (TS v0.24.0).
+    expected = {
+        "ai.one-pager",
+        "ai.investment-logic",
+        "ai.peer-comparison",
+        "ai.theme-tracking",
+        "ai.research-outline",
+        "ai.management-discuss-announcement",
+        "ai.management-discuss-earnings-call",
+    }
+    floors = {k: ep.timeout_ms for k, ep in ENDPOINTS.items() if ep.timeout_ms is not None}
+    assert set(floors) == expected
+    assert all(v == 120_000 for v in floors.values())
+
+
 def test_all_endpoint_keys_match_ts_source():
     expected = {
         "auth.login",
@@ -133,9 +181,13 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.independent-opinion.download",
         "insight.official-account.list",
         "insight.official-account.download",
+        "insight.qa.list",
+        "insight.report-image.list",
+        "insight.report-image.download",
         "reference.securities-search",
         "reference.chiefs-search",
         "reference.institution-search",
+        "reference.official-account-search",
         "reference.constant-category",
         "reference.constant-list",
         "reference.concept-search",

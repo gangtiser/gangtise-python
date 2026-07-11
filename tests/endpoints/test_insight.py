@@ -4,10 +4,12 @@ import datetime as dt
 
 import httpx
 import pandas as pd
+import pytest
 import respx
 
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ValidationError
 from gangtise_openapi.domains.insight import Insight, _to_unix_ms
 
 
@@ -471,3 +473,76 @@ def test_announcement_us_download_sends_file_type(tmp_path, seeded_config):
         assert "announcementId=us1" in sent_url
         assert "fileType=1" in sent_url
     assert path.read_bytes() == b"data"
+
+
+def test_qa_list_body_shape_and_literal_ampersand_path(tmp_path):
+    # The vendor path segment is literally "Q&A-data" — the route only matches if
+    # httpx sends the '&' unencoded, so this doubles as the URL-encoding guard.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/Q&A-data/getList").mock(
+            return_value=_row_response(
+                {"question": "产能?", "answer": "扩产中", "source": "conference"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Insight(client).qa_list(
+                security_code="601012.SH",
+                source="conference",
+                question_category=["productAndBusiness", "capacityAndProjects"],
+                answer_important=1,
+                start_time="2026-01-01",
+            )
+        assert route.calls.last.request.url.path == "/application/open-insight/Q&A-data/getList"
+        body = route.calls.last.request.read().replace(b" ", b"")
+        # Request keys are BARE (source/questionCategory/answerImportant), not *List.
+        assert b'"securityCode":"601012.SH"' in body
+        assert b'"source":["conference"]' in body
+        assert b'"questionCategory":["productAndBusiness","capacityAndProjects"]' in body
+        assert b'"answerImportant":[1]' in body
+        assert b'"startTime":"2026-01-01"' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["question"] == "产能?"
+
+
+def test_report_image_list_body_shape(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/report-image/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    # Flat array, no total — this endpoint does not paginate.
+                    "data": [{"chunkId": "c1", "title": "AI 渗透率", "page": 3}],
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Insight(client).report_image_list(keyword="AI", top=20, source_id="r9")
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"keyword":"AI"' in body
+        assert b'"top":20' in body
+        assert b'"sourceId":"r9"' in body
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["chunkId"] == "c1"
+
+
+def test_report_image_list_rejects_top_over_20(tmp_path):
+    # Server silently truncates over-limit top values (TS v0.25.0 probe) — the
+    # SDK must reject locally before any request is issued.
+    with GangtiseClient(_config=_cfg(tmp_path)) as client, pytest.raises(ValidationError):
+        Insight(client).report_image_list(keyword="AI", top=21)
+
+
+def test_report_image_download_writes_file(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/report-image/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"}
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            path = Insight(client).report_image_download(chunk_id="c1", output=tmp_path / "img.jpg")
+        assert "chunkId=c1" in str(route.calls.last.request.url)
+    assert path == tmp_path / "img.jpg"
+    assert path.read_bytes() == b"\xff\xd8jpeg"

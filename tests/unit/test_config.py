@@ -78,3 +78,15 @@ def test_config_equality():
     a = Config(base_url="x", access_key="ak", secret_key="sk")
     b = Config(base_url="x", access_key="ak", secret_key="sk")
     assert a == b
+
+
+def test_page_concurrency_defensive_parse(monkeypatch):
+    # TS v0.27.0 parity: negative/zero/garbage falls back to the default (a
+    # negative value used to silently degrade to a single serial worker), and
+    # absurd values are capped so the fan-out can't 429-storm the server.
+    from gangtise_openapi._config import MAX_PAGE_CONCURRENCY, load_config
+
+    for raw, expected in [("-3", 5), ("0", 5), ("abc", 5), ("", 5), ("8", 8), ("999", 32)]:
+        monkeypatch.setenv("GANGTISE_PAGE_CONCURRENCY", raw)
+        assert load_config().page_concurrency == expected, raw
+    assert MAX_PAGE_CONCURRENCY == 32

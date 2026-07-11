@@ -1,6 +1,6 @@
 # API Parameter Reference
 
-本文档按当前 Python SDK wrapper 自动整理，覆盖 89 个公开 SDK 方法（对应 86 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
+本文档按当前 Python SDK wrapper 自动整理，覆盖 93 个公开 SDK 方法（对应 90 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
 
 运行示例前请配置：
 
@@ -22,6 +22,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `reference` | `securities_search` | [reference_securities_search.py](sync/reference_securities_search.py) | [reference_securities_search.py](async/reference_securities_search.py) |
 | `reference` | `chiefs_search` | [reference_chiefs_search.py](sync/reference_chiefs_search.py) | [reference_chiefs_search.py](async/reference_chiefs_search.py) |
 | `reference` | `institution_search` | [reference_institution_search.py](sync/reference_institution_search.py) | [reference_institution_search.py](async/reference_institution_search.py) |
+| `reference` | `official_account_search` | [reference_official_account_search.py](sync/reference_official_account_search.py) | [reference_official_account_search.py](async/reference_official_account_search.py) |
 | `reference` | `constant_category` | [reference_constant_category.py](sync/reference_constant_category.py) | [reference_constant_category.py](async/reference_constant_category.py) |
 | `reference` | `constant_list` | [reference_constant_list.py](sync/reference_constant_list.py) | [reference_constant_list.py](async/reference_constant_list.py) |
 | `reference` | `concept_search` | [reference_concept_search.py](sync/reference_concept_search.py) | [reference_concept_search.py](async/reference_concept_search.py) |
@@ -56,6 +57,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `insight` | `announcement_us_download` | [insight_announcement_us_download.py](sync/insight_announcement_us_download.py) | [insight_announcement_us_download.py](async/insight_announcement_us_download.py) |
 | `insight` | `independent_opinion_download` | [insight_independent_opinion_download.py](sync/insight_independent_opinion_download.py) | [insight_independent_opinion_download.py](async/insight_independent_opinion_download.py) |
 | `insight` | `official_account_download` | [insight_official_account_download.py](sync/insight_official_account_download.py) | [insight_official_account_download.py](async/insight_official_account_download.py) |
+| `insight` | `qa_list` | [insight_qa_list.py](sync/insight_qa_list.py) | [insight_qa_list.py](async/insight_qa_list.py) |
+| `insight` | `report_image_list` | [insight_report_image_list.py](sync/insight_report_image_list.py) | [insight_report_image_list.py](async/insight_report_image_list.py) |
+| `insight` | `report_image_download` | [insight_report_image_download.py](sync/insight_report_image_download.py) | [insight_report_image_download.py](async/insight_report_image_download.py) |
 | `fundamental` | `income_statement` | [fundamental_income_statement.py](sync/fundamental_income_statement.py) | [fundamental_income_statement.py](async/fundamental_income_statement.py) |
 | `fundamental` | `income_statement_quarterly` | [fundamental_income_statement_quarterly.py](sync/fundamental_income_statement_quarterly.py) | [fundamental_income_statement_quarterly.py](async/fundamental_income_statement_quarterly.py) |
 | `fundamental` | `balance_sheet` | [fundamental_balance_sheet.py](sync/fundamental_balance_sheet.py) | [fundamental_balance_sheet.py](async/fundamental_balance_sheet.py) |
@@ -196,6 +200,20 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `keyword` | `str` | 是 | - | `"招商"` | 搜索关键词，机构名 / 简称。 |
 | `category` | `Any` | 否 | `None` | `["domesticBroker", "opinionInstitution"]` | 机构类型，支持单值或列表，省略=全部；枚举：`domesticBroker` / `foreignInstitution` / `leadInstitution` / `opinionInstitution` / `foreignOpinionInstitution`。 |
 | `top` | `int` | 否 | `10` | `5` | 最大返回数，默认 10，上限 10。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.official_account_search`
+
+- Endpoint: `reference.official-account-search` `POST /application/open-reference/officialAccount/search` - Search official account (WeChat public account) IDs by name / institution / category
+- Sync sample: `sample/sync/reference_official_account_search.py`
+- Async sample: `sample/async/reference_official_account_search.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"中信证券"` | 公众号名称 / 所属机构 / 关键字。 |
+| `category` | `Any` | 否 | `None` | `["broker", "media"]` | 分类，支持单值或列表；枚举：`listedCompany` / `broker` / `government` / `media`。部分公众号不属四类（category 为 null），传 category 会漏掉它们，要全量就别传。 |
+| `top` | `int` | 否 | `10` | `5` | 最大返回数，默认 10，上限 10；结果按 matchScore 降序。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `reference.constant_category`
@@ -815,6 +833,54 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `article_id` | `str` | 是 | - | `"<articleId>"` | 文章 ID，通常来自 official_account_list 返回的 articleId 列。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=txt（默认） 2=HTML。 |
 | `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.txt")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+
+
+### `insight.qa_list`
+
+- Endpoint: `insight.qa.list` `POST /application/open-insight/Q&A-data/getList` - List investor Q&A (conference/interactive/survey) for a security
+- Sync sample: `sample/sync/insight_qa_list.py`
+- Async sample: `sample/async/insight_qa_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `security_code` | `str` | 是 | - | `"601012.SH"` | 证券代码，按单只证券提取投资者问答。 |
+| `from_` | `int` | 否 | `0` | `0` | 起始偏移。 |
+| `size` | `int | None` | 否 | `None` | `20` | 返回条数；省略=拉全量（自动翻页，单页上限 500）。 |
+| `start_time` | `str | None` | 否 | `None` | `"2026-01-01"` | 开始时间，`yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm:ss`（字符串直传）。 |
+| `end_time` | `str | None` | 否 | `None` | `"2026-07-01"` | 结束时间，格式同上。 |
+| `source` | `Any` | 否 | `None` | `["conference", "interactive"]` | 问题来源，支持单值或列表；枚举：`conference` 电话会议 / `interactive` 互动平台 / `survey` 调研纪要。 |
+| `question_category` | `Any` | 否 | `None` | `["productAndBusiness"]` | 问题类型（11 类），支持单值或列表；拼错服务端报 100003：`productAndBusiness` / `capacityAndProjects` / `ordersAndCustomers` / `financialData` / `materialEvents` / `capitalOperations` / `shareholdersAndDividends` / `corporateGovernance` / `marketAndValuation` / `macroAndIndustry` / `risksAndOthers`。 |
+| `answer_important` | `Any` | 否 | `None` | `1` | 答案是否涉及重要信息：`1`=是 `0`=否；可多选，省略=不筛。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `insight.report_image_list`
+
+- Endpoint: `insight.report-image.list` `POST /application/open-insight/report-image/getList` - Search research report images by keyword (returns chunkId + metadata)
+- Sync sample: `sample/sync/insight_report_image_list.py`
+- Async sample: `sample/async/insight_report_image_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any] | list[Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"AI"` | 搜索关键词，如 `AI`、`新能源汽车`。 |
+| `top` | `int` | 否 | `10` | `20` | 最大返回数，默认 10，上限 20（超限本地报错；服务端会静默截断）。 |
+| `source_id` | `str | None` | 否 | `None` | `"<研报ID>"` | 限定到某篇研报（可从研报列表或知识库取）。 |
+| `start_time` | `str | None` | 否 | `None` | `"2026-01-01"` | 限定图片所属研报发布时间，`yyyy-MM-dd HH:mm:ss`（`yyyy-MM-dd` 自动补全）。 |
+| `end_time` | `str | None` | 否 | `None` | `"2026-07-01 23:59:59"` | 结束时间，格式同上。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `insight.report_image_download`
+
+- Endpoint: `insight.report-image.download` `GET /application/open-insight/report-image/download/file` - Download a research report image by chunkId
+- Sync sample: `sample/sync/insight_report_image_download.py`
+- Async sample: `sample/async/insight_report_image_download.py`
+- Return annotation: `Path`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `chunk_id` | `str` | 是 | - | `"<chunkId>"` | 图片唯一标识，取自 report_image_list 返回的 chunkId 列。 |
+| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/img.jpg")` | 下载保存路径；None 时按服务端文件名或 `report-image-<chunkId>` 自动命名。 |
 
 
 ## Fundamental data (`gangtise.fundamental`)

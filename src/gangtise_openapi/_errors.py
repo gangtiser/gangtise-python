@@ -11,6 +11,7 @@ ERROR_HINTS: dict[str, str] = {
     "999995": "当前账号积分不足。",
     "900002": "请求缺少 uid。",
     "900001": "请求参数为空或缺少必填项。",
+    "100003": "参数值非法——服务端不会指明是哪个参数，多为枚举参数拼写或取值超范围（如 source / question_category / answer_important），对照方法 docstring 列出的合法值检查。",
     "0000001008": "Token 已失效（多为他处登录挤掉本会话）；有 AK/SK 时会自动重新登录重试一次，否则请重新登录。",
     "8000014": "GANGTISE_ACCESS_KEY 错误。",
     "8000015": "GANGTISE_SECRET_KEY 错误。",
@@ -25,6 +26,13 @@ ERROR_HINTS: dict[str, str] = {
     "433007": "数据源不匹配，请检查 resourceType 与 sourceId 组合。",
     "10011401": "白名单未开通，请联系管理员。",
 }
+
+# Context-specific override for the EDE indicator endpoints, where 999999 means
+# "no data for this query", not the generic system error above.
+EDE_NO_DATA_HINT = (
+    "EDE 的 999999 多为查询无数据（节假日 / 未来日期 / 未覆盖标的）"
+    "——先检查查询条件，确认应有数据再重试。"
+)
 
 
 class GangtiseError(Exception):
@@ -52,11 +60,15 @@ class ApiError(GangtiseError):
         code: str | None = None,
         status_code: int | None = None,
         details: Any = None,
+        retry_after_ms: float | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
         self.details = details
+        # Server-specified Retry-After (ms) so the transport backoff can honor it
+        # instead of the exponential schedule.
+        self.retry_after_ms = retry_after_ms
         self.hint: str | None = ERROR_HINTS.get(code) if code else None
 
     def __str__(self) -> str:

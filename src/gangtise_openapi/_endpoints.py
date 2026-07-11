@@ -6,6 +6,16 @@ from typing import Literal
 HttpMethod = Literal["GET", "POST"]
 EndpointKind = Literal["json", "download"]
 
+# "no-replay" (per-call billed endpoints — billing probed 2026-07-11: charged per
+# call with NO cache-hit exemption, so a replay double-bills): never resend a
+# request the server may have executed. Only connect-phase errors (request
+# provably never sent), 429 (rejected before processing) and the client-level
+# token self-heal retry; 5xx / response timeouts / 999999 fail fast.
+# "no-999999" (EDE indicator endpoints): the server answers a no-data query with
+# HTTP 500 + code 999999 (probed 2026-07-11) — retrying that is pure waste;
+# everything else follows the default policy.
+RetryPolicy = Literal["default", "no-replay", "no-999999"]
+
 
 @dataclass(frozen=True)
 class Pagination:
@@ -20,6 +30,12 @@ class EndpointDef:
     kind: EndpointKind
     description: str
     pagination: Pagination | None = None
+    retry: RetryPolicy = "default"
+    # Per-endpoint timeout floor in ms. Synchronous AI generation blocks well past
+    # the 30s default; without a floor it times out — and a timed-out generation
+    # must not be replayed (see "no-replay"). The transport lifts the request
+    # timeout to this value, never lowering a higher user-configured timeout.
+    timeout_ms: int | None = None
 
 
 def _ep(
@@ -30,6 +46,8 @@ def _ep(
     *,
     kind: EndpointKind = "json",
     paginated: int | None = None,
+    retry: RetryPolicy = "default",
+    timeout_ms: int | None = None,
 ) -> EndpointDef:
     return EndpointDef(
         key=key,
@@ -38,6 +56,8 @@ def _ep(
         kind=kind,
         description=description,
         pagination=Pagination(max_page_size=paginated) if paginated else None,
+        retry=retry,
+        timeout_ms=timeout_ms,
     )
 
 
@@ -83,6 +103,8 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/summary/v2/download/file",
         "Download summary file",
         kind="download",
+        # 50/篇 — same price tier as the AI Agent calls; billing probed non-idempotent.
+        retry="no-replay",
     ),
     "insight.roadshow.list": _ep(
         "insight.roadshow.list",
@@ -139,6 +161,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/foreign-report/download/file",
         "Download foreign report",
         kind="download",
+        retry="no-replay",
     ),
     "insight.announcement.list": _ep(
         "insight.announcement.list",
@@ -217,6 +240,27 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download WeChat official account article (txt/HTML)",
         kind="download",
     ),
+    "insight.qa.list": _ep(
+        "insight.qa.list",
+        "POST",
+        # The literal '&' is the vendor's path segment (Q&A-data), not a query separator.
+        "/application/open-insight/Q&A-data/getList",
+        "List investor Q&A (conference/interactive/survey) for a security",
+        paginated=500,
+    ),
+    "insight.report-image.list": _ep(
+        "insight.report-image.list",
+        "POST",
+        "/application/open-insight/report-image/getList",
+        "Search research report images by keyword (returns chunkId + metadata)",
+    ),
+    "insight.report-image.download": _ep(
+        "insight.report-image.download",
+        "GET",
+        "/application/open-insight/report-image/download/file",
+        "Download a research report image by chunkId",
+        kind="download",
+    ),
     # ─── reference ───
     "reference.securities-search": _ep(
         "reference.securities-search",
@@ -235,6 +279,12 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-reference/institutions/search",
         "Search institution IDs by keyword (domestic broker / foreign / lead / opinion)",
+    ),
+    "reference.official-account-search": _ep(
+        "reference.official-account-search",
+        "POST",
+        "/application/open-reference/officialAccount/search",
+        "Search official account (WeChat public account) IDs by name / institution / category",
     ),
     "reference.constant-category": _ep(
         "reference.constant-category",
@@ -412,6 +462,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-data/ai/search/knowledge/batch",
         "Batch knowledge search",
+        retry="no-replay",
     ),
     "ai.knowledge-resource.download": _ep(
         "ai.knowledge-resource.download",
@@ -432,24 +483,31 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-ai/agent/one-pager",
         "Generate one pager",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.investment-logic": _ep(
         "ai.investment-logic",
         "POST",
         "/application/open-ai/agent/investment-logic",
         "Generate investment logic",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.peer-comparison": _ep(
         "ai.peer-comparison",
         "POST",
         "/application/open-ai/agent/peer-comparison",
         "Generate peer comparison",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.earnings-review.get-id": _ep(
         "ai.earnings-review.get-id",
         "POST",
         "/application/open-ai/agent/earnings-review-getid",
         "Get earnings review ID",
+        retry="no-replay",
     ),
     "ai.earnings-review.get-content": _ep(
         "ai.earnings-review.get-content",
@@ -462,12 +520,16 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-ai/agent/theme-tracking",
         "Get theme tracking daily report",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.research-outline": _ep(
         "ai.research-outline",
         "POST",
         "/application/open-ai/agent/research-outline",
         "Get company research outline",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.hot-topic": _ep(
         "ai.hot-topic",
@@ -475,24 +537,30 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-ai/hot-topic/getList",
         "List hot topic reports",
         paginated=20,
+        retry="no-replay",
     ),
     "ai.management-discuss-announcement": _ep(
         "ai.management-discuss-announcement",
         "POST",
         "/application/open-ai/management-discuss/from-announcement",
         "Management discussion from financial reports (half-year/annual)",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.management-discuss-earnings-call": _ep(
         "ai.management-discuss-earnings-call",
         "POST",
         "/application/open-ai/management-discuss/from-earningsCall",
         "Management discussion from earnings calls",
+        retry="no-replay",
+        timeout_ms=120_000,
     ),
     "ai.viewpoint-debate.get-id": _ep(
         "ai.viewpoint-debate.get-id",
         "POST",
         "/application/open-ai/agent/viewpoint-debate-getid",
         "Get viewpoint debate ID",
+        retry="no-replay",
     ),
     "ai.viewpoint-debate.get-content": _ep(
         "ai.viewpoint-debate.get-content",
@@ -542,6 +610,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-vault/my-conference/download/file",
         "Download my conference resource",
         kind="download",
+        retry="no-replay",
     ),
     "vault.wechat-message.list": _ep(
         "vault.wechat-message.list",
@@ -588,12 +657,14 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-alternative/concept/info",
         "Query latest concept (theme index) profile by conceptId",
+        retry="no-replay",
     ),
     "alternative.concept-securities": _ep(
         "alternative.concept-securities",
         "POST",
         "/application/open-alternative/concept/securities",
         "Query concept (theme index) constituent securities, grouped",
+        retry="no-replay",
     ),
     # ─── indicator (EDE: security-level data indicators) ───
     "indicator.search": _ep(
@@ -601,18 +672,21 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-indicator/EDE/search",
         "Search data indicators by keyword (returns indicatorCode + params)",
+        retry="no-999999",
     ),
     "indicator.cross-section": _ep(
         "indicator.cross-section",
         "POST",
         "/application/open-indicator/EDE/cross-section",
         "Get cross-section data (multi-indicator x multi-security, single date)",
+        retry="no-999999",
     ),
     "indicator.time-series": _ep(
         "indicator.time-series",
         "POST",
         "/application/open-indicator/EDE/time-series",
         "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
+        retry="no-999999",
     ),
 }
 

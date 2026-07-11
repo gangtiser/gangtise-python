@@ -83,3 +83,27 @@ def test_duplicate_fields_produce_single_deduped_column():
     df = _result_to_dataframe({"fieldList": ["a", "a"], "list": [[1, 2], [3, 4]]})
     assert list(df.columns) == ["a"]
     assert df["a"].tolist() == [2, 4]  # dict last-wins semantics preserved
+
+
+def test_validate_top_accepts_range_and_rejects_out_of_range():
+    from gangtise_openapi._errors import ValidationError
+    from gangtise_openapi.domains._common import _validate_top
+
+    assert _validate_top(1, name="top", max_value=10) == 1
+    assert _validate_top(10, name="top", max_value=10) == 10
+    for bad in (0, 11, -1, True, "10"):
+        with pytest.raises(ValidationError):
+            _validate_top(bad, name="top", max_value=10)  # type: ignore[arg-type]
+
+
+def test_validate_choices_passes_whitelist_and_rejects_unknown():
+    from gangtise_openapi._errors import ValidationError
+    from gangtise_openapi.domains._common import _validate_choices
+
+    assert _validate_choices(None, name="category", allowed=("a", "b")) is None
+    assert _validate_choices("a", name="category", allowed=("a", "b")) == ["a"]
+    assert _validate_choices(["a", "b"], name="category", allowed=("a", "b")) == ["a", "b"]
+    with pytest.raises(ValidationError):
+        _validate_choices("c", name="category", allowed=("a", "b"))
+    with pytest.raises(ValidationError):
+        _validate_choices(["a", "c"], name="category", allowed=("a", "b"))

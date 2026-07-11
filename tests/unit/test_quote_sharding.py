@@ -151,6 +151,11 @@ def test_drop_weekend_shards_never_touches_multi_day_windows():
     assert drop_weekend_shards(shards) == shards
 
 
+def _payload(window: tuple[dt.date, dt.date]) -> dict:
+    s, _ = window
+    return {"fieldList": ["tradeDate"], "list": [[s.isoformat()]]}
+
+
 def test_fetch_shards_calls_each_shard_in_order():
     shards = [
         (dt.date(2026, 1, 1), dt.date(2026, 1, 1)),
@@ -159,15 +164,14 @@ def test_fetch_shards_calls_each_shard_in_order():
     ]
     called: list[tuple[dt.date, dt.date]] = []
 
-    def fetch(window: tuple[dt.date, dt.date]) -> str:
+    def fetch(window: tuple[dt.date, dt.date]) -> dict:
         called.append(window)
-        s, _ = window
-        return s.isoformat()
+        return _payload(window)
 
     results, failed = fetch_shards(shards, fetch=fetch, concurrency=2)
 
     # Order-preservation contract: pool.map returns results in input order
-    assert results == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert [r["list"][0][0] for r in results] == ["2026-01-01", "2026-01-02", "2026-01-03"]
     assert failed == []
     # Each shard invoked exactly once
     assert sorted(called) == sorted(shards)
@@ -181,17 +185,46 @@ _THREE_SHARDS = [
 ]
 
 
-def test_fetch_shards_tolerates_partial_failure():
+def test_fetch_shards_aborts_remaining_after_hard_error():
+    # TS v0.27.0 parity: the first hard error stops dispatching the remaining
+    # shards (they are recorded as failed) instead of burning quota into the
+    # same failure. concurrency=1 makes the ordering deterministic: Mon
+    # succeeds, Tue fails hard, Wed is skipped without a fetch.
+    called: list[dt.date] = []
+
+    def fetch(window: tuple[dt.date, dt.date]):
+        s, _ = window
+        called.append(s)
+        if s == dt.date(2026, 1, 6):
+            raise ApiError("shard boom", code="100001")
+        return _payload(window)
+
+    results, failed = fetch_shards(_THREE_SHARDS, fetch=fetch, concurrency=1)
+
+    assert results[0]["list"] == [["2026-01-05"]]
+    assert results[1] is None and results[2] is None
+    assert failed == [
+        (dt.date(2026, 1, 6), dt.date(2026, 1, 6)),
+        (dt.date(2026, 1, 7), dt.date(2026, 1, 7)),
+    ]
+    # Wednesday was never fetched.
+    assert called == [dt.date(2026, 1, 5), dt.date(2026, 1, 6)]
+
+
+def test_fetch_shards_shape_broken_shard_fails_without_abort():
+    # A 2xx shard without a list array is recorded as failed, but does NOT
+    # abort the fan-out: one malformed shard is not systemic.
     def fetch(window: tuple[dt.date, dt.date]):
         s, _ = window
         if s == dt.date(2026, 1, 6):
-            raise ApiError("shard boom", code="100001")
-        return s.isoformat()
+            return {"unexpected": "shape"}
+        return _payload(window)
 
-    results, failed = fetch_shards(_THREE_SHARDS, fetch=fetch, concurrency=2)
+    results, failed = fetch_shards(_THREE_SHARDS, fetch=fetch, concurrency=1)
 
-    # Failing shard yields a None sentinel; survivors keep their slot.
-    assert results == ["2026-01-05", None, "2026-01-07"]
+    assert results[0]["list"] == [["2026-01-05"]]
+    assert results[1] is None
+    assert results[2]["list"] == [["2026-01-07"]]
     assert failed == [(dt.date(2026, 1, 6), dt.date(2026, 1, 6))]
 
 
@@ -206,17 +239,27 @@ def test_fetch_shards_all_failed_raises_first_error():
 
 
 @pytest.mark.anyio
-async def test_fetch_shards_async_tolerates_partial_failure():
+async def test_fetch_shards_async_aborts_remaining_after_hard_error():
+    # Async mirror of the abort contract: Mon succeeds, Tue fails hard, Wed is
+    # skipped (recorded as failed) without a fetch. concurrency=1 for determinism.
+    called: list[dt.date] = []
+
     async def fetch(window: tuple[dt.date, dt.date]):
         s, _ = window
+        called.append(s)
         if s == dt.date(2026, 1, 6):
             raise ApiError("shard boom", code="100001")
-        return s.isoformat()
+        return _payload(window)
 
-    results, failed = await fetch_shards_async(_THREE_SHARDS, fetch=fetch, concurrency=2)
+    results, failed = await fetch_shards_async(_THREE_SHARDS, fetch=fetch, concurrency=1)
 
-    assert results == ["2026-01-05", None, "2026-01-07"]
-    assert failed == [(dt.date(2026, 1, 6), dt.date(2026, 1, 6))]
+    assert results[0]["list"] == [["2026-01-05"]]
+    assert results[1] is None and results[2] is None
+    assert failed == [
+        (dt.date(2026, 1, 6), dt.date(2026, 1, 6)),
+        (dt.date(2026, 1, 7), dt.date(2026, 1, 7)),
+    ]
+    assert called == [dt.date(2026, 1, 5), dt.date(2026, 1, 6)]
 
 
 @pytest.mark.anyio

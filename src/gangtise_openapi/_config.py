@@ -24,14 +24,21 @@ class Config:
     verbose: bool = False
 
 
-def _positive_int(value: str | None, default: int) -> int:
+# Fan-out cap for GANGTISE_PAGE_CONCURRENCY: an absurd value would fan out one
+# worker per page/shard at once and can 429-storm the server (TS v0.27.0 parity).
+MAX_PAGE_CONCURRENCY = 32
+
+
+def _positive_int(value: str | None, default: int, maximum: int | None = None) -> int:
     if not value:
         return default
     try:
         parsed = int(value)
     except ValueError:
         return default
-    return parsed if parsed > 0 else default
+    if parsed <= 0:
+        return default
+    return min(parsed, maximum) if maximum is not None else parsed
 
 
 def _truthy(value: str | None) -> bool:
@@ -50,7 +57,9 @@ def load_config() -> Config:
         title_cache_path=Path(title_cache_env) if title_cache_env else DEFAULT_TITLE_CACHE_PATH,
         timeout_ms=_positive_int(os.environ.get("GANGTISE_TIMEOUT_MS"), DEFAULT_TIMEOUT_MS),
         page_concurrency=_positive_int(
-            os.environ.get("GANGTISE_PAGE_CONCURRENCY"), DEFAULT_PAGE_CONCURRENCY
+            os.environ.get("GANGTISE_PAGE_CONCURRENCY"),
+            DEFAULT_PAGE_CONCURRENCY,
+            maximum=MAX_PAGE_CONCURRENCY,
         ),
         verbose=_truthy(os.environ.get("GANGTISE_VERBOSE")),
     )

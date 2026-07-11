@@ -18,6 +18,7 @@ from gangtise_openapi.domains._common import (
     _extract_rows,
     _result_to_dataframe,
     _strip_none,
+    _validate_top,
 )
 
 
@@ -725,6 +726,85 @@ class Insight:
         )
         return to_dataframe(rows, schema=None)
 
+    def qa_list(
+        self,
+        *,
+        security_code: str,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        source: FilterValue | None = None,
+        question_category: FilterValue | None = None,
+        answer_important: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询投资者问答 QA（insight.qa.list）。
+
+        按单只证券提取互动平台/电话会议/调研纪要中的提问与回答。
+        source 问题来源可多选：conference=电话会议 interactive=互动平台
+        survey=调研纪要。question_category 问题类型可多选（11 类）：
+        productAndBusiness / capacityAndProjects / ordersAndCustomers /
+        financialData / materialEvents / capitalOperations /
+        shareholdersAndDividends / corporateGovernance / marketAndValuation /
+        macroAndIndustry / risksAndOthers（枚举拼错服务端报 100003）。
+        answer_important 答案是否涉及重要信息：1=是 0=否（可多选，省略=不筛）。
+        start_time/end_time 格式 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss（字符串直传）。
+        行字段：source / publishTime / question / answer / member（回答方身份）/
+        securityCode / questionCategory / answerImportant。0.1 积分/条。
+        """
+        # TS body shape (cli.ts): request keys are BARE (source / questionCategory /
+        # answerImportant), not the *List convention.
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "securityCode": security_code,
+                "startTime": start_time,
+                "endTime": end_time,
+                "source": _as_list(source),
+                "questionCategory": _as_list(question_category),
+                "answerImportant": _as_list(answer_important),
+            }
+        )
+        result = self._client._call("insight.qa.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    def report_image_list(
+        self,
+        *,
+        keyword: str,
+        top: int = 10,
+        source_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索研报图片（insight.report-image.list）。
+
+        返回 chunkId + 元数据，chunkId 供 report_image_download() 下载原图。
+        top 默认 10、上限 20（超限服务端会静默截断，本地先报错）；source_id
+        限定到某篇研报（可从研报列表或知识库取）。start_time/end_time 限定
+        图片所属研报的发布时间。行字段：chunkId / title / sourceId / broker /
+        category / typeList / industry / publishTime / page / totalPages /
+        imageCaption / imageFootnote / pageContent。免费。
+        """
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "top": _validate_top(top, name="top", max_value=20),
+                "sourceId": source_id,
+                "startTime": start_time,
+                "endTime": end_time,
+            }
+        )
+        result = self._client._call("insight.report-image.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
     # ---- Download endpoints ----
 
     def summary_download(
@@ -895,6 +975,26 @@ class Insight:
             output=output,
             fallback_name=f"official-account-{article_id}",
             title_lookup=("insight.official-account.list", "articleId", article_id),
+        )
+
+    def report_image_download(
+        self,
+        *,
+        chunk_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载研报图片原图（insight.report-image.download）。
+
+        chunk_id 取自 report_image_list() 返回的 chunkId；直接下载二进制
+        原图（JPEG）。省略 output 时优先用服务端返回的文件名，无则按
+        report-image-<chunkId> 命名。0.1 积分/张。
+        """
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.report-image.download",
+            query={"chunkId": chunk_id},
+            output=output,
+            fallback_name=f"report-image-{chunk_id}",
         )
 
 
@@ -1560,6 +1660,85 @@ class AsyncInsight:
         )
         return to_dataframe(rows, schema=None)
 
+    async def qa_list(
+        self,
+        *,
+        security_code: str,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        source: FilterValue | None = None,
+        question_category: FilterValue | None = None,
+        answer_important: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询投资者问答 QA（insight.qa.list）。
+
+        按单只证券提取互动平台/电话会议/调研纪要中的提问与回答。
+        source 问题来源可多选：conference=电话会议 interactive=互动平台
+        survey=调研纪要。question_category 问题类型可多选（11 类）：
+        productAndBusiness / capacityAndProjects / ordersAndCustomers /
+        financialData / materialEvents / capitalOperations /
+        shareholdersAndDividends / corporateGovernance / marketAndValuation /
+        macroAndIndustry / risksAndOthers（枚举拼错服务端报 100003）。
+        answer_important 答案是否涉及重要信息：1=是 0=否（可多选，省略=不筛）。
+        start_time/end_time 格式 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss（字符串直传）。
+        行字段：source / publishTime / question / answer / member（回答方身份）/
+        securityCode / questionCategory / answerImportant。0.1 积分/条。
+        """
+        # TS body shape (cli.ts): request keys are BARE (source / questionCategory /
+        # answerImportant), not the *List convention.
+        body = _strip_none(
+            {
+                "from": from_,
+                "size": size,
+                "securityCode": security_code,
+                "startTime": start_time,
+                "endTime": end_time,
+                "source": _as_list(source),
+                "questionCategory": _as_list(question_category),
+                "answerImportant": _as_list(answer_important),
+            }
+        )
+        result = await self._client._call("insight.qa.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
+    async def report_image_list(
+        self,
+        *,
+        keyword: str,
+        top: int = 10,
+        source_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按关键词搜索研报图片（insight.report-image.list）。
+
+        返回 chunkId + 元数据，chunkId 供 report_image_download() 下载原图。
+        top 默认 10、上限 20（超限服务端会静默截断，本地先报错）；source_id
+        限定到某篇研报（可从研报列表或知识库取）。start_time/end_time 限定
+        图片所属研报的发布时间。行字段：chunkId / title / sourceId / broker /
+        category / typeList / industry / publishTime / page / totalPages /
+        imageCaption / imageFootnote / pageContent。免费。
+        """
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "top": _validate_top(top, name="top", max_value=20),
+                "sourceId": source_id,
+                "startTime": start_time,
+                "endTime": end_time,
+            }
+        )
+        result = await self._client._call("insight.report-image.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return to_dataframe(_extract_rows(result), schema=None)
+
     async def summary_download(
         self,
         *,
@@ -1740,4 +1919,24 @@ class AsyncInsight:
             output=output,
             fallback_name=f"official-account-{article_id}",
             title_lookup=("insight.official-account.list", "articleId", article_id),
+        )
+
+    async def report_image_download(
+        self,
+        *,
+        chunk_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载研报图片原图（insight.report-image.download）。
+
+        chunk_id 取自 report_image_list() 返回的 chunkId；直接下载二进制
+        原图（JPEG）。省略 output 时优先用服务端返回的文件名，无则按
+        report-image-<chunkId> 命名。0.1 积分/张。
+        """
+        return await download_to_path_async(
+            client=self._client,
+            endpoint_key="insight.report-image.download",
+            query={"chunkId": chunk_id},
+            output=output,
+            fallback_name=f"report-image-{chunk_id}",
         )

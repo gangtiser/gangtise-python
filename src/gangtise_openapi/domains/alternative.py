@@ -14,6 +14,7 @@ from gangtise_openapi.domains._common import (
     _as_list,
     _result_to_dataframe,
     _strip_none,
+    _validate_top,
 )
 
 # Stable columns for the flattened concept-securities frame. Used only to shape
@@ -78,7 +79,7 @@ class Alternative:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """按关键词搜索行业指标（EDB）列表（alternative.edb-search）。"""
-        body = {"keyword": keyword, "limit": limit}
+        body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=200)}
         result = self._client._call("alternative.edb-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -165,7 +166,7 @@ class AsyncAlternative:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """按关键词搜索行业指标（EDB）列表（alternative.edb-search）。"""
-        body = {"keyword": keyword, "limit": limit}
+        body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=200)}
         result = await self._client._call("alternative.edb-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]

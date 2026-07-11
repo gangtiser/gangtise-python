@@ -12,6 +12,7 @@ from typing import Any, TypeAlias
 
 import pandas as pd
 
+from gangtise_openapi._errors import ValidationError
 from gangtise_openapi._normalize import normalize_rows, to_dataframe
 
 # A filter argument: one value or a list of values, funneled through ``_as_list``
@@ -99,3 +100,28 @@ def _result_to_dataframe(result: Any) -> pd.DataFrame:
     if fast is not None:
         return fast
     return to_dataframe(_extract_rows(result), schema=None)
+
+
+def _validate_top(value: int, *, name: str, max_value: int) -> int:
+    """Local cap for count params (``top``/``limit``) where the server was probed
+    to silently truncate over-limit values instead of erroring (TS CLI v0.25.0) —
+    without this a ``top=50`` quietly returns fewer rows than asked."""
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= max_value:
+        raise ValidationError(
+            f"{name} must be an integer between 1 and {max_value} (got {value!r})"
+        )
+    return value
+
+
+def _validate_choices(value: Any, *, name: str, allowed: tuple[str, ...]) -> list[Any] | None:
+    """Whitelist for enum-valued filters. Only used where the server was probed NOT
+    to reject bad values — it silently ignores the filter or returns empty instead,
+    so a typo would masquerade as "no results" (TS CLI v0.25.0). Endpoints that
+    answer 100003 keep server-side validation."""
+    values = _as_list(value)
+    if values is None:
+        return None
+    for item in values:
+        if item not in allowed:
+            raise ValidationError(f"invalid {name}: {item!r} is not one of {'/'.join(allowed)}")
+    return values

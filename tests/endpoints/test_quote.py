@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import httpx
 import pandas as pd
@@ -117,14 +118,18 @@ def _partial_failure_responder(request):
     )
 
 
-def test_day_kline_partial_shard_failure_sets_flags(tmp_path):
+def test_day_kline_partial_shard_failure_aborts_and_sets_flags(tmp_path):
+    # TS v0.27.0 parity: the Tuesday hard error aborts the fan-out, so Wednesday
+    # is never fetched and lands in failedShards too. page_concurrency=1 makes
+    # the dispatch order deterministic (Mon -> Tue -> Wed).
+    cfg = replace(_cfg(tmp_path), page_concurrency=1)
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
-        router.post("/application/open-quote/kline/daily").mock(
+        route = router.post("/application/open-quote/kline/daily").mock(
             side_effect=_partial_failure_responder
         )
         with (
-            GangtiseClient(_config=_cfg(tmp_path)) as client,
-            pytest.warns(UserWarning, match="1/3 day-kline shards failed"),
+            GangtiseClient(_config=cfg) as client,
+            pytest.warns(UserWarning, match="2/3 day-kline shards failed"),
         ):
             out = Quote(client).day_kline(
                 security="all",
@@ -132,10 +137,14 @@ def test_day_kline_partial_shard_failure_sets_flags(tmp_path):
                 end_date="2026-01-07",  # Wed
                 raw=True,
             )
-    # TS quoteSharding parity: surviving shards merge, failure is flagged.
+        # Only Mon and Tue were requested; Wed was skipped after the hard error.
+        assert route.call_count == 2
     assert out["partial"] is True
-    assert out["failedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
-    assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
+    assert out["failedShards"] == [
+        {"startDate": "2026-01-06", "endDate": "2026-01-06"},
+        {"startDate": "2026-01-07", "endDate": "2026-01-07"},
+    ]
+    assert sorted(row[1] for row in out["list"]) == ["2026-01-05"]
 
 
 def _malformed_shard_responder(request):
@@ -159,15 +168,16 @@ def _malformed_shard_responder(request):
 
 
 def test_day_kline_malformed_shard_response_sets_partial(tmp_path):
-    # A shard returning 2xx but an unrecognized shape must not silently drop rows:
-    # it's counted and the result flagged partial (symmetry with shard failure).
+    # A shard returning 2xx but an unrecognized shape is recorded in failedShards
+    # with its window (TS v0.27.0) — but unlike a hard error it does NOT abort
+    # the fan-out, so the other shards still merge.
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         router.post("/application/open-quote/kline/daily").mock(
             side_effect=_malformed_shard_responder
         )
         with (
             GangtiseClient(_config=_cfg(tmp_path)) as client,
-            pytest.warns(UserWarning, match="unexpected shape"),
+            pytest.warns(UserWarning, match="1/3 day-kline shards failed"),
         ):
             out = Quote(client).day_kline(
                 security="all",
@@ -176,6 +186,7 @@ def test_day_kline_malformed_shard_response_sets_partial(tmp_path):
                 raw=True,
             )
     assert out["partial"] is True
+    assert out["failedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
     # the two well-formed shards still merged
     assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
 
@@ -697,3 +708,40 @@ def test_day_kline_shard_merge_keeps_first_fieldList(tmp_path):
     assert list(df.columns) == fields
     assert len(df) == 1
     assert df.iloc[0]["close"] == 1.0
+
+
+def test_day_kline_truncated_shard_windows_in_payload(tmp_path):
+    # TS v0.27.0: record WHICH windows maxed out (truncatedShards), not just a
+    # count — a consumer needs the concrete date ranges to re-pull narrower.
+    def responder(request):
+        body = json.loads(request.read())
+        rows = [["000001.SH", body["startDate"], 1.0]]
+        if body["startDate"] == "2026-01-06":
+            rows = rows * body["limit"]  # exactly at the per-shard cap
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "fieldList": ["securityCode", "tradeDate", "close"],
+                    "list": rows,
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.warns(UserWarning, match="see truncatedShards"),
+        ):
+            out = Quote(client).day_kline(
+                security="all",
+                start_date="2026-01-05",  # Mon
+                end_date="2026-01-07",  # Wed
+                raw=True,
+            )
+    assert out["partial"] is True
+    assert out["truncatedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
+    assert "failedShards" not in out

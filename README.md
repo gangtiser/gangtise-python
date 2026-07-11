@@ -1,10 +1,19 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.23.0 功能对齐，覆盖 86 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.27.0 功能对齐，覆盖 90 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.1.15 - 2026-07-11
+- 对齐 CLI v0.24.0–v0.27.0。**计费安全（重要）**：16 个按次计费端点（7 个 AI 同步生成、`earnings_review`/`viewpoint_debate` 的 get-id、`hot_topic`、`knowledge_batch`、`concept_info`/`concept_securities`、`summary`/`foreign_report`/`my_conference` 三个下载）改为 **no-replay 重试策略**——5xx/响应超时/999999 不再自动重放（实测平台按次计费且缓存命中不豁免，同参数重放每次都扣分）；仅连接期错误（请求未发出）、429 限流和 token 自愈仍重试。
+- **EDE 指标三端点对 999999 不再重试**——服务端用 HTTP 500 + 999999 表示「查询无数据」（节假日/未来日期/未覆盖标的），此前每次空查询白烧 3 个请求 + ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」。
+- **7 个 AI 同步生成端点内置 120s 超时下限**（`one_pager`/`investment_logic`/`peer_comparison`/`theme_tracking`/`research_outline`/`management_discuss_*`×2）——生成耗时长不再撞 30s 默认超时；显式设更大 timeout 仍生效（取 max）。
+- **新增接口 ×4**（86→90）：`insight.qa_list` 投资者问答（按证券提取互动平台/电话会议/调研纪要的提问与回答，11 类问题类型过滤，自动翻页单页上限 500，0.1 积分/条）；`insight.report_image_list` / `report_image_download` 研报图表（按关键词搜研报图片返回 chunkId+元数据，list 免费、下载原图 JPEG 0.1 积分/张）；`reference.official_account_search` 公众号 ID 搜索（返回 accountId 喂 `official_account_list`；免费）。
+- 429 尊重 `Retry-After`（秒或 HTTP-date，优先于指数退避，60s 封顶；JSON 与下载路径都生效）。
+- 本地校验（实测服务端对超限值静默截断、对拼错分类静默忽略/返回空）：`top`/`limit` 上限——reference 六个搜索 ≤10、`report_image_list`/`knowledge_batch` ≤20、`edb_search` ≤200、`indicator.search` ≤100；category 白名单——`securities_search`/`institution_search`/`official_account_search`；错误码 100003 补中文提示。
+- 可靠性：AI 异步轮询容忍瞬态错误（5xx/网络抖动只消耗一次尝试并继续等待，不再作废整段等待）；全市场分片硬错后熔断（剩余分片不再派发、计入 `failedShards`，省配额）、shape 破损分片计入 `failedShards`、撞行数上限的分片输出 `truncatedShards` 具体日期窗口（可定向缩窗补拉）；分页端点首页形状漂移发 `UserWarning`（不再完全静默退化单页）；自动命名 100 个重名耗尽时抛 `DownloadError`（不再静默覆盖第一个文件）；签名 URL 下载加整体硬截止（10× 单请求超时，慢滴速传输不再无限续命）；`GANGTISE_PAGE_CONCURRENCY` 防御性解析（非法/非正数回退默认 5、上限 32）；EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加后缀（不再覆盖元数据列）。
 
 ### 0.1.14 - 2026-07-07
 - **域层过滤参数类型化**：`security`/`industry`/`rating` 等过滤参数由 `Any` 收窄为 `str | int | Sequence[str | int]`（`FilterValue` 别名），单值或列表均可——IDE 补全 + mypy 拦误用；int（如 `industry=1`、`fiscal_year=2025`）与 str 都保持有效（与接口一致）。无端点/API 表面变更，仍对齐 CLI v0.23.0、86 接口。
@@ -34,13 +43,6 @@
 - 对齐 CLI v0.21.0：`vault.wechat_chatroom_list` 省略 `size` 改为拉取全部群（接口不返回 total，按页串行翻到末页、单页上限 50；传 `size=N` 仅取前 N 条）；下载文件名额外剥离控制字符/NUL。
 - 安全：token 缓存与 title 缓存改为创建即 `0600`（`os.open(O_EXCL)`）+ 原子 rename，消除“先写后 chmod”的短暂可读窗口。
 - 数据完整性：扇出分页与 K 线分片遇 2xx 畸形响应时标记 `partial` 并告警、不再静默丢行；修复串行分页取满即误报 MAX_PAGES 截断；title 缓存加载丢弃半损坏 entry；pytest 默认 `-m "not live"`，裸跑不再打真实 API。
-
-### 0.1.10 - 2026-06-27
-- 新增证券级数据指标（EDE）域 `gangtise.indicator.*`（同步+异步，对齐 CLI v0.19.0）：`search` 按关键词搜指标码、`cross_section` 取多指标×多证券单日截面、`time_series` 取多指标×单证券（或单指标×多证券）时序；自动把 `values` 矩阵摊平成宽表（每行一证券/一日期，指标名作列）、剥离内层双层信封（内层失败码抛 `ApiError`）；`indicator_param={"qte_close":{"adjustmentType":"2"}}` 设置前复权等单指标参数。
-- 新增美股接口（对齐 CLI v0.20.0）：`insight.announcement_us_list` / `announcement_us_download`（镜像港股公告，`file_type` 1=原文PDF 2=Markdown）；`fundamental.income_statement_us` / `balance_sheet_us` / `cash_flow_us`。
-- 新增 `ai.stock_summary_list`（个股看点，每证券精炼研究摘要；`security` 必填，空值抛 `ValidationError` 防全市场积分误耗）与 `reference.chiefs_search`（按姓名/机构/团队搜首席 ID）。
-- `ai.hot_topic` 的 `with_related_securities`/`with_close_reading` 改为按布尔下发，传 `False` 真正发送 `false`（此前省略字段、服务端走默认）；`announcement_hk_download` 新增 `file_type`（1=原文 2=Markdown）；缺失凭证报错改为指明缺哪个变量并提示 `export` / `gangtise.configure(...)`。
-- 分页改为 fail-soft：扇出分页某页遇不可重试错误（限频/无权限）时保留已取页并发出 `UserWarning`，不再整体抛错；raw 结果带 `partial`/`failedPages`（`raw=True` 可见；默认 DataFrame 路径丢这些键、以 warning 为准），与 K 线分片容错一致（同步+异步）；`ai.knowledge_batch` 传空 `query` 改为抛 `ValidationError`。
 
 ## 安装
 
@@ -98,12 +100,12 @@ uv run python sample/async/quote_day_kline.py
 
 ## 接口
 
-SDK 覆盖 10 个领域下的 86 个上游接口：
+SDK 覆盖 10 个领域下的 90 个上游接口：
 
 - `gangtise.auth.*` — 登录、状态
 - `gangtise.lookup.*` — 本地查表（券商机构、会议机构）
-- `gangtise.reference.*` — 证券搜索（GTS 代码）、机构 ID 搜索、常量分类与常量值（行业/城市/公告分类/区域）、题材 ID 搜索、板块 ID 搜索与成分股
-- `gangtise.insight.*` — 观点、研报、公告、日程
+- `gangtise.reference.*` — 证券搜索（GTS 代码）、机构 ID 搜索、公众号 ID 搜索、常量分类与常量值（行业/城市/公告分类/区域）、题材 ID 搜索、板块 ID 搜索与成分股
+- `gangtise.insight.*` — 观点、研报、研报图表、公告、日程、投资者问答
 - `gangtise.quote.*` — K 线、实时行情、A 股资金流向
 - `gangtise.fundamental.*` — 财务报表、估值、股东、盈利预测
 - `gangtise.ai.*` — AI 生成的洞察（一页通、同业对比、业绩点评等）

@@ -5,7 +5,7 @@ import pytest
 
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef
-from gangtise_openapi._errors import ERROR_HINTS, ApiError
+from gangtise_openapi._errors import EDE_NO_DATA_HINT, ERROR_HINTS, ApiError
 from gangtise_openapi._transport_async import build_async_client, request_json_async
 
 
@@ -108,3 +108,33 @@ async def test_request_json_async_attaches_authorization_header(respx_mock, cfg)
         await request_json_async(http, _endpoint(), body={}, token="tok")
     assert route.calls.last.request.headers["Authorization"] == "Bearer tok"
     assert route.calls.last.request.headers["user-agent"].startswith("gangtise-openapi-python/")
+
+
+def _no_replay_endpoint() -> EndpointDef:
+    return EndpointDef(
+        key="x", method="POST", path="/p", kind="json", description="d", retry="no-replay"
+    )
+
+
+@pytest.mark.anyio
+async def test_request_json_async_no_replay_does_not_retry_500(respx_mock, cfg):
+    route = respx_mock.post("/p").mock(return_value=httpx.Response(500, text="boom"))
+    async with build_async_client(cfg) as http:
+        with pytest.raises(ApiError):
+            await request_json_async(http, _no_replay_endpoint(), body={}, token="tok")
+    assert route.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_request_json_async_no_999999_fails_fast_with_ede_hint(respx_mock, cfg):
+    route = respx_mock.post("/p").mock(
+        return_value=httpx.Response(500, json={"code": "999999", "status": False, "msg": "err"})
+    )
+    endpoint = EndpointDef(
+        key="x", method="POST", path="/p", kind="json", description="d", retry="no-999999"
+    )
+    async with build_async_client(cfg) as http:
+        with pytest.raises(ApiError) as exc:
+            await request_json_async(http, endpoint, body={}, token="tok")
+    assert route.call_count == 1
+    assert exc.value.hint == EDE_NO_DATA_HINT

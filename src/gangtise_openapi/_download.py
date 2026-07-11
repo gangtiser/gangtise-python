@@ -17,9 +17,10 @@ from gangtise_openapi._client import AUTH_RETRY_CODES, AsyncGangtiseClient, Gang
 from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import ApiError, DownloadError
 from gangtise_openapi._transport import (
-    _backoff_delay,
+    _retry_delay,
     is_envelope,
     is_retryable_error,
+    parse_retry_after_ms,
     unwrap_envelope,
 )
 
@@ -107,19 +108,28 @@ def _unique_path(target: Path) -> Path:
         candidate = target.with_name(f"{stem}-{i}{ext}")
         if not candidate.exists():
             return candidate
-    return target
+    # Returning `target` here would silently overwrite the very first file
+    # once the suffixes run out (TS v0.27.0 parity: refuse instead).
+    raise DownloadError(
+        f"Refusing to overwrite: 100 files already share the name {target.name!r} — "
+        "pass output= or clean up the directory"
+    )
 
 
 def _auto_target(name: str) -> Path:
     return _unique_path(Path.cwd() / _truncate_filename(name))
 
 
-def _raise_download_http_error(status_code: int, text: str) -> NoReturn:
+def _raise_download_http_error(
+    status_code: int, text: str, retry_after_ms: float | None = None
+) -> NoReturn:
     """Raise the appropriate error for an HTTP >=400 download response.
 
     If the body is a business envelope, unwrap_envelope raises ApiError with
     the upstream code (and Chinese hint). Otherwise raise a generic ApiError
-    carrying the status code so 429/5xx remain retryable (TS parity).
+    carrying the status code so 429/5xx remain retryable (TS parity). A
+    Retry-After from the response rides along so a rate-limited download
+    honors the server's window instead of default backoff.
     """
     try:
         parsed = json.loads(text)
@@ -128,11 +138,16 @@ def _raise_download_http_error(status_code: int, text: str) -> NoReturn:
     if is_envelope(parsed):
         # Raises ApiError with code/hint on business failure; an ok=True
         # envelope on a 4xx (unexpected) falls through to the generic error.
-        unwrap_envelope(parsed, status_code=status_code)
+        try:
+            unwrap_envelope(parsed, status_code=status_code)
+        except ApiError as error:
+            error.retry_after_ms = retry_after_ms
+            raise
     raise ApiError(
         f"download failed: HTTP {status_code} {text[:200]}",
         status_code=status_code,
         details=parsed if parsed is not None else text[:500],
+        retry_after_ms=retry_after_ms,
     )
 
 
@@ -189,14 +204,16 @@ def download_to_path(
                     client._env_token_rejected = True
                 token = client._get_token(force_refresh=True, stale_token=token)
                 continue
-            if attempt >= _MAX_RETRIES or not is_retryable_error(error):
+            # Download endpoints carry per-篇 billing too (summary / foreign-report /
+            # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
+            if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 raise
-            time.sleep(_backoff_delay(attempt))
+            time.sleep(_retry_delay(error, attempt))
             attempt += 1
         except httpx.HTTPError as error:
-            if attempt >= _MAX_RETRIES or not is_retryable_error(error):
+            if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 raise DownloadError(f"download failed: {error}") from error
-            time.sleep(_backoff_delay(attempt))
+            time.sleep(_retry_delay(error, attempt))
             attempt += 1
 
 
@@ -226,7 +243,11 @@ def _download_once(
     ) as response:
         if response.status_code >= 400:
             response.read()
-            _raise_download_http_error(response.status_code, response.text)
+            _raise_download_http_error(
+                response.status_code,
+                response.text,
+                parse_retry_after_ms(response.headers.get("retry-after"), time.time()),
+            )
 
         # JSON 200 = envelope error, presigned-URL metadata, or non-file payload.
         content_type_header = response.headers.get("content-type", "")
@@ -276,6 +297,18 @@ def _part_path(target: Path) -> Path:
     return target.with_suffix(target.suffix + f".part-{uuid.uuid4().hex}")
 
 
+def _check_deadline(deadline: float | None) -> None:
+    """Overall transfer deadline for presigned-URL downloads. httpx read timeouts
+    are idle-type — a stream trickling one byte per interval resets them forever;
+    the generous total budget (10x the per-request timeout, TS v0.27.0) bounds the
+    whole transfer without killing large legitimate downloads."""
+    if deadline is not None and time.monotonic() > deadline:
+        raise DownloadError(
+            "download exceeded its overall deadline (10x request timeout); "
+            "the connection is trickling — retry or raise GANGTISE_TIMEOUT_MS"
+        )
+
+
 def _write_response_to_disk(
     *,
     client: GangtiseClient,
@@ -283,6 +316,7 @@ def _write_response_to_disk(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    deadline: float | None = None,
 ) -> Path:
     content_disposition = response.headers.get("content-disposition")
     content_type = response.headers.get("content-type")
@@ -299,6 +333,7 @@ def _write_response_to_disk(
     try:
         with tmp.open("wb") as fh:
             for chunk in response.iter_bytes():
+                _check_deadline(deadline)
                 fh.write(chunk)
         tmp.replace(target)
     except OSError as exc:
@@ -319,6 +354,7 @@ def _download_presigned_url(
     title_lookup: TitleLookup | None,
 ) -> Path:
     http = client._http_client()
+    deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
     try:
         with http.stream("GET", url, follow_redirects=True) as response:
             if response.status_code >= 400:
@@ -331,6 +367,7 @@ def _download_presigned_url(
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
+                deadline=deadline,
             )
     except httpx.HTTPError as error:
         raise DownloadError(f"presigned URL fetch failed: {error} ({url})") from error
@@ -407,14 +444,16 @@ async def download_to_path_async(
                     client._env_token_rejected = True
                 token = await client._get_token(force_refresh=True, stale_token=token)
                 continue
-            if attempt >= _MAX_RETRIES or not is_retryable_error(error):
+            # Download endpoints carry per-篇 billing too (summary / foreign-report /
+            # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
+            if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 raise
-            await anyio.sleep(_backoff_delay(attempt))
+            await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1
         except httpx.HTTPError as error:
-            if attempt >= _MAX_RETRIES or not is_retryable_error(error):
+            if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 raise DownloadError(f"download failed: {error}") from error
-            await anyio.sleep(_backoff_delay(attempt))
+            await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1
 
 
@@ -444,7 +483,11 @@ async def _download_once_async(
     ) as response:
         if response.status_code >= 400:
             await response.aread()
-            _raise_download_http_error(response.status_code, response.text)
+            _raise_download_http_error(
+                response.status_code,
+                response.text,
+                parse_retry_after_ms(response.headers.get("retry-after"), time.time()),
+            )
 
         # JSON 200 = envelope error, presigned-URL metadata, or non-file payload.
         content_type_header = response.headers.get("content-type", "")
@@ -489,6 +532,7 @@ async def _write_response_to_disk_async(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    deadline: float | None = None,
 ) -> Path:
     content_disposition = response.headers.get("content-disposition")
     content_type = response.headers.get("content-type")
@@ -505,6 +549,7 @@ async def _write_response_to_disk_async(
     try:
         async with await anyio.open_file(tmp, "wb") as fh:
             async for chunk in response.aiter_bytes():
+                _check_deadline(deadline)
                 await fh.write(chunk)
         await anyio.to_thread.run_sync(tmp.replace, target)
     except OSError as exc:
@@ -525,6 +570,7 @@ async def _download_presigned_url_async(
     title_lookup: TitleLookup | None,
 ) -> Path:
     http = client._http_client()
+    deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
     try:
         async with http.stream("GET", url, follow_redirects=True) as response:
             if response.status_code >= 400:
@@ -537,6 +583,7 @@ async def _download_presigned_url_async(
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
+                deadline=deadline,
             )
     except httpx.HTTPError as error:
         raise DownloadError(f"presigned URL fetch failed: {error} ({url})") from error

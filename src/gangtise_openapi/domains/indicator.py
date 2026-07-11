@@ -14,6 +14,7 @@ from gangtise_openapi.domains._common import (
     _as_list,
     _result_to_dataframe,
     _strip_none,
+    _validate_top,
 )
 
 # The EDE cross-section / time-series endpoints return a `values` matrix plus
@@ -64,7 +65,10 @@ def _build_headers(names: list[str] | None, codes: list[str] | None, count: int)
     duplicate so a column is never silently overwritten. An empty/missing name
     falls through to the code (Python ``or`` vs TS ``??``) — a blank column header
     is useless, so this minor divergence from the CLI is intentional."""
-    used: set[str] = set()
+    # Pre-seed the metadata column names: an indicator literally named "date" /
+    # "security" / "name" must get a suffixed header, not overwrite the metadata
+    # cell it would collide with when the row dict is built (TS v0.27.0 parity).
+    used: set[str] = {"date", "security", "name"}
     headers: list[str] = []
     for i in range(count):
         base = str(
@@ -174,7 +178,7 @@ class Indicator:
         keyword 传指标词如 "收盘价" "成交量" "营业收入"（不是自然语言问题）;
         limit 默认 50、上限 100。返回 indicatorCode 供 cross_section / time_series 使用。
         """
-        body = {"keyword": keyword, "limit": limit}
+        body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=100)}
         result = self._client._call("indicator.search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -268,7 +272,7 @@ class AsyncIndicator:
         keyword 传指标词如 "收盘价" "成交量" "营业收入"（不是自然语言问题）;
         limit 默认 50、上限 100。返回 indicatorCode 供 cross_section / time_series 使用。
         """
-        body = {"keyword": keyword, "limit": limit}
+        body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=100)}
         result = await self._client._call("indicator.search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]

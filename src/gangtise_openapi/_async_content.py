@@ -7,6 +7,10 @@ from typing import Any
 import anyio
 
 from gangtise_openapi._errors import ApiError
+from gangtise_openapi._logging import get_logger
+from gangtise_openapi._transport import is_transient_error
+
+logger = get_logger()
 
 POLL_MAX_ATTEMPTS = 14
 _INITIAL_DELAY_S = 5.0
@@ -34,6 +38,21 @@ def _classify(error: ApiError) -> str:
     return "other"
 
 
+def _keep_waiting_on_transient(error: BaseException, attempt: int, max_attempts: int) -> None:
+    """AI generation windows are exactly when the server is busiest: one 5xx /
+    network blip (after the transport's own retries) must not void minutes of
+    waiting — the dataId is still valid. Transient errors consume this attempt
+    and polling continues; anything else (no credits, bad params) aborts."""
+    if not is_transient_error(error):
+        raise error
+    logger.warning(
+        "[gangtise] poll attempt %d/%d hit a transient error (%s); continuing to wait",
+        attempt,
+        max_attempts,
+        str(error)[:80],
+    )
+
+
 def poll_content(
     fetch: Fetcher,
     *,
@@ -52,8 +71,12 @@ def poll_content(
                     code=CODE_TERMINAL,
                 ) from error
             if kind == "other":
-                raise
-            last_pending = error
+                _keep_waiting_on_transient(error, attempt, max_attempts)
+            else:
+                last_pending = error
+        except Exception as error:
+            # Network-level failure (not an ApiError) after transport retries.
+            _keep_waiting_on_transient(error, attempt, max_attempts)
         else:
             if isinstance(result, dict) and result.get("content") is not None:
                 return result
@@ -85,8 +108,12 @@ async def poll_content_async(
                     code=CODE_TERMINAL,
                 ) from error
             if kind == "other":
-                raise
-            last_pending = error
+                _keep_waiting_on_transient(error, attempt, max_attempts)
+            else:
+                last_pending = error
+        except Exception as error:
+            # Network-level failure (not an ApiError) after transport retries.
+            _keep_waiting_on_transient(error, attempt, max_attempts)
         else:
             if isinstance(result, dict) and result.get("content") is not None:
                 return result

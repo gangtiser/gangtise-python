@@ -176,3 +176,15 @@ def test_inner_envelope_failure_raises(tmp_path):
             with pytest.raises(ApiError) as excinfo:
                 Indicator(client).cross_section(date="2025-01-02", security="600519.SH")
     assert excinfo.value.code == "500"
+
+
+def test_build_headers_preseeds_metadata_column_names():
+    # TS v0.27.0 parity: an indicator literally named "date"/"security"/"name"
+    # must get a suffixed header, not overwrite the metadata column when the
+    # row dict is built.
+    from gangtise_openapi.domains.indicator import _build_headers
+
+    headers = _build_headers(["date", "收盘价"], ["IND001", "IND002"], 2)
+    assert headers == ["date (IND001)", "收盘价"]
+    # Ordinary names remain untouched.
+    assert _build_headers(["pe", "pb"], None, 2) == ["pe", "pb"]

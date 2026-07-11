@@ -509,7 +509,7 @@ def test_download_auth_retry_reuses_concurrent_refreshed_token(tmp_path: Path) -
 def test_download_retries_on_503_then_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("gangtise_openapi._download._backoff_delay", lambda attempt: 0.0)
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     out_path = tmp_path / "out.pdf"
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         dl_route = router.get("/application/open-insight/broker-report/download/file").mock(
@@ -535,7 +535,7 @@ def test_download_retries_on_503_then_succeeds(
 
 
 def test_download_retry_exhaustion_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("gangtise_openapi._download._backoff_delay", lambda attempt: 0.0)
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         dl_route = router.get("/application/open-insight/broker-report/download/file").mock(
             return_value=httpx.Response(503, text="boom")
@@ -649,7 +649,7 @@ def test_download_4xx_envelope_raises_api_error_with_code_and_hint(tmp_path: Pat
 def test_download_cleans_up_part_file_on_midstream_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("gangtise_openapi._download._backoff_delay", lambda attempt: 0.0)
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     out_path = tmp_path / "out.pdf"
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-insight/broker-report/download/file").mock(
@@ -923,7 +923,7 @@ async def test_async_download_auth_retry_reuses_concurrent_refreshed_token(
 async def test_async_download_retries_on_503_then_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("gangtise_openapi._download._backoff_delay", lambda attempt: 0.0)
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     out_path = tmp_path / "out.pdf"
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         dl_route = router.get("/application/open-insight/broker-report/download/file").mock(
@@ -952,7 +952,7 @@ async def test_async_download_retries_on_503_then_succeeds(
 async def test_async_download_retry_exhaustion_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("gangtise_openapi._download._backoff_delay", lambda attempt: 0.0)
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         dl_route = router.get("/application/open-insight/broker-report/download/file").mock(
             return_value=httpx.Response(503, text="boom")
@@ -1068,7 +1068,7 @@ async def test_async_download_4xx_envelope_raises_api_error_with_code_and_hint(
 async def test_async_download_cleans_up_part_file_on_midstream_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("gangtise_openapi._download._backoff_delay", lambda attempt: 0.0)
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     out_path = tmp_path / "out.pdf"
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-insight/broker-report/download/file").mock(
@@ -1308,3 +1308,24 @@ async def test_async_download_concurrent_same_target_no_collision(tmp_path: Path
     assert errors == [], f"concurrent downloads raised: {errors}"
     assert target.read_bytes() in (b"AAAAAAAA", b"BBBBBBBB")
     assert list(tmp_path.glob("*.part*")) == []
+
+
+def test_unique_path_raises_after_100_collisions(tmp_path: Path) -> None:
+    # TS v0.27.0 parity: falling back to the original path would silently
+    # overwrite the very first file once the -1..-99 suffixes run out.
+    from gangtise_openapi._download import _unique_path
+
+    (tmp_path / "report.pdf").write_bytes(b"0")
+    for i in range(1, 100):
+        (tmp_path / f"report-{i}.pdf").write_bytes(b"x")
+    with pytest.raises(DownloadError, match="Refusing to overwrite"):
+        _unique_path(tmp_path / "report.pdf")
+
+
+def test_check_deadline_raises_past_deadline() -> None:
+    from gangtise_openapi._download import _check_deadline
+
+    _check_deadline(None)  # no deadline -> no-op
+    _check_deadline(time.monotonic() + 60)  # future -> no-op
+    with pytest.raises(DownloadError, match="overall deadline"):
+        _check_deadline(time.monotonic() - 1)

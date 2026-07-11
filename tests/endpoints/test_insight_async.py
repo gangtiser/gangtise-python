@@ -612,3 +612,38 @@ async def test_async_announcement_us_download_sends_file_type(tmp_path, seeded_c
         assert "announcementId=us1" in sent_url
         assert "fileType=1" in sent_url
     assert path.read_bytes() == b"data"
+
+
+@pytest.mark.anyio
+async def test_qa_list_async(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/Q&A-data/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"total": 1, "list": [{"question": "q", "answer": "a"}]},
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncInsight(client).qa_list(security_code="601012.SH")
+        body = route.calls.last.request.read().replace(b" ", b"")
+        assert b'"securityCode":"601012.SH"' in body
+    assert isinstance(df, pd.DataFrame)
+
+
+@pytest.mark.anyio
+async def test_report_image_download_async(tmp_path, seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/report-image/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"jpeg", headers={"content-type": "image/jpeg"}
+            )
+        )
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            path = await AsyncInsight(client).report_image_download(
+                chunk_id="c1", output=tmp_path / "img.jpg"
+            )
+    assert path.read_bytes() == b"jpeg"

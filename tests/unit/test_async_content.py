@@ -84,3 +84,57 @@ def test_poll_missing_content_keeps_polling():
 
     out = poll_content(fetch, sleep=lambda s: None)
     assert out == {"content": "ready"}
+
+
+def test_poll_tolerates_transient_error_and_continues():
+    # TS v0.27.0 parity: one 5xx after the transport's own retries must not void
+    # the wait — the dataId is still valid; the blip consumes one attempt.
+    state = {"i": 0}
+
+    def fetch():
+        state["i"] += 1
+        if state["i"] == 1:
+            raise ApiError("upstream busy", status_code=503)
+        return {"content": "done"}
+
+    out = poll_content(fetch, sleep=lambda s: None)
+    assert out == {"content": "done"}
+    assert state["i"] == 2
+
+
+def test_poll_tolerates_network_error_and_continues():
+    import httpx
+
+    state = {"i": 0}
+
+    def fetch():
+        state["i"] += 1
+        if state["i"] == 1:
+            raise httpx.ConnectError("refused")
+        return {"content": "done"}
+
+    out = poll_content(fetch, sleep=lambda s: None)
+    assert out == {"content": "done"}
+
+
+def test_poll_aborts_on_non_transient_error():
+    def fetch():
+        raise ApiError("no credits", code="999995", status_code=403)
+
+    with pytest.raises(ApiError) as exc:
+        poll_content(fetch, sleep=lambda s: None)
+    assert exc.value.code == "999995"
+
+
+def test_poll_transient_errors_still_bounded_by_max_attempts():
+    state = {"i": 0}
+
+    def fetch():
+        state["i"] += 1
+        raise ApiError("busy", status_code=503)
+
+    with pytest.raises(ApiError) as exc:
+        poll_content(fetch, sleep=lambda s: None, max_attempts=3)
+    # Transient errors consume attempts; after the budget the pending timeout raises.
+    assert state["i"] == 3
+    assert exc.value.code == "410110"

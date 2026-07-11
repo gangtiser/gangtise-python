@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import httpx
 import pandas as pd
@@ -132,22 +133,29 @@ def _partial_failure_responder(request):
 
 
 @pytest.mark.anyio
-async def test_async_day_kline_partial_shard_failure_sets_flags(tmp_path):
+async def test_async_day_kline_partial_shard_failure_aborts_and_sets_flags(tmp_path):
+    # Async sibling of the abort contract: Tuesday's hard error stops the fan-out,
+    # Wednesday lands in failedShards without a request. Serial for determinism.
+    cfg = replace(_cfg(tmp_path), page_concurrency=1)
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
-        router.post("/application/open-quote/kline/daily").mock(
+        route = router.post("/application/open-quote/kline/daily").mock(
             side_effect=_partial_failure_responder
         )
-        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            with pytest.warns(UserWarning, match="1/3 day-kline shards failed"):
+        async with AsyncGangtiseClient(_config=cfg) as client:
+            with pytest.warns(UserWarning, match="2/3 day-kline shards failed"):
                 out = await AsyncQuote(client).day_kline(
                     security="all",
                     start_date="2026-01-05",  # Mon
                     end_date="2026-01-07",  # Wed
                     raw=True,
                 )
+        assert route.call_count == 2
     assert out["partial"] is True
-    assert out["failedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
-    assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
+    assert out["failedShards"] == [
+        {"startDate": "2026-01-06", "endDate": "2026-01-06"},
+        {"startDate": "2026-01-07", "endDate": "2026-01-07"},
+    ]
+    assert sorted(row[1] for row in out["list"]) == ["2026-01-05"]
 
 
 def _malformed_shard_responder(request):
@@ -178,7 +186,7 @@ async def test_async_day_kline_malformed_shard_response_sets_partial(tmp_path):
             side_effect=_malformed_shard_responder
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            with pytest.warns(UserWarning, match="unexpected shape"):
+            with pytest.warns(UserWarning, match="1/3 day-kline shards failed"):
                 out = await AsyncQuote(client).day_kline(
                     security="all",
                     start_date="2026-01-05",  # Mon
@@ -186,6 +194,7 @@ async def test_async_day_kline_malformed_shard_response_sets_partial(tmp_path):
                     raw=True,
                 )
     assert out["partial"] is True
+    assert out["failedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
     assert sorted(row[1] for row in out["list"]) == ["2026-01-05", "2026-01-07"]
 
 

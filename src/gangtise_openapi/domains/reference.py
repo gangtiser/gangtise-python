@@ -10,10 +10,24 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi.domains._common import (
     FilterValue,
-    _as_list,
     _result_to_dataframe,
     _strip_none,
+    _validate_choices,
+    _validate_top,
 )
+
+# Server-probed enum whitelists (TS CLI v0.25.0): these endpoints silently ignore
+# an unknown category (or return empty) instead of erroring, so typos would
+# masquerade as "no results" without a local check.
+_SECURITIES_CATEGORIES = ("stock", "dr", "index", "fund")
+_INSTITUTION_CATEGORIES = (
+    "domesticBroker",
+    "foreignInstitution",
+    "leadInstitution",
+    "opinionInstitution",
+    "foreignOpinionInstitution",
+)
+_OFFICIAL_ACCOUNT_CATEGORIES = ("listedCompany", "broker", "government", "media")
 
 
 class Reference:
@@ -40,8 +54,10 @@ class Reference:
         body = _strip_none(
             {
                 "keyword": keyword,
-                "category": _as_list(category),
-                "top": top,
+                "category": _validate_choices(
+                    category, name="category", allowed=_SECURITIES_CATEGORIES
+                ),
+                "top": _validate_top(top, name="top", max_value=10),
             }
         )
         result = self._client._call("reference.securities-search", body=body)
@@ -96,7 +112,7 @@ class Reference:
         ai.theme_tracking 共用。keyword 支持中文名/拼音/首字母/分组名；
         top 默认 10、上限 10。行字段：conceptId / conceptName / matchScore。
         """
-        body = {"keyword": keyword, "top": top}
+        body = {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
         result = self._client._call("reference.concept-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -115,7 +131,9 @@ class Reference:
         行字段：sectorId / sectorName / hierarchy（层级路径）/ matchScore；
         同名板块可能出现在多个层级，用 hierarchy 区分。
         """
-        body = _strip_none({"keyword": keyword, "top": top})
+        body = _strip_none(
+            {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
+        )
         result = self._client._call("reference.sector-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -151,7 +169,7 @@ class Reference:
         keyword 支持首席姓名 / 机构 / 团队；top 默认 10、上限 10。
         结果的 chief ID 供 insight.opinion_list(chief=...) 等按首席筛选使用。
         """
-        body = {"keyword": keyword, "top": top}
+        body = {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
         result = self._client._call("reference.chiefs-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -176,11 +194,46 @@ class Reference:
         body = _strip_none(
             {
                 "keyword": keyword,
-                "categoryList": _as_list(category),
-                "top": top,
+                "categoryList": _validate_choices(
+                    category, name="category", allowed=_INSTITUTION_CATEGORIES
+                ),
+                "top": _validate_top(top, name="top", max_value=10),
             }
         )
         result = self._client._call("reference.institution-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def official_account_search(
+        self,
+        *,
+        keyword: str,
+        category: FilterValue | None = None,
+        top: int = 10,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按名称/机构/关键字搜索公众号 ID（reference.official-account-search）。
+
+        结果的 accountId 喂 insight.official_account_list(account_id=...) 拉
+        该公众号资讯。category 分类可多选：listedCompany=上市公司
+        broker=券商团队 government=政府官方 media=媒体；部分公众号不属这
+        四类（category 为 null），一旦传 category 就会漏掉它们，要全量
+        （含未分类）就别传。top 默认 10、上限 10；结果按 matchScore（0~1）
+        降序。行字段：accountId / accountName / category / matchScore。免费。
+        """
+        # TS body shape (cli.ts): request key is BARE `category` here (spec),
+        # unlike institution-search's `categoryList`.
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "category": _validate_choices(
+                    category, name="category", allowed=_OFFICIAL_ACCOUNT_CATEGORIES
+                ),
+                "top": _validate_top(top, name="top", max_value=10),
+            }
+        )
+        result = self._client._call("reference.official-account-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
@@ -207,8 +260,10 @@ class AsyncReference:
         body = _strip_none(
             {
                 "keyword": keyword,
-                "category": _as_list(category),
-                "top": top,
+                "category": _validate_choices(
+                    category, name="category", allowed=_SECURITIES_CATEGORIES
+                ),
+                "top": _validate_top(top, name="top", max_value=10),
             }
         )
         result = await self._client._call("reference.securities-search", body=body)
@@ -263,7 +318,7 @@ class AsyncReference:
         ai.theme_tracking 共用。keyword 支持中文名/拼音/首字母/分组名；
         top 默认 10、上限 10。行字段：conceptId / conceptName / matchScore。
         """
-        body = {"keyword": keyword, "top": top}
+        body = {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
         result = await self._client._call("reference.concept-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -282,7 +337,9 @@ class AsyncReference:
         行字段：sectorId / sectorName / hierarchy（层级路径）/ matchScore；
         同名板块可能出现在多个层级，用 hierarchy 区分。
         """
-        body = _strip_none({"keyword": keyword, "top": top})
+        body = _strip_none(
+            {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
+        )
         result = await self._client._call("reference.sector-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -318,7 +375,7 @@ class AsyncReference:
         keyword 支持首席姓名 / 机构 / 团队；top 默认 10、上限 10。
         结果的 chief ID 供 insight.opinion_list(chief=...) 等按首席筛选使用。
         """
-        body = {"keyword": keyword, "top": top}
+        body = {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
         result = await self._client._call("reference.chiefs-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -343,11 +400,46 @@ class AsyncReference:
         body = _strip_none(
             {
                 "keyword": keyword,
-                "categoryList": _as_list(category),
-                "top": top,
+                "categoryList": _validate_choices(
+                    category, name="category", allowed=_INSTITUTION_CATEGORIES
+                ),
+                "top": _validate_top(top, name="top", max_value=10),
             }
         )
         result = await self._client._call("reference.institution-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def official_account_search(
+        self,
+        *,
+        keyword: str,
+        category: FilterValue | None = None,
+        top: int = 10,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按名称/机构/关键字搜索公众号 ID（reference.official-account-search）。
+
+        结果的 accountId 喂 insight.official_account_list(account_id=...) 拉
+        该公众号资讯。category 分类可多选：listedCompany=上市公司
+        broker=券商团队 government=政府官方 media=媒体；部分公众号不属这
+        四类（category 为 null），一旦传 category 就会漏掉它们，要全量
+        （含未分类）就别传。top 默认 10、上限 10；结果按 matchScore（0~1）
+        降序。行字段：accountId / accountName / category / matchScore。免费。
+        """
+        # TS body shape (cli.ts): request key is BARE `category` here (spec),
+        # unlike institution-search's `categoryList`.
+        body = _strip_none(
+            {
+                "keyword": keyword,
+                "category": _validate_choices(
+                    category, name="category", allowed=_OFFICIAL_ACCOUNT_CATEGORIES
+                ),
+                "top": _validate_top(top, name="top", max_value=10),
+            }
+        )
+        result = await self._client._call("reference.official-account-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)

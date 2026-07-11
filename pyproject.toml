@@ -86,6 +86,12 @@ addopts = "-ra --strict-markers -m 'not live'"
 markers = [
     "live: hits real Gangtise API (skipped by default; run with `pytest -m live`)",
 ]
+# Escalate our own partial-result / shape-drift UserWarnings to errors so a future
+# protocol drift fails the suite (local + CI + release) instead of hiding in noise.
+# A test that intentionally exercises a warning opts back in with pytest.warns.
+filterwarnings = [
+    "error::UserWarning",
+]
 
 [tool.coverage.run]
 source = ["src/gangtise_openapi"]

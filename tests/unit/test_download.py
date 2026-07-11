@@ -686,32 +686,79 @@ def test_presigned_fetch_retries_network_error_without_rebilling_upstream(
     assert path.read_bytes() == b"%PDF-cdn"
 
 
-def test_claim_auto_named_never_overwrites_and_picks_next_suffix(tmp_path: Path) -> None:
-    # The check-then-use window in _unique_path lets two concurrent auto-named
-    # downloads pick the same target; the commit must lose gracefully to the
-    # next suffix instead of clobbering the winner's file.
+def test_claim_auto_named_never_overwrites_and_scans_from_original_name(tmp_path: Path) -> None:
+    # A racer took the desired name after our check; the commit loses to the NEXT
+    # suffix scanned from the ORIGINAL name (report-2.pdf, not report-1-1.pdf) and
+    # never clobbers the winner.
     from gangtise_openapi._download import _claim_auto_named
 
-    target = tmp_path / "same.pdf"
-    target.write_bytes(b"winner")  # a racer claimed the name after our check
-    tmp = tmp_path / "same.pdf.part-abc"
+    desired = tmp_path / "report.pdf"
+    desired.write_bytes(b"winner-0")
+    (tmp_path / "report-1.pdf").write_bytes(b"winner-1")
+    tmp = tmp_path / "report.pdf.part-abc"
     tmp.write_bytes(b"loser-content")
-    final = _claim_auto_named(tmp, target)
-    assert final == tmp_path / "same-1.pdf"
-    assert target.read_bytes() == b"winner"
+    final = _claim_auto_named(tmp, desired)
+    tmp.unlink(missing_ok=True)  # the real writer's `finally` does this
+    assert final == tmp_path / "report-2.pdf"
+    assert desired.read_bytes() == b"winner-0"
+    assert (tmp_path / "report-1.pdf").read_bytes() == b"winner-1"
     assert final.read_bytes() == b"loser-content"
 
 
-def test_claim_auto_named_cleans_placeholder_when_move_fails(tmp_path: Path) -> None:
-    # If the final move fails, the O_EXCL placeholder must not linger as a bogus
-    # empty download.
+def test_claim_auto_named_appears_atomically_without_zero_byte_window(tmp_path: Path) -> None:
+    # os.link publishes the COMPLETE file in one step — the target must never be
+    # observed as a 0-byte placeholder (regression from the O_EXCL-only v0.1.16).
+    import gangtise_openapi._download as dl
+
+    called = {"replace": False}
+    orig = Path.replace
+
+    def spy(self: Path, other: object) -> object:
+        called["replace"] = True
+        return orig(self, other)
+
+    dl_target = tmp_path / "doc.pdf"
+    tmp = tmp_path / "doc.pdf.part-x"
+    tmp.write_bytes(b"FULL")
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(Path, "replace", spy)
+    final = dl.__dict__["_claim_auto_named"](tmp, dl_target)
+    monkey.undo()
+    tmp.unlink(missing_ok=True)
+    assert not called["replace"]  # hard-link path, no placeholder-then-replace
+    assert final.read_bytes() == b"FULL"
+
+
+def test_claim_auto_named_falls_back_to_placeholder_when_link_unsupported(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # On a filesystem without hard links (EPERM/EXDEV/…), fall back to the
+    # O_EXCL placeholder path — still non-clobbering, download still lands.
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(1, "operation not permitted")  # errno 1 = EPERM
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    target = tmp_path / "a.pdf"
+    tmp = tmp_path / "a.pdf.part-z"
+    tmp.write_bytes(b"CONTENT")
+    final = dl._claim_auto_named(tmp, target)
+    assert final == target
+    assert final.read_bytes() == b"CONTENT"
+
+
+def test_claim_auto_named_raises_after_100_collisions(tmp_path: Path) -> None:
+    # Refuse rather than clobber once -1..-99 are all taken (was _unique_path).
     from gangtise_openapi._download import _claim_auto_named
 
-    target = tmp_path / "fresh.pdf"
-    missing_tmp = tmp_path / "fresh.pdf.part-gone"  # never created -> replace raises
-    with pytest.raises(OSError):
-        _claim_auto_named(missing_tmp, target)
-    assert not target.exists()
+    (tmp_path / "report.pdf").write_bytes(b"0")
+    for i in range(1, 100):
+        (tmp_path / f"report-{i}.pdf").write_bytes(b"x")
+    tmp = tmp_path / "report.pdf.part-y"
+    tmp.write_bytes(b"loser")
+    with pytest.raises(DownloadError, match="Refusing to overwrite"):
+        _claim_auto_named(tmp, tmp_path / "report.pdf")
 
 
 def test_redact_url_strips_userinfo_query_and_fragment() -> None:
@@ -721,6 +768,30 @@ def test_redact_url_strips_userinfo_query_and_fragment() -> None:
     assert redacted == "https://cdn.test:8443/f"
     for secret in ("alice", "TOPSECRET", "X-Amz", "frag"):
         assert secret not in redacted
+
+
+def test_redact_url_fails_closed_on_malformed_input() -> None:
+    from gangtise_openapi._download import _redact_url
+
+    # Scheme-confusion: `alice:` parses as the scheme, so a naive netloc-based
+    # redactor would leak `alice://TOPSECRET@...`. Must collapse instead.
+    assert _redact_url("alice:TOPSECRET@cdn.test/path?sig=X") == "redacted-url"
+    # Invalid port (raises ValueError on .port) must not leak the raw value.
+    assert _redact_url("https://cdn.test:PORTSECRET/p") == "redacted-url"
+    # Non-http(s) schemes collapse too.
+    assert _redact_url("ftp://user:pw@host/p") == "redacted-url"
+    assert _redact_url("not a url") == "redacted-url"
+
+
+def test_require_fetchable_url_rejects_malformed_before_fetch(tmp_path: Path) -> None:
+    # A malformed signed URL (bad port) must raise a redacted DownloadError, not
+    # let httpx.InvalidURL (not an httpx.HTTPError) escape with the raw secret.
+    from gangtise_openapi._download import _require_fetchable_url
+
+    with pytest.raises(DownloadError) as exc:
+        _require_fetchable_url("https://cdn.test:PORTSECRET/p?sig=SECRET")
+    assert "PORTSECRET" not in str(exc.value) and "SECRET" not in str(exc.value)
+    _require_fetchable_url("https://cdn.test:8443/ok")  # valid -> no raise
 
 
 def test_concurrent_auto_named_downloads_keep_both_files(tmp_path: Path, monkeypatch) -> None:
@@ -1475,16 +1546,77 @@ async def test_async_download_concurrent_same_target_no_collision(tmp_path: Path
     assert list(tmp_path.glob("*.part*")) == []
 
 
-def test_unique_path_raises_after_100_collisions(tmp_path: Path) -> None:
-    # TS v0.27.0 parity: falling back to the original path would silently
-    # overwrite the very first file once the -1..-99 suffixes run out.
-    from gangtise_openapi._download import _unique_path
+def test_302_redirect_does_not_replay_billing_endpoint(tmp_path: Path, monkeypatch) -> None:
+    # P0: a no-replay download that 302s to a CDN which then fails transiently must
+    # retry only the (unbilled) CDN URL — never resend the billed upstream endpoint.
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        upstream = router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        cdn = router.get("https://cdn.test/o/f").mock(
+            side_effect=[
+                httpx.ConnectError("refused"),
+                httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"}),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",  # no-replay, billed
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert upstream.call_count == 1  # billed endpoint NOT replayed
+    assert cdn.call_count == 2
+    assert path.read_bytes() == b"%PDF"
 
-    (tmp_path / "report.pdf").write_bytes(b"0")
-    for i in range(1, 100):
-        (tmp_path / f"report-{i}.pdf").write_bytes(b"x")
-    with pytest.raises(DownloadError, match="Refusing to overwrite"):
-        _unique_path(tmp_path / "report.pdf")
+
+@pytest.mark.anyio
+async def test_302_redirect_does_not_replay_billing_endpoint_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        upstream = router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        cdn = router.get("https://cdn.test/o/f").mock(
+            side_effect=[
+                httpx.ConnectError("refused"),
+                httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"}),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert upstream.call_count == 1
+    assert cdn.call_count == 2
+    assert path.read_bytes() == b"%PDF"
+
+
+def test_302_redirect_without_location_raises_download_error(tmp_path: Path) -> None:
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302)  # no Location header
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(DownloadError, match="no Location"),
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
 
 
 def test_check_deadline_raises_past_deadline() -> None:

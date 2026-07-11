@@ -6,6 +6,13 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.17 - 2026-07-12
+- **计费安全（重要）**：下载端点 302 跳转 CDN 后 CDN 失败，不再重放计费上游端点——此前上游让 httpx 内联跟随跳转，CDN 那一跳失败会被误判为**上游**的连接期错误，对 no-replay（按篇计费）端点触发重发；现上游停在 3xx、把 Location 交给签名 URL 拉取器（其重试循环只重放不计费的 CDN URL）。跟随后的 URL 也补上了此前绕过的 10× 传输硬截止。
+- **签名 URL 脱敏改为 fail-closed**：`_redact_url` 此前只留 `scheme://host/path`，但裸 `alice:SECRET@host/p` 会被解析成 scheme=`alice`，旧的 netloc 路径会泄露 `alice://SECRET@…`；非法端口还会以未包装的 `httpx.InvalidURL` 带出原值。现非绝对 http(s)+有 host+合法端口一律折叠为 `redacted-url`，签名 URL 拉取前先校验，畸形 URL 抛脱敏后的 `DownloadError`。
+- **自动命名下载恢复原子可见 + 后缀正确**：v0.1.16 的 `O_CREAT|O_EXCL` 占名会先创建 0 字节最终文件再 rename（崩溃可能留下看似成功的空文件），且 `report-1.pdf` 碰撞会落成 `report-1-1.pdf` 而非 `report-2.pdf`；现改用 os.link 把完成的 `.part` 硬链接到目标（完整文件一次性出现、后缀从原始名扫描），仅在不支持硬链接的文件系统回退 O_EXCL 占位（仍非 clobber）。
+- **EDE 内层 999999 补正确提示**：双层 envelope 的内层错误在 transport 之外解包，此前仍是「请稍后重试」；现与外层同用「检查查询条件」的 EDE 提示。
+- **零警告固化**：`pyproject.toml` 的 `filterwarnings` 把本项目的 `UserWarning` 升级为错误，未来分片/漂移告警会让本地与 CI/release 套件失败（此前仅在个别测试临时断言）。无端点/API 表面变更，仍对齐 CLI v0.27.0、90 接口。
+
 ### 0.1.16 - 2026-07-11
 - **安全**：签名 URL 不再泄露进异常信息——此前预签名下载失败的 `DownloadError` 会带完整 URL（含 `X-Amz-Signature` 查询串与 `user:password@` 认证段），终端/CI/错误采集系统都会记录；现只保留 `scheme://host[:port]/path`（userinfo、query、fragment 全部剥离，IPv6 主机自动补回方括号）。
 - **数据完整性**：自动命名下载不再互相覆盖——两个 `output=None` 的并发下载解析到同名文件时，此前后完成者会静默覆盖前者；现改用 `O_CREAT|O_EXCL` 原子占名提交，输家自动改用下一个 `-1..-99` 后缀，最终移动失败时清理占位文件。全文件系统可用（不依赖硬链接）；显式 `output=` 保持文档化的覆盖语义。
@@ -39,13 +46,6 @@
 - 下载端点若返回 `302` 跳转到预签名/对象存储 URL，现会跟随取回真正的文件（此前可能把空跳转体写盘；`200`+JSON `{url}` 变体本就已支持）；跨域跳转自动丢弃 `Authorization`，bearer 不外泄到存储域。补齐 CLI v0.22.0 遗留的下载行为。
 - **所有分页端点行为变更**：服务端 `total` 虚高（实际返回行数更少）或触及 `MAX_PAGES`（1000）安全上限截断时，现标 `partial`（`raw` 可见）并发 `UserWarning`——此前两种情况均静默。
 - 行情端点 `limit` 改为本地校验：超出 `1..10000` 或非整数（如 `1.5`、`True`、`"10"`）在发请求前即抛 `ValidationError`（此前可能打到服务端或抛出原始 `TypeError`）。
-
-### 0.1.12 - 2026-07-02
-- 对齐 CLI HEAD 对抗审查修复（含行为变更）：`insight.*` 纯日期串 `YYYY-MM-DD` 改按**本地午夜**锚定（此前 UTC 午夜，非 UTC 用户查询窗口偏一天）；`fundamental.earning_forecast` 仅传 `end_date` 时缺省起点改为锚定该日期前一年（此前锚定今天）；`normalize_token` 大小写不敏感剥 `bearer ` 前缀，避免 `Bearer bearer ...`。
-- 下载更稳：自动命名遇同名加 `-1..-99` 后缀防批量覆盖、超长名截到 ≤200 UTF-8 字节且保留扩展名、`Content-Disposition` 的 RFC 5987 `filename*=UTF-8''` 大小写不敏感百分号解码（中文名正确落地）；鉴权重试复用他处已刷新的 token；异步清理 `.part` 改同步 `finally`，取消时也不漏删。
-- 分页更稳：`MAX_PAGES` 上限改为生成扇出请求时即刻生效（损坏的 `total` 不再撑爆内存/挂死）；空或短首页不再重复请求同一偏移；异步畸形/空扇出页标 `partial`。
-- 异步门面：不再跨 `asyncio.run()` 复用旧事件循环的 `httpx.AsyncClient`（消除 “Event loop is closed”）；`reset()`/`configure(replace=True)` 会关闭缓存的异步客户端。
-- 发布 CI：`uv sync --locked`、发版前校验 README/CHANGELOG 含该 tag、PyPI 发布 action 钉到 commit SHA。
 
 ## 安装
 

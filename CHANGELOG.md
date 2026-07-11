@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.17] - 2026-07-12
+
+Second adversarial-review pass on the download path. No endpoint or API-surface
+changes (still `gangtise-openapi-cli` v0.27.0 parity, 90 endpoints).
+
+### Fixed
+- **A 302 to a CDN can no longer replay a billed download endpoint.** The upstream
+  download request previously let httpx auto-follow the redirect inline; a failure
+  on the CDN hop then looked like a connect-phase error on the *upstream* request
+  and — for a `no-replay` (per-篇 billed) endpoint — triggered a resend of the
+  billing endpoint. The upstream request now stops at the 3xx, and the `Location`
+  is handed to the signed-URL fetcher whose retry loop only ever replays the
+  unbilled CDN URL. (Deliberate divergence from TS `client.ts`, which follows
+  inline and shares this hazard.) The followed URL also now gets the 10× transfer
+  deadline it previously bypassed.
+- **Signed-URL redaction is now fail-closed.** `_redact_url` kept only
+  `scheme://host/path`, but a bare `alice:SECRET@host/p` parses with scheme
+  `alice`, so the old netloc-based path leaked `alice://SECRET@…`; an invalid port
+  also escaped as an unwrapped `httpx.InvalidURL` carrying the raw value. Anything
+  that is not an absolute http(s) URL with a host and valid port now collapses to
+  `redacted-url`, and signed URLs are validated before the fetch so a malformed one
+  raises a redacted `DownloadError` instead of leaking.
+- **Auto-named downloads publish atomically again and suffix correctly.** The
+  v0.1.16 `O_CREAT|O_EXCL` reservation created the final path as a 0-byte
+  placeholder before the rename (a crash could leave a phantom empty "success"),
+  and a collision on `report-1.pdf` produced `report-1-1.pdf` instead of
+  `report-2.pdf`. Commit now hard-links the completed `.part` onto the target (the
+  full file appears in one step; `-1..-99` suffixes are scanned from the original
+  name), falling back to the O_EXCL placeholder only on filesystems without
+  hard-link support (still non-clobbering).
+- **EDE inner-envelope `999999` now gets the "no data" hint.** The double-envelope
+  inner error is unwrapped past the transport, so it kept the generic "retry later"
+  hint; it now uses the same "check the query window" hint as the outer code.
+
+### Changed
+- `pytest` escalates our `UserWarning`s to errors via `filterwarnings` in
+  `pyproject.toml`, so a future partial-result / shape-drift warning fails the suite
+  locally and in CI/release (previously only asserted ad hoc).
+
 ## [0.1.16] - 2026-07-11
 
 Security and download-integrity fixes from an adversarial review of 0.1.15. No

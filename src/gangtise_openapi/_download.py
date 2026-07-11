@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -73,21 +74,48 @@ def _extension_for(content_type: str | None) -> str:
 
 
 def _redact_url(url: str) -> str:
-    """Signed URLs can carry credentials in the query string AND the authority
-    (user:password@host) — error messages must keep only scheme://host[:port]/path
-    so neither signatures nor userinfo land in terminal / CI / error-collector
-    logs (TS download.ts redactUrl parity: URL.origin drops userinfo too)."""
+    """Reduce a URL to ``scheme://host[:port]/path`` for error messages, dropping
+    the query (signatures), fragment, and ``user:password@`` userinfo.
+
+    Fail closed: anything that is not an absolute http(s) URL with a host and a
+    valid port collapses to ``"redacted-url"`` rather than risk leaking. A bare
+    ``alice:SECRET@host/p`` parses with scheme ``alice`` (not http/https) and an
+    invalid port raises ``ValueError`` on ``parts.port`` — both are caught here
+    so no secret can survive in a message."""
     try:
         parts = urlsplit(url)
-        host = parts.hostname or ""
+        if parts.scheme not in ("http", "https"):
+            return "redacted-url"
+        host = parts.hostname
+        if not host:
+            return "redacted-url"
+        port = parts.port  # raises ValueError on a non-numeric / out-of-range port
         if ":" in host:
             # urlsplit strips the brackets from an IPv6 literal; re-add them.
             host = f"[{host}]"
-        if parts.port is not None:
-            host = f"{host}:{parts.port}"
+        if port is not None:
+            host = f"{host}:{port}"
         return f"{parts.scheme}://{host}{parts.path}"
     except ValueError:
-        return "signed-url"
+        return "redacted-url"
+
+
+def _require_fetchable_url(url: str) -> None:
+    """Reject a would-be download URL that is not an absolute http(s) URL with a
+    host and a valid port BEFORE handing it to httpx. ``httpx.InvalidURL`` (e.g.
+    a bad port) is not an ``httpx.HTTPError``, so it would otherwise escape the
+    fetch loop unwrapped and carry the raw (secret-bearing) URL in its message."""
+    try:
+        parts = urlsplit(url)
+        ok = parts.scheme in ("http", "https") and bool(parts.hostname)
+        if ok:
+            parts.port  # raises ValueError on an invalid port  # noqa: B018
+    except ValueError:
+        ok = False
+    if not ok:
+        raise DownloadError(
+            f"refusing to fetch a non-http(s) or malformed download URL ({_redact_url(url)})"
+        )
 
 
 TitleLookup = tuple[str, str, str]  # (list_endpoint_key, id_field, id_value)
@@ -124,25 +152,19 @@ def _truncate_filename(name: str, max_bytes: int = 200) -> str:
     return f"{stem}{ext}"
 
 
-def _unique_path(target: Path) -> Path:
-    if not target.exists():
-        return target
-    ext = target.suffix
-    stem = target.name[: -len(ext)] if ext else target.name
-    for i in range(1, 100):
-        candidate = target.with_name(f"{stem}-{i}{ext}")
-        if not candidate.exists():
-            return candidate
-    # Returning `target` here would silently overwrite the very first file
-    # once the suffixes run out (TS v0.27.0 parity: refuse instead).
-    raise DownloadError(
-        f"Refusing to overwrite: 100 files already share the name {target.name!r} — "
-        "pass output= or clean up the directory"
-    )
+def _suffixed(base: Path, i: int) -> Path:
+    """`base` with ``-i`` before the extension: report.pdf → report-1.pdf."""
+    ext = base.suffix
+    stem = base.name[: -len(ext)] if ext else base.name
+    return base.with_name(f"{stem}-{i}{ext}")
 
 
 def _auto_target(name: str) -> Path:
-    return _unique_path(Path.cwd() / _truncate_filename(name))
+    """The *desired* auto-derived path (cwd + sanitized name). Uniquification is
+    deferred to `_claim_auto_named`, which reserves the name atomically — resolving
+    it here (check-then-use) would both race and, on a later collision, suffix the
+    already-suffixed name (report-1-1.pdf instead of report-2.pdf)."""
+    return Path.cwd() / _truncate_filename(name)
 
 
 def _raise_download_http_error(
@@ -261,12 +283,24 @@ def _download_once(
         endpoint.path,
         params=query,
         headers=headers,
-        # A download endpoint may 302 to a presigned object-store URL; follow it so the
-        # file bytes (not an empty redirect body) reach disk. httpx drops Authorization on
-        # the cross-origin hop, matching the TS redirect loop (client.ts). API/JSON calls
-        # keep the client default (no follow) — only downloads opt in.
-        follow_redirects=True,
+        # Do NOT auto-follow redirects here. A download endpoint may 3xx to a
+        # presigned object-store URL, but if httpx followed inline, a failure on
+        # the CDN hop would surface as a connect-phase error on THIS (billed,
+        # possibly no-replay) request and trigger a replay of the billing
+        # endpoint. Instead we read the Location and hand it to the signed-URL
+        # fetcher, whose retry loop only ever replays the (unbilled) signed URL.
+        # Deliberate divergence from TS client.ts, which follows inline and shares
+        # this replay hazard.
+        follow_redirects=False,
     ) as response:
+        if 300 <= response.status_code < 400:
+            return _follow_download_redirect(
+                client=client,
+                response=response,
+                output=output,
+                fallback_name=fallback_name,
+                title_lookup=title_lookup,
+            )
         if response.status_code >= 400:
             response.read()
             _raise_download_http_error(
@@ -323,30 +357,74 @@ def _part_path(target: Path) -> Path:
     return target.with_suffix(target.suffix + f".part-{uuid.uuid4().hex}")
 
 
-def _claim_auto_named(tmp: Path, target: Path) -> Path:
-    """Commit an auto-named download without ever overwriting: atomically reserve
-    the target with ``O_CREAT|O_EXCL`` (works on every filesystem, unlike hard
-    links), then move the finished ``.part`` onto our own placeholder. Two
-    concurrent downloads whose titles resolve to the same name race
-    ``_unique_path``'s check-then-use window — the reservation loser re-scans for
-    the next free suffix rather than silently clobbering the winner's file.
-    Explicit ``output=`` paths keep plain overwrite semantics and never come
-    through here."""
-    base = target
-    while True:
+# errnos meaning "this filesystem can't hard-link" (FAT, some network mounts,
+# cross-device): fall back to the O_EXCL placeholder. Any OTHER OSError from
+# os.link is a real failure and must propagate, not silently degrade.
+_LINK_UNSUPPORTED_ERRNOS = frozenset(
+    e
+    for e in (
+        getattr(errno, "EPERM", None),
+        getattr(errno, "EXDEV", None),
+        getattr(errno, "EOPNOTSUPP", None),
+        getattr(errno, "ENOSYS", None),
+        getattr(errno, "EACCES", None),
+    )
+    if e is not None
+)
+
+
+def _claim_auto_named(tmp: Path, desired: Path) -> Path:
+    """Publish a completed auto-named download without ever overwriting another
+    file, scanning suffixes ``-1..-99`` from the ORIGINAL ``desired`` name.
+
+    Primary path — ``os.link``: hard-link the finished ``.part`` onto the target
+    so the *complete* file appears in a single step (no 0-byte window); an
+    existing name raises ``FileExistsError`` → try the next suffix. On a
+    filesystem without hard-link support, fall back to an ``O_CREAT|O_EXCL``
+    placeholder + ``replace`` — still atomic-claim and non-clobbering (it only
+    replaces its OWN placeholder), at the cost of a brief 0-byte window. Explicit
+    ``output=`` paths keep plain overwrite semantics and never come through here.
+    """
+    for i in range(0, 100):
+        candidate = desired if i == 0 else _suffixed(desired, i)
         try:
-            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.link(tmp, candidate)
         except FileExistsError:
-            target = _unique_path(base)
+            continue
+        except OSError as exc:
+            if exc.errno in _LINK_UNSUPPORTED_ERRNOS:
+                return _claim_via_placeholder(tmp, desired)
+            raise
+        return candidate
+    raise DownloadError(
+        f"Refusing to overwrite: 100 files already share the name {desired.name!r} — "
+        "pass output= or clean up the directory"
+    )
+
+
+def _claim_via_placeholder(tmp: Path, desired: Path) -> Path:
+    """Hard-link-free fallback for `_claim_auto_named`: reserve the name with
+    ``O_CREAT|O_EXCL`` (atomic, non-clobbering), then move the ``.part`` onto our
+    own placeholder. A brief 0-byte window exists between reserve and move; it is
+    accepted only on filesystems that cannot hard-link."""
+    for i in range(0, 100):
+        candidate = desired if i == 0 else _suffixed(desired, i)
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
             continue
         os.close(fd)
         try:
             # Replacing our OWN just-reserved placeholder — never someone else's file.
-            tmp.replace(target)
+            tmp.replace(candidate)
         except OSError:
-            target.unlink(missing_ok=True)
+            candidate.unlink(missing_ok=True)
             raise
-        return target
+        return candidate
+    raise DownloadError(
+        f"Refusing to overwrite: 100 files already share the name {desired.name!r} — "
+        "pass output= or clean up the directory"
+    )
 
 
 def _check_deadline(deadline: float | None) -> None:
@@ -400,6 +478,43 @@ def _write_response_to_disk(
     return target
 
 
+def _redirect_target(response: httpx.Response) -> str:
+    """Resolve a download redirect's Location (absolute or relative) against the
+    request URL. Raises DownloadError (no raw URL) when it is missing or unusable
+    — never leaks a malformed Location into the message."""
+    location = response.headers.get("location")
+    if not location:
+        raise DownloadError(
+            f"download redirect (HTTP {response.status_code}) had no Location header"
+        )
+    try:
+        return str(response.url.join(location))
+    except (httpx.InvalidURL, ValueError) as exc:
+        raise DownloadError(
+            f"download redirect (HTTP {response.status_code}) had an unusable Location"
+        ) from exc
+
+
+def _follow_download_redirect(
+    *,
+    client: GangtiseClient,
+    response: httpx.Response,
+    output: str | Path | None,
+    fallback_name: str,
+    title_lookup: TitleLookup | None,
+) -> Path:
+    """Route a 3xx download response to the signed-URL fetcher (safe to replay)."""
+    target = _redirect_target(response)
+    response.read()  # drain the redirect body before opening the next stream
+    return _download_presigned_url(
+        client=client,
+        url=target,
+        output=output,
+        fallback_name=fallback_name,
+        title_lookup=title_lookup,
+    )
+
+
 def _download_presigned_url(
     *,
     client: GangtiseClient,
@@ -417,6 +532,7 @@ def _download_presigned_url(
     is useless. Each attempt gets its own hard deadline (10x the request
     timeout) because the idle-type read timeouts reset on every byte.
     """
+    _require_fetchable_url(url)
     http = client._http_client()
     attempt = 0
     while True:
@@ -551,12 +667,19 @@ async def _download_once_async(
         endpoint.path,
         params=query,
         headers=headers,
-        # A download endpoint may 302 to a presigned object-store URL; follow it so the
-        # file bytes (not an empty redirect body) reach disk. httpx drops Authorization on
-        # the cross-origin hop, matching the TS redirect loop (client.ts). API/JSON calls
-        # keep the client default (no follow) — only downloads opt in.
-        follow_redirects=True,
+        # See _download_once: upstream must not auto-follow, or a CDN-hop failure
+        # would replay this (possibly no-replay, billed) request. Hand the Location
+        # to the signed-URL fetcher instead.
+        follow_redirects=False,
     ) as response:
+        if 300 <= response.status_code < 400:
+            return await _follow_download_redirect_async(
+                client=client,
+                response=response,
+                output=output,
+                fallback_name=fallback_name,
+                title_lookup=title_lookup,
+            )
         if response.status_code >= 400:
             await response.aread()
             _raise_download_http_error(
@@ -640,6 +763,26 @@ async def _write_response_to_disk_async(
     return target
 
 
+async def _follow_download_redirect_async(
+    *,
+    client: AsyncGangtiseClient,
+    response: httpx.Response,
+    output: str | Path | None,
+    fallback_name: str,
+    title_lookup: TitleLookup | None,
+) -> Path:
+    """Async mirror of `_follow_download_redirect`."""
+    target = _redirect_target(response)
+    await response.aread()  # drain the redirect body before opening the next stream
+    return await _download_presigned_url_async(
+        client=client,
+        url=target,
+        output=output,
+        fallback_name=fallback_name,
+        title_lookup=title_lookup,
+    )
+
+
 async def _download_presigned_url_async(
     *,
     client: AsyncGangtiseClient,
@@ -650,6 +793,7 @@ async def _download_presigned_url_async(
 ) -> Path:
     """Async mirror of `_download_presigned_url` (same retry / redaction / deadline
     contract)."""
+    _require_fetchable_url(url)
     http = client._http_client()
     attempt = 0
     while True:

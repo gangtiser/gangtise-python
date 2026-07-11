@@ -178,6 +178,24 @@ def test_inner_envelope_failure_raises(tmp_path):
     assert excinfo.value.code == "500"
 
 
+def test_inner_envelope_999999_gets_ede_no_data_hint(tmp_path):
+    # An inner-envelope 999999 is past the transport, so _apply_policy_hint never
+    # saw it — _unwrap_indicator_data must still swap the generic "retry later"
+    # hint for the EDE "no data for this query" hint.
+    from gangtise_openapi._errors import EDE_NO_DATA_HINT
+
+    inner = {"code": "999999", "status": False, "msg": "系统错误", "data": None}
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_CROSS).mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": inner})
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ApiError) as excinfo:
+                Indicator(client).cross_section(date="2025-01-02", security="600519.SH")
+    assert excinfo.value.code == "999999"
+    assert excinfo.value.hint == EDE_NO_DATA_HINT
+
+
 def test_build_headers_preseeds_metadata_column_names():
     # TS v0.27.0 parity: an indicator literally named "date"/"security"/"name"
     # must get a suffixed header, not overwrite the metadata column when the

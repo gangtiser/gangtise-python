@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
+from gangtise_openapi._errors import EDE_NO_DATA_HINT, ApiError
 from gangtise_openapi._transport import unwrap_envelope
 from gangtise_openapi.domains._common import (
     FilterValue,
@@ -33,8 +34,17 @@ def _unwrap_indicator_data(raw: Any) -> Any:
     failure code carried only by that inner envelope must surface as an ApiError
     instead of rendering its null payload as success. Delegates to the shared
     ``unwrap_envelope`` so envelope handling stays single-sourced.
+
+    A 999999 here means "no data for this query" just as it does on the outer
+    envelope — swap in the EDE hint (this path is past the transport, so
+    ``_apply_policy_hint`` never saw it).
     """
-    return unwrap_envelope(raw)
+    try:
+        return unwrap_envelope(raw)
+    except ApiError as error:
+        if error.code == "999999":
+            error.hint = EDE_NO_DATA_HINT
+        raise
 
 
 def _as_str_list(value: Any) -> list[str] | None:

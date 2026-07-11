@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import uuid
 from functools import partial
 from pathlib import Path
 from typing import NoReturn
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 import anyio
 import httpx
@@ -17,6 +18,7 @@ from gangtise_openapi._client import AUTH_RETRY_CODES, AsyncGangtiseClient, Gang
 from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import ApiError, DownloadError
 from gangtise_openapi._transport import (
+    _apply_policy_hint,
     _retry_delay,
     is_envelope,
     is_retryable_error,
@@ -40,6 +42,11 @@ _MIME_EXTENSIONS = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
     "application/vnd.ms-powerpoint": ".ppt",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
     "audio/mpeg": ".mp3",
     "text/html": ".html",
     "text/plain": ".txt",
@@ -63,6 +70,24 @@ def _extension_for(content_type: str | None) -> str:
         return ""
     lower = content_type.split(";")[0].strip().lower()
     return _MIME_EXTENSIONS.get(lower, "")
+
+
+def _redact_url(url: str) -> str:
+    """Signed URLs can carry credentials in the query string AND the authority
+    (user:password@host) — error messages must keep only scheme://host[:port]/path
+    so neither signatures nor userinfo land in terminal / CI / error-collector
+    logs (TS download.ts redactUrl parity: URL.origin drops userinfo too)."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if ":" in host:
+            # urlsplit strips the brackets from an IPv6 literal; re-add them.
+            host = f"[{host}]"
+        if parts.port is not None:
+            host = f"{host}:{parts.port}"
+        return f"{parts.scheme}://{host}{parts.path}"
+    except ValueError:
+        return "signed-url"
 
 
 TitleLookup = tuple[str, str, str]  # (list_endpoint_key, id_field, id_value)
@@ -207,6 +232,7 @@ def download_to_path(
             # Download endpoints carry per-篇 billing too (summary / foreign-report /
             # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
+                _apply_policy_hint(endpoint, error)
                 raise
             time.sleep(_retry_delay(error, attempt))
             attempt += 1
@@ -297,6 +323,32 @@ def _part_path(target: Path) -> Path:
     return target.with_suffix(target.suffix + f".part-{uuid.uuid4().hex}")
 
 
+def _claim_auto_named(tmp: Path, target: Path) -> Path:
+    """Commit an auto-named download without ever overwriting: atomically reserve
+    the target with ``O_CREAT|O_EXCL`` (works on every filesystem, unlike hard
+    links), then move the finished ``.part`` onto our own placeholder. Two
+    concurrent downloads whose titles resolve to the same name race
+    ``_unique_path``'s check-then-use window — the reservation loser re-scans for
+    the next free suffix rather than silently clobbering the winner's file.
+    Explicit ``output=`` paths keep plain overwrite semantics and never come
+    through here."""
+    base = target
+    while True:
+        try:
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            target = _unique_path(base)
+            continue
+        os.close(fd)
+        try:
+            # Replacing our OWN just-reserved placeholder — never someone else's file.
+            tmp.replace(target)
+        except OSError:
+            target.unlink(missing_ok=True)
+            raise
+        return target
+
+
 def _check_deadline(deadline: float | None) -> None:
     """Overall transfer deadline for presigned-URL downloads. httpx read timeouts
     are idle-type — a stream trickling one byte per interval resets them forever;
@@ -320,7 +372,7 @@ def _write_response_to_disk(
 ) -> Path:
     content_disposition = response.headers.get("content-disposition")
     content_type = response.headers.get("content-type")
-    target = _decide_target(
+    target, auto_named = _decide_target(
         client=client,
         output=output,
         fallback_name=fallback_name,
@@ -335,7 +387,10 @@ def _write_response_to_disk(
             for chunk in response.iter_bytes():
                 _check_deadline(deadline)
                 fh.write(chunk)
-        tmp.replace(target)
+        if auto_named:
+            target = _claim_auto_named(tmp, target)
+        else:
+            tmp.replace(target)
     except OSError as exc:
         raise DownloadError(f"failed to write to {target}: {exc}") from exc
     finally:
@@ -353,24 +408,41 @@ def _download_presigned_url(
     fallback_name: str,
     title_lookup: TitleLookup | None,
 ) -> Path:
+    """Fetch the actual file bytes from a presigned object-store URL.
+
+    Network-level failures retry with the default policy — replaying the SIGNED
+    URL is always safe (no billing); the billed upstream endpoint is never
+    re-requested on this path (TS ``downloadUrlTo`` parity). HTTP >= 400 raises
+    ``DownloadError`` and is NOT retried: signed URLs expire, so replaying a 403
+    is useless. Each attempt gets its own hard deadline (10x the request
+    timeout) because the idle-type read timeouts reset on every byte.
+    """
     http = client._http_client()
-    deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
-    try:
-        with http.stream("GET", url, follow_redirects=True) as response:
-            if response.status_code >= 400:
-                raise DownloadError(
-                    f"presigned URL fetch failed: HTTP {response.status_code} ({url})"
+    attempt = 0
+    while True:
+        deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
+        try:
+            with http.stream("GET", url, follow_redirects=True) as response:
+                if response.status_code >= 400:
+                    raise DownloadError(
+                        f"presigned URL fetch failed: HTTP {response.status_code} "
+                        f"({_redact_url(url)})"
+                    )
+                return _write_response_to_disk(
+                    client=client,
+                    response=response,
+                    output=output,
+                    fallback_name=fallback_name,
+                    title_lookup=title_lookup,
+                    deadline=deadline,
                 )
-            return _write_response_to_disk(
-                client=client,
-                response=response,
-                output=output,
-                fallback_name=fallback_name,
-                title_lookup=title_lookup,
-                deadline=deadline,
-            )
-    except httpx.HTTPError as error:
-        raise DownloadError(f"presigned URL fetch failed: {error} ({url})") from error
+        except httpx.HTTPError as error:
+            if attempt >= _MAX_RETRIES or not is_retryable_error(error):
+                raise DownloadError(
+                    f"presigned URL fetch failed: {error} ({_redact_url(url)})"
+                ) from error
+            time.sleep(_retry_delay(error, attempt))
+            attempt += 1
 
 
 def _decide_target(
@@ -381,9 +453,12 @@ def _decide_target(
     content_disposition: str | None,
     content_type: str | None,
     title_lookup: TitleLookup | None,
-) -> Path:
+) -> tuple[Path, bool]:
+    """Resolve the on-disk target. Returns ``(path, auto_named)`` — auto-derived
+    names commit via :func:`_link_claim` (no-overwrite), explicit ``output``
+    keeps plain overwrite semantics."""
     if output is not None:
-        return Path(output).expanduser()
+        return Path(output).expanduser(), False
     ext_from_mime = _extension_for(content_type)
     if title_lookup is not None:
         list_key, id_field, id_value = title_lookup
@@ -391,15 +466,15 @@ def _decide_target(
         if title:
             sanitized = _sanitize_filename(title)
             if sanitized:
-                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime))
+                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime)), True
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime))
+            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime)), True
     safe_fallback = _sanitize_filename(fallback_name) or "download"
-    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime))
+    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime)), True
 
 
 async def download_to_path_async(
@@ -447,6 +522,7 @@ async def download_to_path_async(
             # Download endpoints carry per-篇 billing too (summary / foreign-report /
             # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
+                _apply_policy_hint(endpoint, error)
                 raise
             await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1
@@ -536,7 +612,7 @@ async def _write_response_to_disk_async(
 ) -> Path:
     content_disposition = response.headers.get("content-disposition")
     content_type = response.headers.get("content-type")
-    target = await _decide_target_async(
+    target, auto_named = await _decide_target_async(
         client=client,
         output=output,
         fallback_name=fallback_name,
@@ -551,7 +627,10 @@ async def _write_response_to_disk_async(
             async for chunk in response.aiter_bytes():
                 _check_deadline(deadline)
                 await fh.write(chunk)
-        await anyio.to_thread.run_sync(tmp.replace, target)
+        if auto_named:
+            target = await anyio.to_thread.run_sync(_claim_auto_named, tmp, target)
+        else:
+            await anyio.to_thread.run_sync(tmp.replace, target)
     except OSError as exc:
         raise DownloadError(f"failed to write to {target}: {exc}") from exc
     finally:
@@ -569,24 +648,34 @@ async def _download_presigned_url_async(
     fallback_name: str,
     title_lookup: TitleLookup | None,
 ) -> Path:
+    """Async mirror of `_download_presigned_url` (same retry / redaction / deadline
+    contract)."""
     http = client._http_client()
-    deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
-    try:
-        async with http.stream("GET", url, follow_redirects=True) as response:
-            if response.status_code >= 400:
-                raise DownloadError(
-                    f"presigned URL fetch failed: HTTP {response.status_code} ({url})"
+    attempt = 0
+    while True:
+        deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
+        try:
+            async with http.stream("GET", url, follow_redirects=True) as response:
+                if response.status_code >= 400:
+                    raise DownloadError(
+                        f"presigned URL fetch failed: HTTP {response.status_code} "
+                        f"({_redact_url(url)})"
+                    )
+                return await _write_response_to_disk_async(
+                    client=client,
+                    response=response,
+                    output=output,
+                    fallback_name=fallback_name,
+                    title_lookup=title_lookup,
+                    deadline=deadline,
                 )
-            return await _write_response_to_disk_async(
-                client=client,
-                response=response,
-                output=output,
-                fallback_name=fallback_name,
-                title_lookup=title_lookup,
-                deadline=deadline,
-            )
-    except httpx.HTTPError as error:
-        raise DownloadError(f"presigned URL fetch failed: {error} ({url})") from error
+        except httpx.HTTPError as error:
+            if attempt >= _MAX_RETRIES or not is_retryable_error(error):
+                raise DownloadError(
+                    f"presigned URL fetch failed: {error} ({_redact_url(url)})"
+                ) from error
+            await anyio.sleep(_retry_delay(error, attempt))
+            attempt += 1
 
 
 async def _decide_target_async(
@@ -597,9 +686,10 @@ async def _decide_target_async(
     content_disposition: str | None,
     content_type: str | None,
     title_lookup: TitleLookup | None,
-) -> Path:
+) -> tuple[Path, bool]:
+    """Async mirror of `_decide_target` (same ``(path, auto_named)`` contract)."""
     if output is not None:
-        return Path(output).expanduser()
+        return Path(output).expanduser(), False
     ext_from_mime = _extension_for(content_type)
     if title_lookup is not None:
         list_key, id_field, id_value = title_lookup
@@ -607,12 +697,12 @@ async def _decide_target_async(
         if title:
             sanitized = _sanitize_filename(title)
             if sanitized:
-                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime))
+                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime)), True
     disposition_name = _parse_content_disposition(content_disposition)
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime))
+            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime)), True
     safe_fallback = _sanitize_filename(fallback_name) or "download"
-    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime))
+    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime)), True

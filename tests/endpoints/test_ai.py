@@ -26,7 +26,7 @@ def _list_response(rows: list[dict]) -> httpx.Response:
         json={
             "code": "000000",
             "status": True,
-            "data": {"list": rows},
+            "data": {"total": len(rows), "list": rows},
         },
     )
 

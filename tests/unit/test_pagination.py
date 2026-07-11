@@ -67,7 +67,8 @@ def test_unexpected_shape_returned_as_is():
     def fetch(body):
         return {"unexpected": "shape"}
 
-    out = collect_paginated(_ep(), body={}, fetch=fetch, concurrency=3)
+    with pytest.warns(UserWarning, match="unexpected shape"):
+        out = collect_paginated(_ep(), body={}, fetch=fetch, concurrency=3)
     assert out == {"unexpected": "shape"}
 
 

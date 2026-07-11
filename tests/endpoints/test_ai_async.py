@@ -32,7 +32,7 @@ def _dict_response(payload: dict) -> httpx.Response:
 def _list_response(rows: list[dict]) -> httpx.Response:
     return httpx.Response(
         200,
-        json={"code": "000000", "status": True, "data": {"list": rows}},
+        json={"code": "000000", "status": True, "data": {"total": len(rows), "list": rows}},
     )
 
 
@@ -198,7 +198,7 @@ async def test_async_hot_topic_sends_false_flags(tmp_path):
 
 @pytest.mark.anyio
 async def test_async_raw_passthrough(tmp_path):
-    payload = {"list": [{"id": "1"}]}
+    payload = {"total": 1, "list": [{"id": "1"}]}
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         for path in (
             "/application/open-data/ai/search/knowledge/batch",

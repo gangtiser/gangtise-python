@@ -12,7 +12,7 @@ from gangtise_openapi.__about__ import __version__
 from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef, RetryPolicy
-from gangtise_openapi._errors import EDE_NO_DATA_HINT, ApiError
+from gangtise_openapi._errors import EDE_NO_DATA_HINT, NO_REPLAY_UNCERTAIN_HINT, ApiError
 from gangtise_openapi._logging import get_logger
 
 logger = get_logger()
@@ -240,15 +240,23 @@ def request_json(
             return unwrap_envelope(parsed, status_code=status_code)
         except Exception as error:
             if attempt >= max_retries or not is_retryable_error(error, endpoint.retry):
-                _apply_ede_hint(endpoint, error)
+                _apply_policy_hint(endpoint, error)
                 raise
             time.sleep(_retry_delay(error, attempt))
             attempt += 1
 
 
-def _apply_ede_hint(endpoint: EndpointDef, error: BaseException) -> None:
-    """EDE uses 999999 for "no data for this query" (probed 2026-07-11) — the
-    generic "system error, retry later" hint would send the user retrying a
-    query that will never have data. Swap in a context-specific hint."""
-    if endpoint.retry == "no-999999" and isinstance(error, ApiError) and error.code == "999999":
+def _apply_policy_hint(endpoint: EndpointDef, error: BaseException) -> None:
+    """Replace the generic 999999 "retry later" hint where it would mislead.
+
+    EDE ("no-999999"): 999999 means "no data for this query" (probed 2026-07-11)
+    — retrying a query that will never have data is pure waste. Per-call billed
+    endpoints ("no-replay"): the SDK deliberately did not retry because the
+    request may already have executed and billed — "retry later" would invite a
+    manual double-bill."""
+    if not (isinstance(error, ApiError) and error.code == "999999"):
+        return
+    if endpoint.retry == "no-999999":
         error.hint = EDE_NO_DATA_HINT
+    elif endpoint.retry == "no-replay":
+        error.hint = NO_REPLAY_UNCERTAIN_HINT

@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.16] - 2026-07-11
+
+Security and download-integrity fixes from an adversarial review of 0.1.15. No
+endpoint or API-surface changes (still `gangtise-openapi-cli` v0.27.0 parity, 90
+endpoints).
+
+### Fixed
+- **Signed URLs no longer leak into exception messages.** Presigned-URL fetch
+  failures used to embed the full URL — including the `X-Amz-Signature` query and
+  any `user:password@` authority — in `DownloadError` text, where terminals, CI
+  logs and error collectors would record it. Messages now carry only
+  `scheme://host[:port]/path` (userinfo, query and fragment stripped; IPv6 hosts
+  re-bracketed).
+- **Auto-named downloads can no longer overwrite each other.** Two concurrent
+  `output=None` downloads whose titles resolve to the same filename raced
+  `_unique_path`'s check-then-use window: the later `replace()` silently clobbered
+  the earlier file. Auto-derived names now commit via an atomic
+  `O_CREAT|O_EXCL` reservation — the loser re-scans for the next `-1..-99` suffix —
+  and a failed final move cleans up its placeholder. Works on every filesystem
+  (no hard-link dependency); explicit `output=` paths keep documented overwrite
+  semantics.
+- **Presigned-URL fetches now retry transient network failures** (default policy,
+  per-attempt 10× hard deadline). Replaying the signed URL is always safe — the
+  billed upstream endpoint is never re-requested; HTTP >= 400 on a signed URL
+  still fails fast (signed URLs expire, replaying a 403 is useless).
+- **`report_image_download` auto-names now get their extension**: `image/png` /
+  `image/jpeg` / `image/gif` / `image/webp` / `image/svg+xml` joined the MIME→ext
+  map (TS parity), so an auto-named image lands as `report-image-<id>.jpg`
+  instead of extension-less.
+- **999999 on a no-replay endpoint no longer hints "retry later".** The SDK
+  deliberately did not retry (the request may have executed and billed); the hint
+  now says to verify the result/billing before manually retrying.
+
+### Changed
+- Paginated-endpoint test fixtures normalized to the real `{total, list}` shape;
+  the suite now passes with `-W error::UserWarning`, so a future genuine
+  shape-drift warning cannot hide in fixture noise.
+
 ## [0.1.15] - 2026-07-11
 
 Sync with `gangtise-openapi-cli` v0.24.0–v0.27.0: billing-safe retry policies, 4 new

@@ -622,6 +622,171 @@ def test_download_presigned_fetch_failure_raises_download_error(tmp_path: Path) 
     assert not (tmp_path / "out.pdf").exists()
 
 
+def test_presigned_error_redacts_signature_from_message(tmp_path: Path) -> None:
+    # Signed URLs carry credentials in the query string — the exception text must
+    # keep only scheme://host/path so signatures never land in terminal/CI logs.
+    signed = "https://cdn.test/signed/report?X-Amz-Signature=SECRET&X-Amz-Expires=60"
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"url": signed}},
+                headers={"content-type": "application/json"},
+            )
+        )
+        router.get(signed).mock(return_value=httpx.Response(403, text="denied"))
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(DownloadError) as exc,
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    message = str(exc.value)
+    assert "SECRET" not in message and "X-Amz" not in message
+    assert "https://cdn.test/signed/report" in message
+
+
+def test_presigned_fetch_retries_network_error_without_rebilling_upstream(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # A transient network failure on the SIGNED URL retries (safe, unbilled);
+    # the billed upstream endpoint must be requested exactly once.
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        upstream = router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"url": "https://cdn.test/s/f"}},
+                headers={"content-type": "application/json"},
+            )
+        )
+        cdn = router.get("https://cdn.test/s/f").mock(
+            side_effect=[
+                httpx.ConnectError("refused"),
+                httpx.Response(
+                    200, content=b"%PDF-cdn", headers={"content-type": "application/pdf"}
+                ),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    assert upstream.call_count == 1
+    assert cdn.call_count == 2
+    assert path.read_bytes() == b"%PDF-cdn"
+
+
+def test_claim_auto_named_never_overwrites_and_picks_next_suffix(tmp_path: Path) -> None:
+    # The check-then-use window in _unique_path lets two concurrent auto-named
+    # downloads pick the same target; the commit must lose gracefully to the
+    # next suffix instead of clobbering the winner's file.
+    from gangtise_openapi._download import _claim_auto_named
+
+    target = tmp_path / "same.pdf"
+    target.write_bytes(b"winner")  # a racer claimed the name after our check
+    tmp = tmp_path / "same.pdf.part-abc"
+    tmp.write_bytes(b"loser-content")
+    final = _claim_auto_named(tmp, target)
+    assert final == tmp_path / "same-1.pdf"
+    assert target.read_bytes() == b"winner"
+    assert final.read_bytes() == b"loser-content"
+
+
+def test_claim_auto_named_cleans_placeholder_when_move_fails(tmp_path: Path) -> None:
+    # If the final move fails, the O_EXCL placeholder must not linger as a bogus
+    # empty download.
+    from gangtise_openapi._download import _claim_auto_named
+
+    target = tmp_path / "fresh.pdf"
+    missing_tmp = tmp_path / "fresh.pdf.part-gone"  # never created -> replace raises
+    with pytest.raises(OSError):
+        _claim_auto_named(missing_tmp, target)
+    assert not target.exists()
+
+
+def test_redact_url_strips_userinfo_query_and_fragment() -> None:
+    from gangtise_openapi._download import _redact_url
+
+    redacted = _redact_url("https://alice:TOPSECRET@cdn.test:8443/f?X-Amz-Signature=S#frag")
+    assert redacted == "https://cdn.test:8443/f"
+    for secret in ("alice", "TOPSECRET", "X-Amz", "frag"):
+        assert secret not in redacted
+
+
+def test_concurrent_auto_named_downloads_keep_both_files(tmp_path: Path, monkeypatch) -> None:
+    # End-to-end: two output=None downloads resolving the same fallback name must
+    # land as two files with intact contents — never a silent overwrite.
+    monkeypatch.chdir(tmp_path)
+    barrier = threading.Barrier(2)
+    results: list[Path] = []
+    errors: list[BaseException] = []
+
+    def worker(client: GangtiseClient) -> None:
+        try:
+            barrier.wait(timeout=10)
+            results.append(
+                download_to_path(
+                    client=client,
+                    endpoint_key="insight.research.download",
+                    query={"reportId": "r1"},
+                    output=None,
+                    fallback_name="same-name",
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            side_effect=[
+                httpx.Response(200, content=b"AAA", headers={"content-type": "application/pdf"}),
+                httpx.Response(200, content=b"BBB", headers={"content-type": "application/pdf"}),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            threads = [threading.Thread(target=worker, args=(client,)) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+    assert not errors, errors
+    assert len(results) == 2
+    assert results[0] != results[1]
+    contents = sorted(p.read_bytes() for p in results)
+    assert contents == [b"AAA", b"BBB"]
+
+
+def test_report_image_auto_name_gets_jpg_extension(tmp_path: Path, monkeypatch) -> None:
+    # image/jpeg was missing from the MIME map: an auto-named report-image download
+    # without Content-Disposition used to land as "report-image-c1" (no extension).
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/report-image/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.report-image.download",
+                query={"chunkId": "c1"},
+                output=None,
+                fallback_name="report-image-c1",
+            )
+    assert path.name == "report-image-c1.jpg"
+
+
 def test_download_4xx_envelope_raises_api_error_with_code_and_hint(tmp_path: Path) -> None:
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.get("/application/open-insight/broker-report/download/file").mock(
@@ -1329,3 +1494,97 @@ def test_check_deadline_raises_past_deadline() -> None:
     _check_deadline(time.monotonic() + 60)  # future -> no-op
     with pytest.raises(DownloadError, match="overall deadline"):
         _check_deadline(time.monotonic() - 1)
+
+
+@pytest.mark.anyio
+async def test_presigned_error_redacts_signature_from_message_async(tmp_path: Path) -> None:
+    signed = "https://cdn.test/signed/report?X-Amz-Signature=SECRET"
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"url": signed}},
+                headers={"content-type": "application/json"},
+            )
+        )
+        router.get(signed).mock(return_value=httpx.Response(403, text="denied"))
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(DownloadError) as exc:
+                await download_to_path_async(
+                    client=client,
+                    endpoint_key="insight.research.download",
+                    query={"reportId": "r1"},
+                    output=tmp_path / "out.pdf",
+                    fallback_name="report-r1",
+                )
+    message = str(exc.value)
+    assert "SECRET" not in message and "X-Amz" not in message
+    assert "https://cdn.test/signed/report" in message
+
+
+@pytest.mark.anyio
+async def test_presigned_fetch_retries_network_error_async(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        upstream = router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"url": "https://cdn.test/s/f"}},
+                headers={"content-type": "application/json"},
+            )
+        )
+        cdn = router.get("https://cdn.test/s/f").mock(
+            side_effect=[
+                httpx.ConnectError("refused"),
+                httpx.Response(
+                    200, content=b"%PDF-cdn", headers={"content-type": "application/pdf"}
+                ),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    assert upstream.call_count == 1
+    assert cdn.call_count == 2
+    assert path.read_bytes() == b"%PDF-cdn"
+
+
+@pytest.mark.anyio
+async def test_concurrent_auto_named_downloads_keep_both_files_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Async sibling of the sync race test: two output=None downloads resolving the
+    # same fallback name must land as two files with intact contents.
+    monkeypatch.chdir(tmp_path)
+    results: list[Path] = []
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            side_effect=[
+                httpx.Response(200, content=b"AAA", headers={"content-type": "application/pdf"}),
+                httpx.Response(200, content=b"BBB", headers={"content-type": "application/pdf"}),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+
+            async def run_one() -> None:
+                results.append(
+                    await download_to_path_async(
+                        client=client,
+                        endpoint_key="insight.research.download",
+                        query={"reportId": "r1"},
+                        output=None,
+                        fallback_name="same-name",
+                    )
+                )
+
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(run_one)
+                tg.start_soon(run_one)
+    assert len(results) == 2
+    assert results[0] != results[1]
+    assert sorted(p.read_bytes() for p in results) == [b"AAA", b"BBB"]

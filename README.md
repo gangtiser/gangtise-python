@@ -6,6 +6,14 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.16 - 2026-07-11
+- **安全**：签名 URL 不再泄露进异常信息——此前预签名下载失败的 `DownloadError` 会带完整 URL（含 `X-Amz-Signature` 查询串与 `user:password@` 认证段），终端/CI/错误采集系统都会记录；现只保留 `scheme://host[:port]/path`（userinfo、query、fragment 全部剥离，IPv6 主机自动补回方括号）。
+- **数据完整性**：自动命名下载不再互相覆盖——两个 `output=None` 的并发下载解析到同名文件时，此前后完成者会静默覆盖前者；现改用 `O_CREAT|O_EXCL` 原子占名提交，输家自动改用下一个 `-1..-99` 后缀，最终移动失败时清理占位文件。全文件系统可用（不依赖硬链接）；显式 `output=` 保持文档化的覆盖语义。
+- 签名 URL 拉取遇瞬态网络错误现会重试（默认策略、每次尝试独立 10× 硬截止）——重放签名 URL 恒安全，**计费上游端点绝不重发**；签名 URL 的 HTTP ≥400 仍立即失败（签名会过期，重放 403 无意义）。
+- MIME→扩展名映射补齐图片类（png/jpeg/gif/webp/svg，与 TS 一致）：`report_image_download` 自动命名现落地为 `report-image-<id>.jpg` 而非无扩展名。
+- no-replay 端点的 999999 提示不再写「请稍后重试」（SDK 未自动重试、请求可能已执行计费），改为提示先核实结果/扣费再决定是否手动重试。
+- 测试套件在 `-W error::UserWarning` 下零警告通过（分页 fixture 统一为真实 `{total, list}` 形状），真实协议漂移告警不再被噪音掩盖。无端点/API 表面变更，仍对齐 CLI v0.27.0、90 接口。
+
 ### 0.1.15 - 2026-07-11
 - 对齐 CLI v0.24.0–v0.27.0。**计费安全（重要）**：16 个按次计费端点（7 个 AI 同步生成、`earnings_review`/`viewpoint_debate` 的 get-id、`hot_topic`、`knowledge_batch`、`concept_info`/`concept_securities`、`summary`/`foreign_report`/`my_conference` 三个下载）改为 **no-replay 重试策略**——5xx/响应超时/999999 不再自动重放（实测平台按次计费且缓存命中不豁免，同参数重放每次都扣分）；仅连接期错误（请求未发出）、429 限流和 token 自愈仍重试。
 - **EDE 指标三端点对 999999 不再重试**——服务端用 HTTP 500 + 999999 表示「查询无数据」（节假日/未来日期/未覆盖标的），此前每次空查询白烧 3 个请求 + ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」。
@@ -38,11 +46,6 @@
 - 分页更稳：`MAX_PAGES` 上限改为生成扇出请求时即刻生效（损坏的 `total` 不再撑爆内存/挂死）；空或短首页不再重复请求同一偏移；异步畸形/空扇出页标 `partial`。
 - 异步门面：不再跨 `asyncio.run()` 复用旧事件循环的 `httpx.AsyncClient`（消除 “Event loop is closed”）；`reset()`/`configure(replace=True)` 会关闭缓存的异步客户端。
 - 发布 CI：`uv sync --locked`、发版前校验 README/CHANGELOG 含该 tag、PyPI 发布 action 钉到 commit SHA。
-
-### 0.1.11 - 2026-06-29
-- 对齐 CLI v0.21.0：`vault.wechat_chatroom_list` 省略 `size` 改为拉取全部群（接口不返回 total，按页串行翻到末页、单页上限 50；传 `size=N` 仅取前 N 条）；下载文件名额外剥离控制字符/NUL。
-- 安全：token 缓存与 title 缓存改为创建即 `0600`（`os.open(O_EXCL)`）+ 原子 rename，消除“先写后 chmod”的短暂可读窗口。
-- 数据完整性：扇出分页与 K 线分片遇 2xx 畸形响应时标记 `partial` 并告警、不再静默丢行；修复串行分页取满即误报 MAX_PAGES 截断；title 缓存加载丢弃半损坏 entry；pytest 默认 `-m "not live"`，裸跑不再打真实 API。
 
 ## 安装
 

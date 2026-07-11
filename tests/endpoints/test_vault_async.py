@@ -150,7 +150,10 @@ async def test_async_wechat_chatroom_list_joins_room_names(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"chatroomId": "r1", "roomName": "group1"}],
+                    "data": {
+                        "total": 1,
+                        "list": [{"chatroomId": "r1", "roomName": "group1"}],
+                    },
                 },
             )
         )

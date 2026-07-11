@@ -5,7 +5,7 @@ import pytest
 
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef, RetryPolicy
-from gangtise_openapi._errors import EDE_NO_DATA_HINT, ApiError
+from gangtise_openapi._errors import EDE_NO_DATA_HINT, NO_REPLAY_UNCERTAIN_HINT, ApiError
 from gangtise_openapi._transport import (
     RETRY_AFTER_CEILING_MS,
     RETRYABLE_API_CODES,
@@ -204,6 +204,17 @@ def test_request_json_no_999999_fails_fast_with_ede_hint(respx_mock, config: Con
     assert route.call_count == 1
     assert exc.value.code == "999999"
     assert exc.value.hint == EDE_NO_DATA_HINT
+
+
+def test_request_json_no_replay_999999_gets_billing_caution_hint(respx_mock, config: Config):
+    # The generic "请稍后重试" hint would invite a manual double-bill on a per-call
+    # billed endpoint whose request may already have executed.
+    respx_mock.post("/p").mock(
+        return_value=httpx.Response(500, json={"code": "999999", "status": False, "msg": "err"})
+    )
+    with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
+        request_json(http, _endpoint("/p", retry="no-replay"), body={}, token="tok")
+    assert exc.value.hint == NO_REPLAY_UNCERTAIN_HINT
 
 
 # ─── Retry-After (TS v0.24 parity) ───

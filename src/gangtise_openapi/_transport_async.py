@@ -14,7 +14,7 @@ from gangtise_openapi._errors import ApiError
 from gangtise_openapi._logging import get_logger
 from gangtise_openapi._transport import (
     USER_AGENT,
-    _apply_ede_hint,
+    _apply_policy_hint,
     _effective_timeout,
     _retry_delay,
     is_envelope,
@@ -119,7 +119,7 @@ async def request_json_async(
             return unwrap_envelope(parsed, status_code=status_code)
         except Exception as error:
             if attempt >= max_retries or not is_retryable_error(error, endpoint.retry):
-                _apply_ede_hint(endpoint, error)
+                _apply_policy_hint(endpoint, error)
                 raise
             await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1

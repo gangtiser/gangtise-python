@@ -34,6 +34,14 @@ EDE_NO_DATA_HINT = (
     "——先检查查询条件，确认应有数据再重试。"
 )
 
+# Override for per-call billed (no-replay) endpoints: the SDK deliberately did
+# not retry because the request may already have executed and billed — the
+# generic "请稍后重试" would invite a manual double-bill.
+NO_REPLAY_UNCERTAIN_HINT = (
+    "Gangtise 系统错误；该接口按次计费且此请求可能已被服务端执行"
+    "（SDK 按 no-replay 策略未自动重试）——请先核实结果/扣费，再决定是否手动重试。"
+)
+
 
 class GangtiseError(Exception):
     """Base class for all gangtise-openapi exceptions."""

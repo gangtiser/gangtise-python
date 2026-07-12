@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import errno
 import json
 import os
 import re
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import suppress
 from functools import partial
 from pathlib import Path
 from typing import NoReturn
@@ -17,8 +18,9 @@ import httpx
 from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._client import AUTH_RETRY_CODES, AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._endpoints import EndpointDef, lookup
-from gangtise_openapi._errors import ApiError, DownloadError
+from gangtise_openapi._errors import FOLLOWED_TARGET_HINT, ApiError, DownloadError
 from gangtise_openapi._transport import (
+    RETRYABLE_HTTP_STATUS,
     _apply_policy_hint,
     _retry_delay,
     is_envelope,
@@ -29,6 +31,11 @@ from gangtise_openapi._transport import (
 
 # Matches request_json's default max_retries (see _transport.py).
 _MAX_RETRIES = 2
+
+# Cap on chained presigned-URL hops (a 200+JSON ``{url}`` pointing at another
+# ``{url}``). Bounds a self-referential / cyclic chain so it fails with a
+# DownloadError instead of recursing to RecursionError + a request storm.
+_MAX_URL_HOPS = 5
 
 _DISPOSITION_RE = re.compile(
     r"filename\*?\s*=\s*(?:(?:[^']*)''([^;]+)|\"?([^\";]+)\"?)",
@@ -83,11 +90,23 @@ def _redact_url(url: str) -> str:
     invalid port raises ``ValueError`` on ``parts.port`` — both are caught here
     so no secret can survive in a message."""
     try:
+        # Fail closed to httpx's own verdict first: it rejects forms urlsplit waves
+        # through and would otherwise echo — a bad dotted-quad (1.2.3.999), a
+        # too-long/bad-IDNA host, an embedded control char. Keeps the redactor
+        # consistent with _require_fetchable_url (the fetcher uses the same parser).
+        httpx.URL(url)
+    except httpx.InvalidURL:
+        return "redacted-url"
+    try:
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https"):
             return "redacted-url"
         host = parts.hostname
         if not host:
+            return "redacted-url"
+        if not (host.isascii() and host.isprintable()):
+            # A non-ASCII / non-printable authority is malformed (real IDN hosts are
+            # punycode on the wire); don't echo it into the fail-closed message.
             return "redacted-url"
         port = parts.port  # raises ValueError on a non-numeric / out-of-range port
         if ":" in host:
@@ -101,21 +120,49 @@ def _redact_url(url: str) -> str:
 
 
 def _require_fetchable_url(url: str) -> None:
-    """Reject a would-be download URL that is not an absolute http(s) URL with a
-    host and a valid port BEFORE handing it to httpx. ``httpx.InvalidURL`` (e.g.
-    a bad port) is not an ``httpx.HTTPError``, so it would otherwise escape the
-    fetch loop unwrapped and carry the raw (secret-bearing) URL in its message."""
-    try:
-        parts = urlsplit(url)
-        ok = parts.scheme in ("http", "https") and bool(parts.hostname)
-        if ok:
-            parts.port  # raises ValueError on an invalid port  # noqa: B018
-    except ValueError:
-        ok = False
+    """Reject a would-be download URL that httpx's own parser would choke on BEFORE
+    handing it to ``http.stream``. stdlib ``urlsplit`` is laxer than httpx: it
+    silently strips surrounding/embedded whitespace and validates neither host nor
+    port, so a URL with a control char, a malformed dotted-quad / IDNA host, an
+    over-long body, or leading whitespace passes ``urlsplit`` yet makes
+    ``httpx.URL`` raise ``httpx.InvalidURL`` — which is NOT an ``httpx.HTTPError``,
+    so it would escape the fetch loop unwrapped, carrying the raw (secret-bearing)
+    URL in its message. Validate with ``httpx.URL`` itself (the parser the fetch
+    will use), plus an exact-strip check for the leading whitespace httpx would
+    otherwise treat as a relative URL and silently merge onto the API base_url."""
+    ok = url == url.strip()
+    if ok:
+        try:
+            parsed = httpx.URL(url)
+            ok = parsed.scheme in ("http", "https") and bool(parsed.host)
+        except httpx.InvalidURL:
+            ok = False
     if not ok:
         raise DownloadError(
             f"refusing to fetch a non-http(s) or malformed download URL ({_redact_url(url)})"
         )
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _same_origin(url: str, base_url: str) -> bool:
+    """True when ``url`` shares scheme + host + effective port with ``base_url``
+    (mirrors httpx's same-origin test, default ports normalized). A download 3xx
+    that stays on the API origin may keep the bearer token; a cross-origin hop (a
+    presigned CDN) must not — the token is a first-party credential."""
+    try:
+        a, b = httpx.URL(url), httpx.URL(base_url)
+    except httpx.InvalidURL:
+        return False
+
+    def origin(u: httpx.URL) -> tuple[str, str, int | None]:
+        # `port if not None` — NOT `port or default`: an explicit :0 is a real,
+        # distinct port, and folding it to the default would call it same-origin.
+        port = u.port if u.port is not None else _DEFAULT_PORTS.get(u.scheme)
+        return (u.scheme, (u.host or "").lower(), port)
+
+    return origin(a) == origin(b)
 
 
 TitleLookup = tuple[str, str, str]  # (list_endpoint_key, id_field, id_value)
@@ -240,6 +287,17 @@ def download_to_path(
                 title_lookup=title_lookup,
             )
         except ApiError as error:
+            if error.from_followed_target:
+                # Surfaced from PAST the billed upstream (a followed redirect /
+                # presigned target). ANY outer replay re-sends the billed upstream —
+                # never safe, whatever the code: an auth envelope (0000001008), a
+                # retryable 999999, or anything else. The target's own fetch loop
+                # already did any target-only retry; here we only surface. This is
+                # the one guard that keeps report-image (default-retry, 0.1 积分/张)
+                # and the 50/篇 no-replay endpoints from double-billing. The hint is
+                # already the billing-safe FOLLOWED_TARGET_HINT (set at the mint site),
+                # so no _apply_policy_hint here (it would overwrite it).
+                raise
             if (
                 not auth_retried
                 and error.code in AUTH_RETRY_CODES
@@ -297,6 +355,7 @@ def _download_once(
             return _follow_download_redirect(
                 client=client,
                 response=response,
+                token=token,
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
@@ -313,27 +372,14 @@ def _download_once(
         content_type_header = response.headers.get("content-type", "")
         if "application/json" in content_type_header.lower():
             response.read()
-            try:
-                parsed = response.json()
-            except ValueError as err:
-                raise DownloadError(
-                    f"download returned JSON content-type but body not parseable: "
-                    f"{response.text[:200]}"
-                ) from err
-            # unwrap_envelope raises ApiError on business failure; non-envelope
-            # payloads pass through unchanged (TS parity).
-            data = unwrap_envelope(parsed, status_code=response.status_code)
-            if isinstance(data, dict) and isinstance(data.get("url"), str):
-                # Presigned-URL response: fetch the actual file from that URL.
-                return _download_presigned_url(
-                    client=client,
-                    url=data["url"],
-                    output=output,
-                    fallback_name=fallback_name,
-                    title_lookup=title_lookup,
-                )
-            raise DownloadError(
-                f"download endpoint returned JSON, not a file: {response.text[:200]}"
+            return _handle_json_download_response(
+                client=client,
+                response=response,
+                token=token,
+                output=output,
+                fallback_name=fallback_name,
+                title_lookup=title_lookup,
+                hop=0,
             )
 
         return _write_response_to_disk(
@@ -357,20 +403,22 @@ def _part_path(target: Path) -> Path:
     return target.with_suffix(target.suffix + f".part-{uuid.uuid4().hex}")
 
 
-# errnos meaning "this filesystem can't hard-link" (FAT, some network mounts,
-# cross-device): fall back to the O_EXCL placeholder. Any OTHER OSError from
-# os.link is a real failure and must propagate, not silently degrade.
-_LINK_UNSUPPORTED_ERRNOS = frozenset(
-    e
-    for e in (
-        getattr(errno, "EPERM", None),
-        getattr(errno, "EXDEV", None),
-        getattr(errno, "EOPNOTSUPP", None),
-        getattr(errno, "ENOSYS", None),
-        getattr(errno, "EACCES", None),
+def _suffix_candidates(desired: Path) -> Iterator[Path]:
+    """The names an auto-named commit may claim, in order: the desired name, then
+    ``-1..-99`` before the extension. Both claim strategies scan this SAME sequence
+    from the ORIGINAL name, so a collision yields ``report-2.pdf`` (never
+    ``report-1-1.pdf``) and the two paths can't diverge on cap, suffixing, or the
+    refusal message."""
+    yield desired
+    for i in range(1, 100):
+        yield _suffixed(desired, i)
+
+
+def _refuse_overwrite(desired: Path) -> NoReturn:
+    raise DownloadError(
+        f"Refusing to overwrite: 100 files already share the name {desired.name!r} — "
+        "pass output= or clean up the directory"
     )
-    if e is not None
-)
 
 
 def _claim_auto_named(tmp: Path, desired: Path) -> Path:
@@ -379,27 +427,24 @@ def _claim_auto_named(tmp: Path, desired: Path) -> Path:
 
     Primary path — ``os.link``: hard-link the finished ``.part`` onto the target
     so the *complete* file appears in a single step (no 0-byte window); an
-    existing name raises ``FileExistsError`` → try the next suffix. On a
-    filesystem without hard-link support, fall back to an ``O_CREAT|O_EXCL``
-    placeholder + ``replace`` — still atomic-claim and non-clobbering (it only
-    replaces its OWN placeholder), at the cost of a brief 0-byte window. Explicit
-    ``output=`` paths keep plain overwrite semantics and never come through here.
+    existing name raises ``FileExistsError`` → try the next suffix. ANY other
+    ``os.link`` failure means "this filesystem can't hard-link" — FAT/exFAT/SMB
+    report ENOTSUP/EINVAL/EPERM/EMLINK/… and the exact errno is environment- and
+    OS-specific, so rather than whitelist them we fall back on any ``OSError`` to
+    the ``O_CREAT|O_EXCL`` placeholder, which is universally safe: a genuinely
+    fatal condition (ENOSPC, EROFS) simply re-raises at the placeholder's
+    ``os.open``. Explicit ``output=`` paths keep plain overwrite semantics and
+    never come through here.
     """
-    for i in range(0, 100):
-        candidate = desired if i == 0 else _suffixed(desired, i)
+    for candidate in _suffix_candidates(desired):
         try:
             os.link(tmp, candidate)
         except FileExistsError:
             continue
-        except OSError as exc:
-            if exc.errno in _LINK_UNSUPPORTED_ERRNOS:
-                return _claim_via_placeholder(tmp, desired)
-            raise
+        except OSError:
+            return _claim_via_placeholder(tmp, desired)
         return candidate
-    raise DownloadError(
-        f"Refusing to overwrite: 100 files already share the name {desired.name!r} — "
-        "pass output= or clean up the directory"
-    )
+    _refuse_overwrite(desired)
 
 
 def _claim_via_placeholder(tmp: Path, desired: Path) -> Path:
@@ -407,24 +452,29 @@ def _claim_via_placeholder(tmp: Path, desired: Path) -> Path:
     ``O_CREAT|O_EXCL`` (atomic, non-clobbering), then move the ``.part`` onto our
     own placeholder. A brief 0-byte window exists between reserve and move; it is
     accepted only on filesystems that cannot hard-link."""
-    for i in range(0, 100):
-        candidate = desired if i == 0 else _suffixed(desired, i)
+    for candidate in _suffix_candidates(desired):
         try:
             fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             continue
-        os.close(fd)
+        # The fd exists ONLY to reserve the name atomically (O_EXCL); we write
+        # nothing through it. Close is best-effort: a close-time OSError (e.g. EIO on
+        # a flaky SMB/exFAT mount) must not abort the commit, or the complete .part
+        # would be lost to the outer finally and only this 0-byte placeholder would
+        # remain. The rename below is the load-bearing step and needs no live fd.
+        with suppress(OSError):
+            os.close(fd)
         try:
             # Replacing our OWN just-reserved placeholder — never someone else's file.
             tmp.replace(candidate)
         except OSError:
-            candidate.unlink(missing_ok=True)
+            # Best-effort cleanup of our placeholder; a failing unlink must not mask
+            # the original move error (which is what the bare `raise` re-raises).
+            with suppress(OSError):
+                candidate.unlink(missing_ok=True)
             raise
         return candidate
-    raise DownloadError(
-        f"Refusing to overwrite: 100 files already share the name {desired.name!r} — "
-        "pass output= or clean up the directory"
-    )
+    _refuse_overwrite(desired)
 
 
 def _check_deadline(deadline: float | None) -> None:
@@ -472,9 +522,13 @@ def _write_response_to_disk(
     except OSError as exc:
         raise DownloadError(f"failed to write to {target}: {exc}") from exc
     finally:
-        # No-op after a successful replace; cleans up the .part file when the
-        # stream fails mid-flight (httpx errors are not OSError subclasses).
-        tmp.unlink(missing_ok=True)
+        # Best-effort .part cleanup. After a committed os.link/replace the file
+        # already landed, so a cleanup failure (AV lock, read-only mount) must not
+        # mask success and report a false failure (which would prompt a re-invoke
+        # of a no-replay billed endpoint); when the stream failed mid-flight this
+        # still removes the partial file (httpx errors are not OSError subclasses).
+        with suppress(OSError):
+            tmp.unlink(missing_ok=True)
     return target
 
 
@@ -499,50 +553,139 @@ def _follow_download_redirect(
     *,
     client: GangtiseClient,
     response: httpx.Response,
+    token: str,
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
 ) -> Path:
-    """Route a 3xx download response to the signed-URL fetcher (safe to replay)."""
+    """Route a 3xx download response to the signed-URL fetcher (safe to replay).
+
+    ``token`` is passed through so the fetcher can attach the bearer when — and
+    only when — the target stays on the API origin (recomputed per hop); a
+    presigned CDN is cross-origin and never sees it. This mirrors TS ``client.ts``
+    and restores the same-origin auth v0.1.16's inline httpx-follow provided."""
     target = _redirect_target(response)
     response.read()  # drain the redirect body before opening the next stream
     return _download_presigned_url(
         client=client,
         url=target,
+        token=token,
         output=output,
         fallback_name=fallback_name,
         title_lookup=title_lookup,
     )
 
 
+class _RetryableStatus(Exception):
+    """Internal signal that a presigned/redirect fetch got a retryable HTTP status
+    (429/5xx). Carries Retry-After so the loop's ``_retry_delay`` can honor it after
+    the stream is closed. Never escapes ``_download_presigned_url``."""
+
+    def __init__(self, retry_after_ms: float | None) -> None:
+        super().__init__()
+        self.retry_after_ms = retry_after_ms
+
+
+def _handle_json_download_response(
+    *,
+    client: GangtiseClient,
+    response: httpx.Response,
+    token: str,
+    output: str | Path | None,
+    fallback_name: str,
+    title_lookup: TitleLookup | None,
+    hop: int,
+) -> Path:
+    """A 2xx download response with a JSON Content-Type is never file bytes: it is a
+    business-envelope error, presigned-URL metadata, or a non-file payload. Raise
+    ApiError on a failed envelope (so a redirect target answering 200 + error JSON
+    is surfaced, not written to disk as a "file"), chain to ``data['url']`` when
+    present (bounded by ``_MAX_URL_HOPS`` so a cyclic chain fails cleanly), else
+    raise DownloadError. Shared by the direct download path and the followed-target
+    fetch; the caller must have already read the body."""
+    try:
+        parsed = response.json()
+    except ValueError as err:
+        raise DownloadError(
+            f"download returned JSON content-type but body not parseable: {response.text[:200]}"
+        ) from err
+    # unwrap_envelope raises ApiError on business failure; non-envelope payloads
+    # pass through unchanged (TS parity).
+    data = unwrap_envelope(parsed, status_code=response.status_code)
+    if isinstance(data, dict) and isinstance(data.get("url"), str):
+        if hop >= _MAX_URL_HOPS:
+            raise DownloadError(
+                f"download exceeded {_MAX_URL_HOPS} presigned-URL hops — "
+                "a self-referential or cyclic {url} chain"
+            )
+        return _download_presigned_url(
+            client=client,
+            url=data["url"],
+            token=token,
+            output=output,
+            fallback_name=fallback_name,
+            title_lookup=title_lookup,
+            hop=hop + 1,
+        )
+    raise DownloadError(f"download endpoint returned JSON, not a file: {response.text[:200]}")
+
+
 def _download_presigned_url(
     *,
     client: GangtiseClient,
     url: str,
+    token: str,
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    hop: int = 0,
 ) -> Path:
-    """Fetch the actual file bytes from a presigned object-store URL.
+    """Fetch the actual file bytes from a presigned object-store URL (or a followed
+    redirect / ``{url}`` target).
 
-    Network-level failures retry with the default policy — replaying the SIGNED
-    URL is always safe (no billing); the billed upstream endpoint is never
-    re-requested on this path (TS ``downloadUrlTo`` parity). HTTP >= 400 raises
-    ``DownloadError`` and is NOT retried: signed URLs expire, so replaying a 403
-    is useless. Each attempt gets its own hard deadline (10x the request
-    timeout) because the idle-type read timeouts reset on every byte.
-    """
+    Retries the SIGNED URL — never the billed upstream endpoint (TS
+    ``downloadUrlTo`` parity) — on network failures AND on a retryable HTTP status
+    (429/5xx, honoring Retry-After): replaying the signed URL bills nothing. A
+    non-retryable HTTP >= 400 (403/404 — an expired signature can't be un-expired)
+    raises ``DownloadError``. A 2xx JSON body is an envelope/error, not file bytes,
+    and is routed through the shared JSON handler. Each attempt gets its own hard
+    deadline (10x the request timeout) because the idle-type read timeouts reset on
+    every byte. The bearer is attached only when THIS target is on the API origin
+    (recomputed per hop — a cross-origin CDN never sees it). An ApiError surfaced
+    here comes from the followed target, past the billed upstream, so it is tagged
+    ``from_followed_target`` to stop download_to_path replaying the billed endpoint."""
     _require_fetchable_url(url)
     http = client._http_client()
+    headers = (
+        {"Authorization": normalize_token(token)}
+        if _same_origin(url, client._config.base_url)
+        else None
+    )
     attempt = 0
     while True:
         deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
         try:
-            with http.stream("GET", url, follow_redirects=True) as response:
+            with http.stream("GET", url, headers=headers, follow_redirects=True) as response:
                 if response.status_code >= 400:
+                    response.read()
+                    if response.status_code in RETRYABLE_HTTP_STATUS and attempt < _MAX_RETRIES:
+                        raise _RetryableStatus(
+                            parse_retry_after_ms(response.headers.get("retry-after"), time.time())
+                        )
                     raise DownloadError(
                         f"presigned URL fetch failed: HTTP {response.status_code} "
                         f"({_redact_url(url)})"
+                    )
+                if "application/json" in response.headers.get("content-type", "").lower():
+                    response.read()
+                    return _handle_json_download_response(
+                        client=client,
+                        response=response,
+                        token=token,
+                        output=output,
+                        fallback_name=fallback_name,
+                        title_lookup=title_lookup,
+                        hop=hop,
                     )
                 return _write_response_to_disk(
                     client=client,
@@ -552,6 +695,18 @@ def _download_presigned_url(
                     title_lookup=title_lookup,
                     deadline=deadline,
                 )
+        except _RetryableStatus as retryable:
+            time.sleep(_retry_delay(retryable, attempt))
+            attempt += 1
+        except ApiError as error:
+            # Surfaced by the JSON handler from a FOLLOWED target (past the billed
+            # upstream, which already succeeded). Tag it so download_to_path never
+            # replays the billed endpoint, and swap the hint for a billing-safe one:
+            # the generic "请稍后重试" / auth "会自动重新登录重试" would invite a
+            # manual re-issue that re-bills the already-executed upstream.
+            error.from_followed_target = True
+            error.hint = FOLLOWED_TARGET_HINT
+            raise
         except httpx.HTTPError as error:
             if attempt >= _MAX_RETRIES or not is_retryable_error(error):
                 raise DownloadError(
@@ -571,7 +726,7 @@ def _decide_target(
     title_lookup: TitleLookup | None,
 ) -> tuple[Path, bool]:
     """Resolve the on-disk target. Returns ``(path, auto_named)`` — auto-derived
-    names commit via :func:`_link_claim` (no-overwrite), explicit ``output``
+    names commit via :func:`_claim_auto_named` (no-overwrite), explicit ``output``
     keeps plain overwrite semantics."""
     if output is not None:
         return Path(output).expanduser(), False
@@ -624,6 +779,11 @@ async def download_to_path_async(
                 title_lookup=title_lookup,
             )
         except ApiError as error:
+            if error.from_followed_target:
+                # See sync twin: surfaced from PAST the billed upstream, so ANY outer
+                # replay re-bills it — auth (0000001008), retryable 999999, or other.
+                # Hint is already the billing-safe FOLLOWED_TARGET_HINT (mint site).
+                raise
             if (
                 not auth_retried
                 and error.code in AUTH_RETRY_CODES
@@ -676,6 +836,7 @@ async def _download_once_async(
             return await _follow_download_redirect_async(
                 client=client,
                 response=response,
+                token=token,
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
@@ -692,27 +853,14 @@ async def _download_once_async(
         content_type_header = response.headers.get("content-type", "")
         if "application/json" in content_type_header.lower():
             await response.aread()
-            try:
-                parsed = response.json()
-            except ValueError as err:
-                raise DownloadError(
-                    f"download returned JSON content-type but body not parseable: "
-                    f"{response.text[:200]}"
-                ) from err
-            # unwrap_envelope raises ApiError on business failure; non-envelope
-            # payloads pass through unchanged (TS parity).
-            data = unwrap_envelope(parsed, status_code=response.status_code)
-            if isinstance(data, dict) and isinstance(data.get("url"), str):
-                # Presigned-URL response: fetch the actual file from that URL.
-                return await _download_presigned_url_async(
-                    client=client,
-                    url=data["url"],
-                    output=output,
-                    fallback_name=fallback_name,
-                    title_lookup=title_lookup,
-                )
-            raise DownloadError(
-                f"download endpoint returned JSON, not a file: {response.text[:200]}"
+            return await _handle_json_download_response_async(
+                client=client,
+                response=response,
+                token=token,
+                output=output,
+                fallback_name=fallback_name,
+                title_lookup=title_lookup,
+                hop=0,
             )
 
         return await _write_response_to_disk_async(
@@ -757,9 +905,13 @@ async def _write_response_to_disk_async(
     except OSError as exc:
         raise DownloadError(f"failed to write to {target}: {exc}") from exc
     finally:
-        # No-op after a successful replace; cleans up the .part file when the
-        # stream fails mid-flight (httpx errors are not OSError subclasses).
-        tmp.unlink(missing_ok=True)
+        # Best-effort .part cleanup. After a committed os.link/replace the file
+        # already landed, so a cleanup failure (AV lock, read-only mount) must not
+        # mask success and report a false failure (which would prompt a re-invoke
+        # of a no-replay billed endpoint); when the stream failed mid-flight this
+        # still removes the partial file (httpx errors are not OSError subclasses).
+        with suppress(OSError):
+            tmp.unlink(missing_ok=True)
     return target
 
 
@@ -767,6 +919,7 @@ async def _follow_download_redirect_async(
     *,
     client: AsyncGangtiseClient,
     response: httpx.Response,
+    token: str,
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
@@ -777,33 +930,93 @@ async def _follow_download_redirect_async(
     return await _download_presigned_url_async(
         client=client,
         url=target,
+        token=token,
         output=output,
         fallback_name=fallback_name,
         title_lookup=title_lookup,
     )
 
 
+async def _handle_json_download_response_async(
+    *,
+    client: AsyncGangtiseClient,
+    response: httpx.Response,
+    token: str,
+    output: str | Path | None,
+    fallback_name: str,
+    title_lookup: TitleLookup | None,
+    hop: int,
+) -> Path:
+    """Async mirror of `_handle_json_download_response`."""
+    try:
+        parsed = response.json()
+    except ValueError as err:
+        raise DownloadError(
+            f"download returned JSON content-type but body not parseable: {response.text[:200]}"
+        ) from err
+    data = unwrap_envelope(parsed, status_code=response.status_code)
+    if isinstance(data, dict) and isinstance(data.get("url"), str):
+        if hop >= _MAX_URL_HOPS:
+            raise DownloadError(
+                f"download exceeded {_MAX_URL_HOPS} presigned-URL hops — "
+                "a self-referential or cyclic {url} chain"
+            )
+        return await _download_presigned_url_async(
+            client=client,
+            url=data["url"],
+            token=token,
+            output=output,
+            fallback_name=fallback_name,
+            title_lookup=title_lookup,
+            hop=hop + 1,
+        )
+    raise DownloadError(f"download endpoint returned JSON, not a file: {response.text[:200]}")
+
+
 async def _download_presigned_url_async(
     *,
     client: AsyncGangtiseClient,
     url: str,
+    token: str,
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    hop: int = 0,
 ) -> Path:
-    """Async mirror of `_download_presigned_url` (same retry / redaction / deadline
-    contract)."""
+    """Async mirror of `_download_presigned_url` (same retry / redaction / deadline /
+    JSON-envelope / per-hop same-origin-auth / hop-cap / followed-target-tag contract)."""
     _require_fetchable_url(url)
     http = client._http_client()
+    headers = (
+        {"Authorization": normalize_token(token)}
+        if _same_origin(url, client._config.base_url)
+        else None
+    )
     attempt = 0
     while True:
         deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
         try:
-            async with http.stream("GET", url, follow_redirects=True) as response:
+            async with http.stream("GET", url, headers=headers, follow_redirects=True) as response:
                 if response.status_code >= 400:
+                    await response.aread()
+                    if response.status_code in RETRYABLE_HTTP_STATUS and attempt < _MAX_RETRIES:
+                        raise _RetryableStatus(
+                            parse_retry_after_ms(response.headers.get("retry-after"), time.time())
+                        )
                     raise DownloadError(
                         f"presigned URL fetch failed: HTTP {response.status_code} "
                         f"({_redact_url(url)})"
+                    )
+                if "application/json" in response.headers.get("content-type", "").lower():
+                    await response.aread()
+                    return await _handle_json_download_response_async(
+                        client=client,
+                        response=response,
+                        token=token,
+                        output=output,
+                        fallback_name=fallback_name,
+                        title_lookup=title_lookup,
+                        hop=hop,
                     )
                 return await _write_response_to_disk_async(
                     client=client,
@@ -813,6 +1026,14 @@ async def _download_presigned_url_async(
                     title_lookup=title_lookup,
                     deadline=deadline,
                 )
+        except _RetryableStatus as retryable:
+            await anyio.sleep(_retry_delay(retryable, attempt))
+            attempt += 1
+        except ApiError as error:
+            # Followed-target error (past the billed upstream) — see the sync twin.
+            error.from_followed_target = True
+            error.hint = FOLLOWED_TARGET_HINT
+            raise
         except httpx.HTTPError as error:
             if attempt >= _MAX_RETRIES or not is_retryable_error(error):
                 raise DownloadError(

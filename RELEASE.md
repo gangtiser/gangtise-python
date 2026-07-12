@@ -7,10 +7,15 @@
    uv run mypy src
    uv run pytest -m "not live"
    ```
-2. Run live integration tests at least once (requires real credentials):
+2. Live integration tests — **required only when the release touches endpoint/API
+   surface** (new/changed endpoints, body-field shapes, or error-code handling):
    ```bash
-   uv run pytest -m live
+   uv run pytest -m live   # requires real credentials
    ```
+   They hit per-call **billed** no-replay endpoints (e.g. `concept_info`), so an
+   internal-only patch with no endpoint/API-surface change (e.g. a download-path
+   hardening release) may skip them — the enforced gate is step 1
+   (`-m "not live"` + ruff + format + mypy + build). Note any skip in the commit body.
 3. Update `CHANGELOG.md` with the new version section and `README.md` with the
    matching "最近 5 个版本" entry; release CI checks both before publishing.
 4. Bump `src/gangtise_openapi/__about__.py` (`__version__`).

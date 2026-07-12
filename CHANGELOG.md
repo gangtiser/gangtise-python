@@ -5,6 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.18] - 2026-07-12
+
+Third adversarial-review pass on the download path (this SDK's multi-agent review
+plus an independent Codex review). No endpoint or API-surface changes (still
+`gangtise-openapi-cli` v0.27.0 parity, 90 endpoints).
+
+### Fixed
+- **Auto-named downloads no longer lose the file on a filesystem that can't
+  hard-link.** v0.1.17's `os.link` fast path fell back to the `O_CREAT|O_EXCL`
+  placeholder only for a hard-coded errno whitelist, which missed macOS exFAT/SMB
+  (`ENOTSUP`, a distinct value from the whitelisted `EOPNOTSUPP`) and Windows FAT
+  (`EINVAL`): the finished `.part` was deleted and the download reported as a write
+  failure — and for a `no-replay` billed endpoint (e.g. `insight.summary.download`,
+  50/篇) a manual retry re-billed. Any `os.link` failure now falls back to the
+  placeholder, which is universally safe: a genuinely fatal condition (`ENOSPC`,
+  `EROFS`) simply re-raises at the placeholder's `os.open`.
+- **A redirect target that answers `200` + JSON is no longer written to disk as
+  the "file".** When a download `302`'d to a URL that returned an `application/json`
+  business-error envelope, the JSON bytes were saved as e.g. `report.pdf` and the
+  call returned success (billed, corrupt file). The followed fetch now runs the
+  same envelope check as the direct download path — a failed envelope raises
+  `ApiError`, a `{url}` metadata envelope is chained — matching TS `client.ts`.
+- **A transient CDN `429/5xx` on the redirect hop is retried instead of failing the
+  whole download.** The followed-URL fetch only retried network errors; a one-off
+  `503`/`429` (with a still-valid signed URL) aborted immediately even though
+  replaying the signed URL bills nothing. Retryable HTTP statuses now retry under
+  the default policy (honoring `Retry-After`); `403/404` still fails fast (an
+  expired signature can't be un-expired), and the billed upstream is never replayed.
+- **Same-origin redirects keep the bearer token.** The manual redirect hop sent no
+  `Authorization` on any followed `Location`, so a `302` to another authenticated
+  path on the API origin got `401/403`. The bearer is now forwarded when — and only
+  when — the `Location` stays on the API origin (exact scheme+host+port); a
+  cross-origin CDN still never sees it. Restores v0.1.16 / TS `client.ts` parity.
+- **`_require_fetchable_url` is now truly fail-closed.** It validated with stdlib
+  `urlsplit`, which is laxer than httpx: a URL with a control char, a malformed
+  dotted-quad / IDNA host, an over-long body, or leading whitespace passed the
+  guard yet made `httpx.URL` raise `httpx.InvalidURL` (not an `httpx.HTTPError`) at
+  fetch time, escaping the download except-ladders unwrapped. It now validates with
+  `httpx.URL` itself plus an exact-strip check, raising a redacted `DownloadError`.
+- **A `.part` cleanup failure no longer masks a successful download** (found by the
+  independent Codex review). After `os.link` committed the complete file, the
+  `finally`'s `.part` unlink was load-bearing: if it raised (AV lock, read-only
+  mount) the raw `OSError` propagated past the `except OSError`, reporting a false
+  failure on an already-landed file (and prompting a `no-replay` re-bill). Cleanup
+  is now best-effort.
+- **No error surfaced from a followed target ever replays the billed upstream, and
+  `{url}` chains are hop-capped** (review rounds 2–3 on the fixes above). Surfacing
+  the followed target's JSON envelope as an `ApiError` (fix above) reopened the
+  double-bill from the other side: an error from *past* the already-successful
+  upstream could still drive `download_to_path`'s outer loop to re-send it. Such
+  errors are now tagged and short-circuit **every** outer replay — the token-refresh
+  path for an *auth* envelope (`0000001008`/`8000014`/`8000015`) **and** the
+  default-policy retry path for a retryable `999999` (the case that re-billed
+  `insight.report-image.download`, a default-retry endpoint at 0.1 积分/张, three
+  times). The direct (non-followed) auth self-heal and `999999` retry are unchanged.
+  A self-referential/cyclic `{url}` chain now fails with a bounded `DownloadError`
+  (max 5 hops) instead of recursing to `RecursionError` + a request storm;
+  same-origin bearer forwarding is re-decided at every hop (a 2nd same-origin hop no
+  longer drops it); and `_redact_url` defers to `httpx.URL`'s verdict, so a
+  non-ASCII / malformed authority (bad IDNA, an invalid dotted-quad like
+  `1.2.3.999`) collapses to `redacted-url` instead of being echoed.
+- **A followed-target error now carries a billing-safe hint, the placeholder
+  fallback survives a close-time fault, and same-origin treats an explicit `:0` as
+  distinct** (review round 4). (1) The tagged followed-target error kept its generic
+  `.hint` — `999999`'s "请稍后重试" and the auth code's "会自动重新登录重试" — both
+  of which invite a manual re-issue that re-bills the already-executed upstream (and
+  the auto-relogin never happens here); it now surfaces a dedicated hint stating the
+  billed upstream already ran and must not be blindly retried. (2) In the
+  no-hard-link placeholder commit, `os.close()` on the `O_EXCL` reservation fd was
+  unprotected: a close-time `OSError` (e.g. `EIO` on a flaky SMB/exFAT mount — the
+  very filesystems this release targets) aborted before the rename, so the complete
+  `.part` was deleted by the outer `finally` and only a 0-byte file remained. Close
+  is now best-effort — the fd only reserves the name, and the load-bearing rename
+  still lands the finished bytes. (3) `_same_origin` computed the effective port with
+  `port or default`, folding an explicit `:0` onto the default and calling
+  `https://api.test:0` same-origin with `https://api.test`; it now uses
+  `port if not None else default` for a truly exact scheme+host+port match.
+
+### Internal
+- Restored the placeholder-fallback test coverage the v0.1.17 diff dropped
+  (cleanup-on-move-failure, suffix scan, exhaustion); deduped the auto-named
+  suffix-scan shell; removed dead errno-guard scaffolding.
+
 ## [0.1.17] - 2026-07-12
 
 Second adversarial-review pass on the download path. No endpoint or API-surface

@@ -6,6 +6,16 @@
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.1.18 - 2026-07-12
+- **自动命名下载在不支持硬链接的文件系统上不再丢文件**：v0.1.17 的 `os.link` 仅对硬编码 errno 白名单回退 O_EXCL 占位，漏了 macOS exFAT/SMB 的 `ENOTSUP`（与白名单里的 `EOPNOTSUPP` 是不同值）和 Windows FAT 的 `EINVAL`——完成的 `.part` 被删、下载报成写失败（no-replay 计费端点手动重试还再扣费）。现任何 `os.link` 失败都回退占位（`ENOSPC`/`EROFS` 等真故障会在占位的 `os.open` 处照常抛出）。
+- **302 跳转目标回 200+JSON 不再被当文件写盘**：跳转目标返回 `application/json` 业务错误 envelope 时，此前把 JSON 字节存成 `report.pdf` 并报成功（计费 + 损坏文件）；现跟随后的拉取与直连下载路径同样做 envelope 校验——失败 envelope 抛 `ApiError`、`{url}` 元数据续接，对齐 TS `client.ts`。
+- **跳转那一跳的 CDN 瞬态 429/5xx 改为重试**：跟随 URL 此前只重试网络错误，一次性 `503`/`429`（签名仍有效）会立即失败；现可重试状态按默认策略重试（尊重 `Retry-After`），`403/404` 仍快速失败（签名过期重放无意义），计费上游永不重发。
+- **同源 302 保留 bearer**：手工跳转此前对任何 `Location` 都不带 `Authorization`，同源跳到另一鉴权路径的 302 会 401/403；现仅当 `Location` 停在 API 同源（scheme+host+port 精确匹配）时转发 bearer，跨源 CDN 永不可见。恢复 v0.1.16 / TS 一致。
+- **`_require_fetchable_url` 真正 fail-closed**：此前用 stdlib `urlsplit` 校验（比 httpx 宽松），含控制符、畸形点分 IPv4 或 IDNA 主机、超长、前导空格的 URL 能过闸，随后 `httpx.URL` 抛 `httpx.InvalidURL`（非 `httpx.HTTPError`）逃出 except 阶梯；现用 `httpx.URL` 本体 + 精确 strip 校验，畸形 URL 抛脱敏后的 `DownloadError`。
+- **`.part` 清理失败不再把成功下载报成失败**（独立 Codex 审查发现）：`os.link` 提交完整文件后，`finally` 的 `.part` unlink 是承重步骤，一旦失败（杀软锁、只读挂载）裸 `OSError` 会绕过 `except OSError` 报假失败（并诱发 no-replay 重扣）；现清理改为尽力而为。
+- **任何从跟随目标冒出的错误都不再重放计费上游，`{url}` 链加跳数上限**（对上述修复的第二、三轮复核）：把跟随目标的 JSON envelope 抛成 `ApiError` 后，从**已成功的上游之后**冒出的错误仍可能驱动 `download_to_path` 外层循环重发上游。现此类错误打标记、短路**每一条**外层重放：**鉴权** envelope（`0000001008`/`8000014`/`8000015`）的刷 token 路径，以及可重试 `999999` 的默认策略重试路径（正是让默认重试端点 `insight.report-image.download`（0.1 积分/张）被重扣三次的那条）。直连（非跟随）路径的鉴权自愈与 `999999` 重试不变。自引用/环形 `{url}` 链现以有上限的 `DownloadError`（最多 5 跳）失败，不再递归到 `RecursionError` + 请求风暴；同源 bearer 转发每跳重新判断（第二个同源跳不再丢 bearer）；`_redact_url` 改为复用 `httpx.URL` 的判定，非 ASCII/畸形 authority（坏 IDNA、非法点分 IPv4 如 `1.2.3.999`）折叠为 `redacted-url` 而非回显。
+- **跟随目标错误改用计费安全提示、占位回退扛住 close 故障、同源精确区分显式 `:0`**（第四轮复核）：(1) 打标记的跟随目标错误仍带通用 `.hint`——`999999` 的「请稍后重试」、鉴权码的「会自动重新登录重试」——都会诱导用户手动重发、重扣已执行的上游（且此处并不会真的自动重登），现改为专用提示，明确「计费上游已执行、勿盲目重试」。(2) 无硬链接占位提交里，对 `O_EXCL` 占位 fd 的 `os.close()` 未加保护：close 期 `OSError`（如本版重点覆盖的 SMB/exFAT 上的 `EIO`）会在改名前中断，完整 `.part` 被外层 `finally` 删除、只剩 0 字节文件；现 close 改为尽力而为（fd 仅用于占名，承重的改名照常落盘）。(3) `_same_origin` 用 `port or default` 把显式 `:0` 折成默认端口，令 `https://api.test:0` 与 `https://api.test` 判为同源；现改用 `port if not None else default`，scheme+host+port 真正精确匹配。无端点/API 表面变更，仍对齐 CLI v0.27.0、90 接口。
+
 ### 0.1.17 - 2026-07-12
 - **计费安全（重要）**：下载端点 302 跳转 CDN 后 CDN 失败，不再重放计费上游端点——此前上游让 httpx 内联跟随跳转，CDN 那一跳失败会被误判为**上游**的连接期错误，对 no-replay（按篇计费）端点触发重发；现上游停在 3xx、把 Location 交给签名 URL 拉取器（其重试循环只重放不计费的 CDN URL）。跟随后的 URL 也补上了此前绕过的 10× 传输硬截止。
 - **签名 URL 脱敏改为 fail-closed**：`_redact_url` 此前只留 `scheme://host/path`，但裸 `alice:SECRET@host/p` 会被解析成 scheme=`alice`，旧的 netloc 路径会泄露 `alice://SECRET@…`；非法端口还会以未包装的 `httpx.InvalidURL` 带出原值。现非绝对 http(s)+有 host+合法端口一律折叠为 `redacted-url`，签名 URL 拉取前先校验，畸形 URL 抛脱敏后的 `DownloadError`。
@@ -36,16 +46,6 @@
 - 分页 `from`/`size` 拒绝 `bool`（`int` 子类）抛 `ValidationError`，与行情 `limit` 校验一致。
 - 每个请求带 `User-Agent: gangtise-openapi-python/<version>`（同步 + 异步），便于服务端区分 Python SDK 与 npm CLI。
 - 包成熟度 classifier 升至 `Development Status :: 4 - Beta`；新增 pytest-cov 覆盖率、CI 补测 Python 3.11/3.12。
-
-### 0.1.13 - 2026-07-06
-- 对齐 CLI v0.23.0。**默认接口域名迁移** `open.gangtise.com` → `openapi.gangtise.com`（新旧多接口实测等价；设 `GANGTISE_BASE_URL=https://open.gangtise.com` 可固定回旧域名）。
-- 新增 `quote.fund_flow`（A 股个股日资金流向，沪深京；小/中/大/特大单流入流出及主力净流入；免费）：`security` 传具体代码或 `aShares` 拉全市场——全市场按日自动分片并发合并、须同时传 `start_date`/`end_date`（缺日期抛 `ValidationError`）；单只证券无翻页，返回行数撞上 `limit`（默认 6000、上限 10000）标 `partial` 并告警。同步+异步。
-- 新增 `reference.institution_search`（机构 ID 搜索，5 类机构 `domesticBroker`/`foreignInstitution`/`leadInstitution`/`opinionInstitution`/`foreignOpinionInstitution`，结果自带 `usageScopes`，覆盖各接口 broker/institution 入参；免费）；`vault.my_conference_list` 新增 `source`（录制来源 1=企微会议助理 2=会议服务微信群）。
-- `vault.wechat_chatroom_list` 接口改版为 `{total, list}`：改为按 total 并发翻页（移除已无端点使用的串行翻页机制）。
-- 无翻页行情端点（`fund_flow` 单只 / `minute_kline` / 显式多标的 `day_kline`·`-hk`·`-us`·`index_day_kline`）返回行数撞上 `limit` 时标 `partial`（`raw` 可见）并发 `UserWarning`，避免静默截断；全市场分片合并结果 `total` 改为合并后行数、撞每片上限也标 `partial`，并保留首个非空 `fieldList`（尾部空分片不再清空列）。
-- 下载端点若返回 `302` 跳转到预签名/对象存储 URL，现会跟随取回真正的文件（此前可能把空跳转体写盘；`200`+JSON `{url}` 变体本就已支持）；跨域跳转自动丢弃 `Authorization`，bearer 不外泄到存储域。补齐 CLI v0.22.0 遗留的下载行为。
-- **所有分页端点行为变更**：服务端 `total` 虚高（实际返回行数更少）或触及 `MAX_PAGES`（1000）安全上限截断时，现标 `partial`（`raw` 可见）并发 `UserWarning`——此前两种情况均静默。
-- 行情端点 `limit` 改为本地校验：超出 `1..10000` 或非整数（如 `1.5`、`True`、`"10"`）在发请求前即抛 `ValidationError`（此前可能打到服务端或抛出原始 `TypeError`）。
 
 ## 安装
 

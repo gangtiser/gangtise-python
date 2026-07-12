@@ -705,7 +705,9 @@ def test_claim_auto_named_never_overwrites_and_scans_from_original_name(tmp_path
     assert final.read_bytes() == b"loser-content"
 
 
-def test_claim_auto_named_appears_atomically_without_zero_byte_window(tmp_path: Path) -> None:
+def test_claim_auto_named_appears_atomically_without_zero_byte_window(
+    tmp_path: Path, monkeypatch
+) -> None:
     # os.link publishes the COMPLETE file in one step — the target must never be
     # observed as a 0-byte placeholder (regression from the O_EXCL-only v0.1.16).
     import gangtise_openapi._download as dl
@@ -717,16 +719,136 @@ def test_claim_auto_named_appears_atomically_without_zero_byte_window(tmp_path: 
         called["replace"] = True
         return orig(self, other)
 
+    monkeypatch.setattr(Path, "replace", spy)  # fixture auto-undoes, even on failure
     dl_target = tmp_path / "doc.pdf"
     tmp = tmp_path / "doc.pdf.part-x"
     tmp.write_bytes(b"FULL")
-    monkey = pytest.MonkeyPatch()
-    monkey.setattr(Path, "replace", spy)
-    final = dl.__dict__["_claim_auto_named"](tmp, dl_target)
-    monkey.undo()
+    final = dl._claim_auto_named(tmp, dl_target)
     tmp.unlink(missing_ok=True)
     assert not called["replace"]  # hard-link path, no placeholder-then-replace
     assert final.read_bytes() == b"FULL"
+
+
+def test_claim_via_placeholder_cleans_up_when_move_fails(tmp_path: Path, monkeypatch) -> None:
+    # Fallback path (os.link unsupported): after O_EXCL reserves the name, a failed
+    # move must unlink the placeholder so no bogus 0-byte file lingers, and the
+    # error propagates. (Restores coverage the v0.1.17 diff dropped.)
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")  # force the placeholder path
+
+    def boom_replace(self: Path, other: object) -> object:
+        raise OSError(18, "cross-device link")  # EXDEV on the final move
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    monkeypatch.setattr(Path, "replace", boom_replace)
+    target = tmp_path / "x.pdf"
+    tmp = tmp_path / "x.pdf.part-q"
+    tmp.write_bytes(b"DATA")
+    with pytest.raises(OSError, match="cross-device"):
+        dl._claim_auto_named(tmp, target)
+    assert not target.exists()  # placeholder cleaned up, no 0-byte file left behind
+
+
+def test_claim_via_placeholder_close_failure_still_lands_complete_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Fallback path (os.link unsupported): a close-time OSError on the O_EXCL
+    # placeholder fd (a flaky SMB/exFAT mount) must NOT abort the commit. The fd is
+    # opened only to reserve the name; the load-bearing step is the rename of the
+    # finished .part onto that name. If close aborted, the complete .part would be
+    # deleted by the outer finally and only a 0-byte file would remain. Close is
+    # best-effort — the complete bytes still land.
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")  # force the placeholder path
+
+    real_close = dl.os.close
+    calls = {"n": 0}
+
+    def flaky_close(fd: int) -> None:
+        calls["n"] += 1
+        real_close(fd)  # actually release the fd so the test leaks nothing
+        if calls["n"] == 1:
+            raise OSError(5, "simulated close EIO")  # first close = the placeholder
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    monkeypatch.setattr(dl.os, "close", flaky_close)
+    target = tmp_path / "report.pdf"
+    tmp = tmp_path / "report.pdf.part-q"
+    tmp.write_bytes(b"COMPLETE-PDF-BYTES")
+    final = dl._claim_auto_named(tmp, target)
+    assert final == target
+    assert final.read_bytes() == b"COMPLETE-PDF-BYTES"  # complete file, not 0 bytes
+    assert not tmp.exists()  # .part consumed by the rename
+
+
+def test_claim_via_placeholder_scans_suffixes_without_clobber(tmp_path: Path, monkeypatch) -> None:
+    # Fallback path also honors no-overwrite: a taken desired name -> next suffix.
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    desired = tmp_path / "r.pdf"
+    desired.write_bytes(b"winner")
+    tmp = tmp_path / "r.pdf.part-q"
+    tmp.write_bytes(b"loser")
+    final = dl._claim_auto_named(tmp, desired)
+    tmp.unlink(missing_ok=True)
+    assert final == tmp_path / "r-1.pdf"
+    assert desired.read_bytes() == b"winner"
+    assert final.read_bytes() == b"loser"
+
+
+def test_claim_via_placeholder_raises_after_100_collisions(tmp_path: Path, monkeypatch) -> None:
+    # The fallback path shares the refusal cap: once -1..-99 are all taken it must
+    # refuse rather than clobber (exercises _claim_via_placeholder's _refuse_overwrite).
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    (tmp_path / "r.pdf").write_bytes(b"0")
+    for i in range(1, 100):
+        (tmp_path / f"r-{i}.pdf").write_bytes(b"x")
+    tmp = tmp_path / "r.pdf.part-q"
+    tmp.write_bytes(b"loser")
+    with pytest.raises(DownloadError, match="Refusing to overwrite"):
+        dl._claim_auto_named(tmp, tmp_path / "r.pdf")
+
+
+def test_claim_via_placeholder_cleanup_failure_preserves_original_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # If BOTH the move and the placeholder cleanup fail, the ORIGINAL move error must
+    # propagate — a failing cleanup unlink must not mask it (needs two fs faults).
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")  # force the placeholder path
+
+    def boom_replace(self: Path, other: object) -> object:
+        raise OSError(18, "original-move-error")
+
+    orig_unlink = Path.unlink
+
+    def flaky_unlink(self: Path, *a: object, **k: object) -> None:
+        if self.suffix == ".pdf":  # the placeholder candidate cleanup also fails
+            raise OSError(13, "cleanup-also-fails")
+        orig_unlink(self, *a, **k)
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    monkeypatch.setattr(Path, "replace", boom_replace)
+    monkeypatch.setattr(Path, "unlink", flaky_unlink)
+    tmp = tmp_path / "x.pdf.part-q"
+    tmp.write_bytes(b"DATA")
+    with pytest.raises(OSError, match="original-move-error"):
+        dl._claim_auto_named(tmp, tmp_path / "x.pdf")
 
 
 def test_claim_auto_named_falls_back_to_placeholder_when_link_unsupported(
@@ -738,6 +860,27 @@ def test_claim_auto_named_falls_back_to_placeholder_when_link_unsupported(
 
     def no_link(src: object, dst: object) -> None:
         raise OSError(1, "operation not permitted")  # errno 1 = EPERM
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    target = tmp_path / "a.pdf"
+    tmp = tmp_path / "a.pdf.part-z"
+    tmp.write_bytes(b"CONTENT")
+    final = dl._claim_auto_named(tmp, target)
+    assert final == target
+    assert final.read_bytes() == b"CONTENT"
+
+
+def test_claim_auto_named_falls_back_on_unlisted_link_errno(tmp_path: Path, monkeypatch) -> None:
+    # A filesystem that can't hard-link may report an errno the old whitelist
+    # missed — macOS exFAT/SMB raise ENOTSUP (45, distinct from EOPNOTSUPP), and
+    # Windows FAT maps to EINVAL. Any os.link OSError must fall back to the
+    # placeholder, never re-raise and lose the finished download.
+    import errno as _errno
+
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(_errno.ENOTSUP, "operation not supported")
 
     monkeypatch.setattr(dl.os, "link", no_link)
     target = tmp_path / "a.pdf"
@@ -783,6 +926,26 @@ def test_redact_url_fails_closed_on_malformed_input() -> None:
     assert _redact_url("not a url") == "redacted-url"
 
 
+def test_redact_url_collapses_non_ascii_authority() -> None:
+    from gangtise_openapi._download import _redact_url
+
+    # A malformed non-ASCII / IDNA authority (real IDN hosts are punycode/ASCII on
+    # the wire) urlsplit preserves but httpx would reject — it must not be echoed
+    # into the "fail-closed" message. (A \t/\r/\n in the host is a non-issue: urlsplit
+    # strips those, yielding a clean host.)
+    assert _redact_url("https://ex‍ample.test/f?sig=SECRET") == "redacted-url"
+
+
+def test_redact_url_collapses_malformed_ipv4_authority() -> None:
+    from gangtise_openapi._download import _redact_url
+
+    # httpx.URL (the parser the fetcher actually uses) rejects 1.2.3.999 as an
+    # invalid IPv4, but stdlib urlsplit accepts it as a plain reg-name and would
+    # echo the bad authority. The redactor must fail closed to httpx's verdict so
+    # the README claim ("畸形 authority 折叠为 redacted-url") holds.
+    assert _redact_url("https://1.2.3.999/f?sig=SECRET") == "redacted-url"
+
+
 def test_require_fetchable_url_rejects_malformed_before_fetch(tmp_path: Path) -> None:
     # A malformed signed URL (bad port) must raise a redacted DownloadError, not
     # let httpx.InvalidURL (not an httpx.HTTPError) escape with the raw secret.
@@ -791,6 +954,27 @@ def test_require_fetchable_url_rejects_malformed_before_fetch(tmp_path: Path) ->
     with pytest.raises(DownloadError) as exc:
         _require_fetchable_url("https://cdn.test:PORTSECRET/p?sig=SECRET")
     assert "PORTSECRET" not in str(exc.value) and "SECRET" not in str(exc.value)
+    _require_fetchable_url("https://cdn.test:8443/ok")  # valid -> no raise
+
+
+def test_require_fetchable_url_rejects_httpx_invalid_forms() -> None:
+    # stdlib urlsplit is laxer than httpx's parser: an embedded control char, a
+    # malformed dotted-quad host, an IDNA-unencodable host, and leading whitespace
+    # all pass urlsplit but make httpx raise InvalidURL (NOT an httpx.HTTPError) at
+    # fetch time, escaping the download except-ladders unwrapped. The guard must
+    # reject them up front as a redacted DownloadError (secret rides in the query,
+    # which _redact_url strips).
+    from gangtise_openapi._download import _require_fetchable_url
+
+    for bad in (
+        "https://cdn.test/f\tx?sig=SECRET",  # embedded tab
+        "https://1.2.3.999/p?sig=SECRET",  # malformed IPv4 host
+        " https://cdn.test/f?sig=SECRET",  # leading space -> httpx parses as relative
+        "https://ex‍ample.test/f?sig=SECRET",  # zero-width joiner -> bad IDNA host
+    ):
+        with pytest.raises(DownloadError) as exc:
+            _require_fetchable_url(bad)
+        assert "SECRET" not in str(exc.value)
     _require_fetchable_url("https://cdn.test:8443/ok")  # valid -> no raise
 
 
@@ -835,6 +1019,39 @@ def test_concurrent_auto_named_downloads_keep_both_files(tmp_path: Path, monkeyp
     assert results[0] != results[1]
     contents = sorted(p.read_bytes() for p in results)
     assert contents == [b"AAA", b"BBB"]
+
+
+def test_part_cleanup_failure_after_commit_does_not_mask_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # After os.link commits the COMPLETE file, the finally's `.part` unlink is
+    # best-effort: if it fails (Windows AV lock, read-only/odd mount), the download
+    # already landed — a raw OSError must NOT propagate and report failure, which
+    # would prompt the user to re-invoke a no-replay billed endpoint.
+    monkeypatch.chdir(tmp_path)
+    orig_unlink = Path.unlink
+
+    def flaky_unlink(self: Path, *args: object, **kwargs: object) -> None:
+        if ".part-" in self.name:
+            raise OSError(13, "permission denied")  # EACCES cleaning up the .part
+        orig_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", flaky_unlink)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/report-image/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"COMPLETE", headers={"content-type": "application/pdf"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.report-image.download",
+                query={"chunkId": "c1"},
+                output=None,
+                fallback_name="doc",
+            )
+    assert path.read_bytes() == b"COMPLETE"  # committed file intact, no raise
 
 
 def test_report_image_auto_name_gets_jpg_extension(tmp_path: Path, monkeypatch) -> None:
@@ -1617,6 +1834,420 @@ def test_302_redirect_without_location_raises_download_error(tmp_path: Path) -> 
                 output=tmp_path / "out.pdf",
                 fallback_name="s1",
             )
+
+
+def test_redirect_to_json_error_envelope_raises_apierror(tmp_path: Path) -> None:
+    # A 302 whose target answers 200 + application/json business-error envelope
+    # must raise ApiError (as the direct download path does), NOT save the JSON
+    # bytes as the "downloaded" file and return success.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        router.get("https://cdn.test/o/f").mock(
+            return_value=httpx.Response(
+                200, json={"code": "430004", "status": False, "msg": "x", "data": None}
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as exc,
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert exc.value.code == "430004"
+    assert not (tmp_path / "out.pdf").exists()  # JSON error not written as a file
+
+
+@pytest.mark.anyio
+async def test_redirect_to_json_error_envelope_raises_apierror_async(tmp_path: Path) -> None:
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        router.get("https://cdn.test/o/f").mock(
+            return_value=httpx.Response(
+                200, json={"code": "430004", "status": False, "msg": "x", "data": None}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ApiError) as exc:
+                await download_to_path_async(
+                    client=client,
+                    endpoint_key="insight.summary.download",
+                    query={"summaryId": "s1"},
+                    output=tmp_path / "out.pdf",
+                    fallback_name="s1",
+                )
+    assert exc.value.code == "430004"
+    assert not (tmp_path / "out.pdf").exists()
+
+
+def test_redirect_cdn_5xx_retries_then_succeeds(tmp_path: Path, monkeypatch) -> None:
+    # A transient CDN 5xx/429 on the redirect hop must retry the (unbilled) signed
+    # URL under the default policy, not fail the whole download on the first blip —
+    # replaying the signed URL is billing-safe, the billed upstream is untouched.
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        upstream = router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        cdn = router.get("https://cdn.test/o/f").mock(
+            side_effect=[
+                httpx.Response(503),
+                httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"}),
+            ]
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert upstream.call_count == 1  # billed endpoint not replayed
+    assert cdn.call_count == 2  # CDN 503 retried
+    assert path.read_bytes() == b"%PDF"
+
+
+@pytest.mark.anyio
+async def test_redirect_cdn_5xx_retries_then_succeeds_async(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        upstream = router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        cdn = router.get("https://cdn.test/o/f").mock(
+            side_effect=[
+                httpx.Response(503),
+                httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"}),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert upstream.call_count == 1
+    assert cdn.call_count == 2
+    assert path.read_bytes() == b"%PDF"
+
+
+def test_same_origin_rejects_explicit_zero_port() -> None:
+    # "exact scheme+host+port" must treat an explicit :0 as a DIFFERENT origin from
+    # the default port, not fold it via `port or default`. Otherwise the bearer
+    # would be forwarded to https://api.test:0 as if it were the API origin.
+    import gangtise_openapi._download as dl
+
+    assert dl._same_origin("https://api.test/f", "https://api.test/f") is True  # sanity
+    assert dl._same_origin("https://api.test:0/f", "https://api.test/f") is False
+
+
+def test_same_origin_redirect_keeps_authorization(tmp_path: Path) -> None:
+    # A same-origin 302 (Location on the API host) to a still-authenticated path
+    # must carry the bearer on the follow-up GET — TS parity and a v0.1.16 compat
+    # fix. A cross-origin CDN hop must NOT (covered separately).
+    seen: dict[str, str | None] = {}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"})
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://api.test/protected/file"}
+            )
+        )
+        router.get("/protected/file").mock(side_effect=capture)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert seen["auth"] == "Bearer tok"  # bearer forwarded same-origin
+    assert path.read_bytes() == b"%PDF"
+
+
+@pytest.mark.anyio
+async def test_same_origin_redirect_keeps_authorization_async(tmp_path: Path) -> None:
+    seen: dict[str, str | None] = {}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"})
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(
+                302, headers={"location": "https://api.test/protected/file"}
+            )
+        )
+        router.get("/protected/file").mock(side_effect=capture)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert seen["auth"] == "Bearer tok"
+    assert path.read_bytes() == b"%PDF"
+
+
+def test_cross_origin_redirect_drops_authorization(tmp_path: Path) -> None:
+    # The bearer must NEVER leak to a cross-origin CDN hop (only scheme+host+port
+    # exact-match origins keep it).
+    seen: dict[str, str | None] = {}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"})
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        router.get("https://cdn.test/o/f").mock(side_effect=capture)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert seen["auth"] is None  # bearer must not cross the origin boundary
+
+
+def test_redirect_target_auth_error_does_not_replay_billed_upstream(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # P1 regression: a followed target answering 200 + JSON auth envelope
+    # (0000001008) must NOT drive download_to_path to refresh the token and replay
+    # the billed upstream endpoint (double-bill on no-replay 50/篇). The auth error
+    # surfaces as-is, with the upstream sent exactly once and no token refresh.
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda e, a: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        login = router.post("/application/auth/oauth/open/loginV2").mock(
+            return_value=httpx.Response(200, json=_LOGIN_JSON)
+        )
+        upstream = router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        router.get("https://cdn.test/o/f").mock(
+            return_value=httpx.Response(
+                200, json={"code": "0000001008", "status": False, "msg": "token", "data": None}
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as exc,
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert exc.value.code == "0000001008"
+    assert upstream.call_count == 1  # billed upstream NOT replayed
+    assert login.call_count == 0  # no token refresh for a followed-target auth error
+    # The generic 0000001008 hint promises "会自动重新登录重试一次", but for a
+    # followed-target auth error no re-login happens (login.call_count == 0) and a
+    # manual retry would re-bill — surface the billing-safe followed-target hint.
+    from gangtise_openapi._errors import FOLLOWED_TARGET_HINT
+
+    assert exc.value.hint == FOLLOWED_TARGET_HINT
+    assert "会自动重新登录" not in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_redirect_target_auth_error_does_not_replay_billed_upstream_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda e, a: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        login = router.post("/application/auth/oauth/open/loginV2").mock(
+            return_value=httpx.Response(200, json=_LOGIN_JSON)
+        )
+        upstream = router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        router.get("https://cdn.test/o/f").mock(
+            return_value=httpx.Response(
+                200, json={"code": "0000001008", "status": False, "msg": "token", "data": None}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ApiError) as exc:
+                await download_to_path_async(
+                    client=client,
+                    endpoint_key="insight.summary.download",
+                    query={"summaryId": "s1"},
+                    output=tmp_path / "out.pdf",
+                    fallback_name="s1",
+                )
+    assert exc.value.code == "0000001008"
+    assert upstream.call_count == 1
+    assert login.call_count == 0
+    from gangtise_openapi._errors import FOLLOWED_TARGET_HINT
+
+    assert exc.value.hint == FOLLOWED_TARGET_HINT  # async mint site sets it too
+    assert "会自动重新登录" not in str(exc.value)
+
+
+def test_report_image_followed_target_999999_does_not_replay_billed_upstream(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # P1 regression (round 3): report-image is default-retry AND per-张 billed
+    # (0.1 积分/张). A followed target answering 200 + JSON code=999999 is retryable
+    # under the DEFAULT policy, so the outer loop would replay _download_once and
+    # re-send the billed upstream (3x). from_followed_target must block EVERY outer
+    # replay — not just the auth path — so the upstream is sent exactly once.
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda e, a: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        login = router.post("/application/auth/oauth/open/loginV2").mock(
+            return_value=httpx.Response(200, json=_LOGIN_JSON)
+        )
+        upstream = router.get("/application/open-insight/report-image/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        cdn = router.get("https://cdn.test/o/f").mock(
+            return_value=httpx.Response(
+                200, json={"code": "999999", "status": False, "msg": "sys", "data": None}
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as exc,
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.report-image.download",
+                query={"chunkId": "c1"},
+                output=tmp_path / "img.jpg",
+                fallback_name="c1",
+            )
+    assert exc.value.code == "999999"
+    assert upstream.call_count == 1  # billed upstream NOT replayed
+    assert cdn.call_count == 1  # target not retried by the outer loop
+    assert login.call_count == 0
+    # Billing-safe hint: must not tell the user to "retry later" (a manual retry
+    # re-bills the upstream); it flags that the billed upstream already ran.
+    from gangtise_openapi._errors import FOLLOWED_TARGET_HINT
+
+    assert exc.value.hint == FOLLOWED_TARGET_HINT
+    assert "请稍后重试" not in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_report_image_followed_target_999999_does_not_replay_billed_upstream_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda e, a: 0.0)
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        login = router.post("/application/auth/oauth/open/loginV2").mock(
+            return_value=httpx.Response(200, json=_LOGIN_JSON)
+        )
+        upstream = router.get("/application/open-insight/report-image/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://cdn.test/o/f"})
+        )
+        cdn = router.get("https://cdn.test/o/f").mock(
+            return_value=httpx.Response(
+                200, json={"code": "999999", "status": False, "msg": "sys", "data": None}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ApiError) as exc:
+                await download_to_path_async(
+                    client=client,
+                    endpoint_key="insight.report-image.download",
+                    query={"chunkId": "c1"},
+                    output=tmp_path / "img.jpg",
+                    fallback_name="c1",
+                )
+    assert exc.value.code == "999999"
+    assert upstream.call_count == 1
+    assert cdn.call_count == 1
+    assert login.call_count == 0
+    from gangtise_openapi._errors import FOLLOWED_TARGET_HINT
+
+    assert exc.value.hint == FOLLOWED_TARGET_HINT  # async mint site sets it too
+    assert "请稍后重试" not in str(exc.value)
+
+
+def test_presigned_url_chain_is_hop_limited(tmp_path: Path) -> None:
+    # A self-referential {url} envelope must not recurse unbounded (RecursionError +
+    # request storm from the public API); it fails with a bounded DownloadError.
+    self_url = "https://cdn.test/loop"
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": self_url})
+        )
+        router.get(self_url).mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"url": self_url}}
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(DownloadError, match="hop"),
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+
+
+def test_same_origin_second_hop_keeps_authorization(tmp_path: Path) -> None:
+    # A same-origin 302 -> target returns 200 + JSON {url: another same-origin URL}:
+    # each hop re-decides exact-origin auth, so the SECOND same-origin hop must also
+    # carry the bearer (it previously dropped it).
+    seen: dict[str, str | None] = {}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"})
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(302, headers={"location": "https://api.test/hop1"})
+        )
+        router.get("/hop1").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"url": "https://api.test/hop2"}},
+            )
+        )
+        router.get("/hop2").mock(side_effect=capture)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="s1",
+            )
+    assert seen["auth"] == "Bearer tok"  # 2nd same-origin hop kept the bearer
+    assert path.read_bytes() == b"%PDF"
 
 
 def test_check_deadline_raises_past_deadline() -> None:

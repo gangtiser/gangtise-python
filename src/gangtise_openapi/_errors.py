@@ -42,6 +42,17 @@ NO_REPLAY_UNCERTAIN_HINT = (
     "（SDK 按 no-replay 策略未自动重试）——请先核实结果/扣费，再决定是否手动重试。"
 )
 
+# Override for an error surfaced from a FOLLOWED redirect/presigned target: the
+# billed upstream already executed successfully (the download 3xx'd/returned a
+# {url} past it), so the generic "请稍后重试" / "会自动重新登录重试" hints would
+# invite the user to re-issue the whole download and re-bill the upstream. The SDK
+# does NOT auto-replay such an error (see ApiError.from_followed_target).
+FOLLOWED_TARGET_HINT = (
+    "该错误来自下载跳转后的目标（计费上游此前已成功执行）——SDK 不会自动重放上游。"
+    "请勿据此重试整个下载，否则会重新调用（并可能重新计费）已执行的上游；"
+    "请先核实结果/扣费，再决定是否手动重试。"
+)
+
 
 class GangtiseError(Exception):
     """Base class for all gangtise-openapi exceptions."""
@@ -77,6 +88,12 @@ class ApiError(GangtiseError):
         # Server-specified Retry-After (ms) so the transport backoff can honor it
         # instead of the exponential schedule.
         self.retry_after_ms = retry_after_ms
+        # Set by the download layer when this error was surfaced from a FOLLOWED
+        # redirect/presigned target (i.e. past the billed upstream request that
+        # already succeeded). The upstream retry loop must never replay the billed
+        # endpoint for such an error — ANY code (auth 0000001008, retryable 999999,
+        # or other), since the billed request already ran; replaying double-bills.
+        self.from_followed_target = False
         self.hint: str | None = ERROR_HINTS.get(code) if code else None
 
     def __str__(self) -> str:

@@ -409,3 +409,15 @@ def test_client_constructor_kwargs_builds_config(monkeypatch):
     assert cfg.base_url == "https://kw.test"
     assert cfg.token == "kw-tok"
     assert cfg.timeout_ms == 7500
+
+
+# ── TS v0.28.0: 999002 TOKEN_INVALID is the new code for 0000001008 ──
+
+
+def test_auth_retry_codes_include_new_token_invalid_code():
+    from gangtise_openapi._client import AUTH_RETRY_CODES
+
+    # Legacy 0000001008 is what the token filter emits today; 999002 is its
+    # 2026-07-17 replacement, listed ahead of the rollout so the self-heal does
+    # not silently die when the filter switches.
+    assert frozenset({"8000014", "8000015", "0000001008", "999002"}) == AUTH_RETRY_CODES

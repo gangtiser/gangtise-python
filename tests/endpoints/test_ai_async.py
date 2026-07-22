@@ -53,16 +53,16 @@ async def test_async_knowledge_batch_body_shape(tmp_path):
                 query="q1",
                 resource_type=1,
                 knowledge_name="kb",
-                start_time=1,
-                end_time=2,
+                start_time=1767225600000,
+                end_time=1769904000000,
             )
         sent = route.calls.last.request.read().replace(b" ", b"")
         assert b'"queries":["q1"]' in sent
         assert b'"top":10' in sent
         assert b'"resourceTypes":[1]' in sent
         assert b'"knowledgeNames":["kb"]' in sent
-        assert b'"startTime":1' in sent
-        assert b'"endTime":2' in sent
+        assert b'"startTime":1767225600000' in sent
+        assert b'"endTime":1769904000000' in sent
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["id"] == "1"
 

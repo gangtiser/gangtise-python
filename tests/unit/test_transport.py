@@ -10,6 +10,7 @@ from gangtise_openapi._transport import (
     RETRY_AFTER_CEILING_MS,
     RETRYABLE_API_CODES,
     RETRYABLE_HTTP_STATUS,
+    TERMINAL_API_CODES,
     _effective_timeout,
     _retry_delay,
     build_sync_client,
@@ -278,3 +279,59 @@ def test_request_json_applies_timeout_floor_to_request(respx_mock, config: Confi
     with build_sync_client(replace(config, timeout_ms=30_000)) as http:
         request_json(http, _endpoint("/p", timeout_ms=120_000), body={}, token="tok")
     assert route.calls.last.request.extensions["timeout"]["read"] == 120.0
+
+
+# ── TS v0.28.0: terminal API codes (never replayed on any HTTP status) ──
+
+
+def test_terminal_api_codes_set():
+    assert frozenset({"999011", "140002"}) == TERMINAL_API_CODES
+
+
+@pytest.mark.parametrize("code", ["999011", "140002"])
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_terminal_code_never_retryable(code, status):
+    # 999011 (bad AK/SK) will not fix itself; 140002 (async generation failed) is
+    # terminal by definition. Both must outrank the 429 and 5xx status rules.
+    err = ApiError("boom", code=code, status_code=status)
+    assert is_retryable_error(err, "default") is False
+
+
+def test_request_json_terminal_code_500_does_not_retry(respx_mock, config: Config):
+    route = respx_mock.post("/p").mock(
+        return_value=httpx.Response(
+            500, json={"code": "140002", "status": False, "msg": "生成失败"}
+        )
+    )
+    with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
+        request_json(http, _endpoint("/p"), body={}, token="tok")
+    assert route.call_count == 1
+    assert exc.value.code == "140002"
+
+
+# ── TS v0.28.0: HTTP 200 error envelopes must keep the server's Retry-After ──
+
+
+def test_unwrap_envelope_error_carries_retry_after():
+    with pytest.raises(ApiError) as exc:
+        unwrap_envelope(
+            {"code": "999006", "status": False, "msg": "限流"},
+            status_code=200,
+            retry_after_ms=1500.0,
+        )
+    assert exc.value.retry_after_ms == 1500.0
+
+
+def test_request_json_200_envelope_error_keeps_retry_after(respx_mock, config: Config):
+    # Gangtise wraps errors in HTTP 200 bodies too; dropping Retry-After there
+    # degrades a rate-limit backoff into the blind exponential schedule.
+    respx_mock.post("/p").mock(
+        return_value=httpx.Response(
+            200,
+            json={"code": "999006", "status": False, "msg": "限流"},
+            headers={"Retry-After": "2"},
+        )
+    )
+    with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
+        request_json(http, _endpoint("/p"), body={}, token="tok")
+    assert exc.value.retry_after_ms == 2000.0

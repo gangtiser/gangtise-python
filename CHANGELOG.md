@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-07-22
+
+Sync with `gangtise-openapi-cli` v0.28.0 — the 2026-07-17 three-tier error-code
+overhaul, strict date/datetime validation, and retry-policy corrections. No new
+endpoints (still 90 network endpoints / 92 registry entries).
+
+**Minor bump rather than a patch: this release rejects input the previous version
+forwarded.** See "Breaking" below.
+
+### Breaking
+- **Date parameters accept only `YYYY-MM-DD`.** `start_date` / `end_date` / `date` /
+  `report_date` now raise `ValidationError` before the request is sent for any other
+  layout — including `2026/07/01` and `20260701`, which the server handles correctly.
+  One accepted form beats an allowlist that has to be re-probed per endpoint group.
+
+  The reason is the layout that is *not* safe. Probed live 2026-07-22 against
+  `insight.research.list` (same window, comparing `total`):
+
+  | `start_time` | `total` | read by the server as |
+  | --- | --- | --- |
+  | `2026-01-07` | 246534 | — |
+  | `2026-07-01` | 24092 | — |
+  | `07/01/2026` (slash) | **246534** | 2026-01-07 (`DD/MM/YYYY`) |
+  | `07-01-2026` (hyphen) | **24092** | 2026-07-01 (`MM-DD-YYYY`) |
+
+  The same three digits, six months apart, both `HTTP 200`, and nothing in the
+  response says which date was used. Confirmed by the complement: `25/12/2026`
+  parses while `12/25/2026` errors. The SDK cannot know which reading was meant, so
+  it forwards only the unambiguous form.
+- **Datetime parameters accept only a 10/13-digit epoch or
+  `YYYY-MM-DD[ HH:mm[:ss]]`** (space or `T` separator). `start_time` / `end_time`
+  are validated field-by-field and forwarded unchanged. The pass-through list
+  endpoints misread year-last separators exactly like the date endpoints.
+  A trailing `.SSS` or a UTC offset is refused on these fields — the server resolves
+  the string in its own zone, so an offset the SDK does not convert would be a guess.
+  Timezone-free by design: a wall clock the *client's* zone skips (a DST gap) is
+  still forwarded, because only the server's zone decides validity.
+- **`ai.knowledge_batch(start_time=…)` now takes `int | str`** and always sends
+  13-digit millis, matching the A-share `insight.announcement_list`. Previously it
+  took a raw `int` and forwarded it unchecked.
+- `domains.insight._to_unix_ms` (private) was folded into the shared
+  `domains._common._to_timestamp13`.
+
+### Added
+- **`ApiError.trace_id`** — the server-side correlation id from the 2026-07-17
+  envelope, also rendered into `str(err)` as `[trace 830965044897325056]`. This is
+  the only handle Gangtise support can trace a failure by.
+- Both converting endpoints (`ai.knowledge_batch`, A-share
+  `insight.announcement_list`) additionally accept an **offset-bearing ISO string**
+  (`2026-01-01T00:00:00+08:00`, `Z`, `+0800`). Deliberately wider than the CLI:
+  converting to millis makes an explicit offset unambiguous, and
+  `dt.datetime.now(tz).isoformat()` is idiomatic Python. Offsets are parsed by hand
+  because `fromisoformat` only learned `Z` and colon-less offsets in 3.11.
+
+### Changed
+- **Error-code table rewritten to the 2026-07-17 three-tier structure** (`999xxx`
+  service layer / `1xxxxx` business-common / `2xxxxx` endpoint-specific), 61 entries
+  covering all 41 public codes plus the legacy codes still observed live. Both
+  generations are listed on purpose: the rollout is partial — probed 2026-07-22, the
+  business layer already answers with the new codes (as JSON **numbers**, carrying
+  `errorType`) while the token filter still emits `0000001007` / `0000001008` /
+  `900002`.
+- Hints now carry the next **action** instead of restating the server's `msg`
+  (`资源不存在 — 资源不存在，确认 ID 有效` read as a stutter), and reference SDK
+  method/kwarg names rather than CLI flags.
+- **`900002`'s meaning corrected**: the table said "请求缺少 uid"; the server uses it
+  for "请求类型有误" (wrong HTTP method, `HTTP 405`). The old text sent debugging the
+  wrong way entirely.
+- Added hints for `410001` / `410106` — the two most common `indicator` failures
+  (missing `indicator`/`security`, missing a required `indicator_param`), which were
+  never folded into the renumbering and had no hint at all.
+
+### Fixed
+- **A `--wait`-style poll no longer aborts on the renumbered async codes.**
+  `140001` (RESULT_GENERATING) and `140002` (PROCESSING_FAILED) join `410110` /
+  `410111`. The server still emits the legacy pair today, so this is a forward
+  guard — but an expensive one to omit: a poll that does not recognize the pending
+  code aborts on the first attempt and voids a job already billed 50 credits.
+- **`999011` and `140002` are never replayed on any HTTP status.** Both outrank the
+  `429` and `5xx` rules. Bad AK/SK will not fix itself, and the async `*-check`
+  endpoints declare no retry policy — so a `140002@500` was retried twice by the
+  default policy *before* the async layer got to call it terminal.
+- **Token self-heal recognizes `999002`** (TOKEN_INVALID, the new code for
+  `0000001008`), so it will not silently die when the token filter switches.
+- **An `HTTP 200` error envelope keeps the server's `Retry-After`.** Gangtise wraps
+  errors in `200` bodies too; that path dropped the header and degraded a rate-limit
+  backoff into the blind exponential schedule. Wired through the sync, async, and
+  download paths.
+- **A terminal async failure now reports what the server said** — code, `msg`, and
+  `traceId` — plus a warning that resubmitting the generation job bills again for a
+  verdict that will not change. It previously printed only
+  `Content generation failed (terminal). Do not retry.`
+- **Epoch-millis conversion no longer mis-scales a 13-digit input.** The magnitude
+  test was `> 1e12`, and `1000000000000` equals `1e12` exactly — so a real 13-digit
+  timestamp fell into the seconds branch and came out 1000x too large. Digit count
+  has no boundary to get wrong.
+- **A DST-gap wall clock is rejected on the converting endpoints.** `02:30` on a US
+  spring-forward morning (and `02:15` in Lord Howe's 30-minute gap) has no faithful
+  epoch, and `datetime.timestamp()` silently resolved it to the far side of the gap —
+  querying a different hour than was asked for.
+- All shape checks are `re.ASCII`. Python's `\d` matches every Unicode decimal and
+  `int()` parses fullwidth digits, so a date written in `U+FF10..U+FF19` cleared the
+  check and was forwarded verbatim to an API that cannot read it.
+- Year `0000` is rejected rather than leaking a bare `ValueError` out of the
+  converting path (it satisfies the arithmetic calendar check — `0 % 400 == 0` even
+  makes it a leap year — but `datetime`'s `MINYEAR` is 1).
+
 ## [0.1.18] - 2026-07-12
 
 Third adversarial-review pass on the download path (this SDK's multi-agent review

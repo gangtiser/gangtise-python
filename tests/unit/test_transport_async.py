@@ -70,7 +70,7 @@ async def test_request_json_async_4xx_envelope_code_and_hint(respx_mock, cfg):
     assert exc.value.code == "999997"
     assert exc.value.status_code == 403
     assert exc.value.hint == ERROR_HINTS["999997"]
-    assert "权限" in exc.value.hint
+    assert "联系客户经理" in exc.value.hint
     assert route.call_count == 1
 
 

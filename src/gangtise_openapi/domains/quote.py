@@ -23,12 +23,22 @@ from gangtise_openapi._quote_sharding import (
     is_full_market,
     plan_shards,
 )
-from gangtise_openapi.domains._common import FilterValue, _as_list, _strip_none
+from gangtise_openapi.domains._common import (
+    FilterValue,
+    _as_list,
+    _request_body,
+    _validate_date,
+)
 
 
 def _parse_date(value: str | dt.date) -> dt.date:
     if isinstance(value, dt.date):
         return value
+    # Guard before parsing: the all-market sharding planner consumes these dates
+    # ahead of ``_request_body``, so without this the caller gets a bare
+    # ``ValueError`` from ``fromisoformat`` instead of the message explaining why
+    # the layout is refused.
+    _validate_date(value, "startDate")
     return dt.date.fromisoformat(value)
 
 
@@ -293,7 +303,7 @@ class Quote:
 
         def fetch_shard(window: tuple[dt.date, dt.date]) -> Any:
             s, e = window
-            body = _strip_none(
+            body = _request_body(
                 {
                     "securityList": _as_list(security),
                     "startDate": s.isoformat(),
@@ -312,7 +322,7 @@ class Quote:
                 shards, fetch=fetch_shard, concurrency=self._client.config.page_concurrency
             )
         else:
-            body = _strip_none(
+            body = _request_body(
                 {
                     "securityList": _as_list(security),
                     "startDate": _date_to_iso(start_date),
@@ -489,7 +499,7 @@ class Quote:
         _validate_limit(limit)
         if limit is None:
             limit = DEFAULT_QUOTE_LIMIT
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security,
                 "startTime": start_time,
@@ -517,7 +527,7 @@ class Quote:
         security 支持单值或列表，也可传市场关键词：
         aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityList": _as_list(security),
                 "fieldList": _as_list(field),
@@ -578,7 +588,7 @@ class AsyncQuote:
 
         async def fetch_shard(window: tuple[dt.date, dt.date]) -> Any:
             s, e = window
-            body = _strip_none(
+            body = _request_body(
                 {
                     "securityList": _as_list(security),
                     "startDate": s.isoformat(),
@@ -599,7 +609,7 @@ class AsyncQuote:
                 concurrency=self._client.config.page_concurrency,
             )
         else:
-            body = _strip_none(
+            body = _request_body(
                 {
                     "securityList": _as_list(security),
                     "startDate": _date_to_iso(start_date),
@@ -776,7 +786,7 @@ class AsyncQuote:
         _validate_limit(limit)
         if limit is None:
             limit = DEFAULT_QUOTE_LIMIT
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security,
                 "startTime": start_time,
@@ -804,7 +814,7 @@ class AsyncQuote:
         security 支持单值或列表，也可传市场关键词：
         aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityList": _as_list(security),
                 "fieldList": _as_list(field),

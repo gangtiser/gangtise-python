@@ -19,6 +19,13 @@ _GROWTH = 1.6
 
 CODE_PENDING = "410110"
 CODE_TERMINAL = "410111"
+# The 2026-07-17 overhaul renumbers these to 140001 RESULT_GENERATING (409) and
+# 140002 PROCESSING_FAILED (500). Probed by the CLI 2026-07-20: the server still
+# answers with the legacy codes, so the new ones are a forward guard — but an
+# expensive one to omit. A poll that does not recognize the pending code aborts on
+# the first attempt and voids a job already billed 50 credits.
+PENDING_CODES = frozenset({CODE_PENDING, "140001"})
+FAILED_CODES = frozenset({CODE_TERMINAL, "140002"})
 
 
 def next_delay_seconds(attempt: int) -> float:
@@ -31,11 +38,27 @@ Sleeper = Callable[[float], None]
 
 
 def _classify(error: ApiError) -> str:
-    if error.code == CODE_PENDING:
+    if error.code in PENDING_CODES:
         return "pending"
-    if error.code == CODE_TERMINAL:
+    if error.code in FAILED_CODES:
         return "terminal"
     return "other"
+
+
+def _terminal_error(error: ApiError) -> ApiError:
+    """Re-raise a terminal generation failure without swallowing what the server
+    said. This error replaces the original, so it has to carry code / msg /
+    traceId — otherwise the failure is unreportable to Gangtise support. It also
+    has to warn about the cost: re-checking the dataId is free, but resubmitting
+    the generation job bills again for a verdict that will not change."""
+    return ApiError(
+        f"Content generation failed (terminal {error.code}): {error.args[0]}. "
+        "Re-checking this dataId will not change it; resubmitting the generation "
+        "task bills again for the same result — change the parameters first.",
+        code=error.code,
+        status_code=error.status_code,
+        details=error.details,
+    )
 
 
 def _keep_waiting_on_transient(error: BaseException, attempt: int, max_attempts: int) -> None:
@@ -66,10 +89,7 @@ def poll_content(
         except ApiError as error:
             kind = _classify(error)
             if kind == "terminal":
-                raise ApiError(
-                    "Content generation failed (terminal). Do not retry.",
-                    code=CODE_TERMINAL,
-                ) from error
+                raise _terminal_error(error) from error
             if kind == "other":
                 _keep_waiting_on_transient(error, attempt, max_attempts)
             else:
@@ -103,10 +123,7 @@ async def poll_content_async(
         except ApiError as error:
             kind = _classify(error)
             if kind == "terminal":
-                raise ApiError(
-                    "Content generation failed (terminal). Do not retry.",
-                    code=CODE_TERMINAL,
-                ) from error
+                raise _terminal_error(error) from error
             if kind == "other":
                 _keep_waiting_on_transient(error, attempt, max_attempts)
             else:

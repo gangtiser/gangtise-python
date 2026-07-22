@@ -12,8 +12,8 @@ from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
     _validate_top,
 )
 
@@ -94,7 +94,7 @@ class Alternative:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
-        body = _strip_none(
+        body = _request_body(
             {
                 "indicatorIdList": _as_list(indicator_id),
                 "startDate": start_date,
@@ -181,7 +181,7 @@ class AsyncAlternative:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
-        body = _strip_none(
+        body = _request_body(
             {
                 "indicatorIdList": _as_list(indicator_id),
                 "startDate": start_date,

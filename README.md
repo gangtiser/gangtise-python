@@ -1,10 +1,22 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.27.0 功能对齐，覆盖 90 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.28.0 功能对齐，覆盖 90 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.2.0 - 2026-07-22
+- 对齐 CLI v0.28.0（2026-07-17 错误码三层重排 + 日期严格校验 + 重试策略修正）。**无新增接口**，仍 90 个上游接口。**次版本号而非补丁号：本版会拒掉上一版会转发的入参。**
+- **破坏性：日期参数只收 `YYYY-MM-DD`。** `start_date`/`end_date`/`date`/`report_date` 其余写法在发请求前抛 `ValidationError`，包括服务端本能正确处理的 `2026/07/01`、`20260701`——统一成一种入参形态，好过按端点逐一探针维护白名单。真正要堵的是另一类：实测（2026-07-22，`insight.research.list` 同窗口比 `total`）服务端**按分隔符翻转日月且静默接受**——`07/01/2026`(斜杠) 读成 `2026-01-07`（total 246534）、`07-01-2026`(横杠) 读成 `2026-07-01`（total 24092），同样三个数字差半年、都 HTTP 200、响应不回显实际采用的日期（用 `25/12/2026` 可解析而 `12/25/2026` 报错交叉验证）。客户端无从判断用户想要哪个读法，故只转发无歧义写法。
+- **破坏性：时间参数只收 10/13 位时间戳或 `YYYY-MM-DD[ HH:mm[:ss]]`**（空格或 `T` 分隔）。`start_time`/`end_time` 按字段校验后**原样透传**——透传型 list 端点对年在后格式的误读方式与日期端点完全一致。这些字段拒绝 `.SSS` 毫秒尾与时区尾（服务端按自己时区解析该字符串，SDK 不转换就无权替它假设偏移）。校验**与客户端时区无关**：本地时区跳过的墙钟时刻（DST 缺口）照常转发，合法性只由服务端时区决定。
+- **破坏性：`ai.knowledge_batch(start_time=…)` 改收 `int | str`** 并统一转 13 位毫秒（与 A 股 `insight.announcement_list` 一致）；此前只收裸 `int` 且不做任何校验。私有 helper `domains.insight._to_unix_ms` 并入共享的 `domains._common._to_timestamp13`。
+- **新增 `ApiError.trace_id`**，并在 `str(err)` 里渲染成 `[trace 830965044897325056]`——这是 Gangtise 侧唯一能回溯一次失败的抓手，报障请带上。两个转换端点额外接受带时区的 ISO 串（`2026-01-01T00:00:00+08:00` / `Z` / `+0800`），这是有意比 CLI 放宽：转成毫秒时显式偏移无歧义，且 `dt.datetime.now(tz).isoformat()` 是 Python 常见写法。
+- **错误码表按三层结构重写**（`999xxx` 服务统一层 / `1xxxxx` 业务通用层 / `2xxxxx` 接口专有层），61 条覆盖全部 41 个公开码 + 实测仍在线的旧码。两代都列是有意的：实测 2026-07-22 迁移是部分的——业务层已发新码（JSON **数字**、带 `errorType`），而 token 过滤器仍发 `0000001007`/`0000001008`/`900002`。提示文案改为只给下一步动作、不再复述服务端 msg，且引用 SDK 的方法/参数名而非 CLI 选项。**`900002` 释义纠错**：旧表写「请求缺少 uid」，服务端实际用它表示「请求类型有误」（HTTP 405），据旧文案排查会走错方向。补上 `410001`/`410106` 两个 EDE 旧码的提示——它们是 `indicator` 取数最常见的两个报错（漏传 `indicator`/`security`、漏传必填 `indicator_param`），此前完全没有提示。
+- **异步轮询认新码 `140001`/`140002`**（生成中 / 终态失败）。服务端目前仍发旧码，此为预置——但漏了代价很大：不认「生成中」的轮询会在首次尝试就中止，把已扣的 50 积分作废。终态失败的报错现在带上服务端的 code/msg/`traceId`，并提示重新提交会再次计费且结果不会变（此前只有一句 `Content generation failed (terminal). Do not retry.`）。
+- **`999011`/`140002` 任何 HTTP 状态都不重试**（优先于 429 与 5xx 规则）：凭证错不会自己好；异步 `*-check` 端点无 retry 声明，`140002@500` 此前会被默认策略白重试 2 次才轮到异步层判定终态。**token 自愈补 `999002`**（`0000001008` 的新码），服务端切换后不再静默失效。
+- **HTTP 200 包裹的错误信封保留 `Retry-After`**（Gangtise 也用这种形态）：此前该路径丢掉服务端的退避窗口、退化成盲目指数退避；主 JSON、异步、下载三条路径都已接线。
+- **修复毫秒转换的量级判断**：旧规则是 `> 1e12`，而 13 位的 `1000000000000` 恰好等于 1e12，会落进秒分支再乘 1000。改按位数判断后无边界可错。**转换端点拒绝 DST 缺口时刻**（美国春季 `02:30`、Lord Howe 的 30 分钟缺口 `02:15`）——这类墙钟时刻没有忠实的时间戳，`datetime.timestamp()` 会静默映到缺口另一侧、查到的是另一个小时。所有形状校验改用 `re.ASCII`（Python 的 `\d` 匹配全角数字且 `int()` 认全角，全角日期此前能过检查再原样发给读不懂它的服务端）；年份 `0000` 改为拒绝而非从转换路径漏出裸 `ValueError`。
 
 ### 0.1.18 - 2026-07-12
 - **自动命名下载在不支持硬链接的文件系统上不再丢文件**：v0.1.17 的 `os.link` 仅对硬编码 errno 白名单回退 O_EXCL 占位，漏了 macOS exFAT/SMB 的 `ENOTSUP`（与白名单里的 `EOPNOTSUPP` 是不同值）和 Windows FAT 的 `EINVAL`——完成的 `.part` 被删、下载报成写失败（no-replay 计费端点手动重试还再扣费）。现任何 `os.link` 失败都回退占位（`ENOSPC`/`EROFS` 等真故障会在占位的 `os.open` 处照常抛出）。
@@ -39,13 +51,6 @@
 - 429 尊重 `Retry-After`（秒或 HTTP-date，优先于指数退避，60s 封顶；JSON 与下载路径都生效）。
 - 本地校验（实测服务端对超限值静默截断、对拼错分类静默忽略/返回空）：`top`/`limit` 上限——reference 六个搜索 ≤10、`report_image_list`/`knowledge_batch` ≤20、`edb_search` ≤200、`indicator.search` ≤100；category 白名单——`securities_search`/`institution_search`/`official_account_search`；错误码 100003 补中文提示。
 - 可靠性：AI 异步轮询容忍瞬态错误（5xx/网络抖动只消耗一次尝试并继续等待，不再作废整段等待）；全市场分片硬错后熔断（剩余分片不再派发、计入 `failedShards`，省配额）、shape 破损分片计入 `failedShards`、撞行数上限的分片输出 `truncatedShards` 具体日期窗口（可定向缩窗补拉）；分页端点首页形状漂移发 `UserWarning`（不再完全静默退化单页）；自动命名 100 个重名耗尽时抛 `DownloadError`（不再静默覆盖第一个文件）；签名 URL 下载加整体硬截止（10× 单请求超时，慢滴速传输不再无限续命）；`GANGTISE_PAGE_CONCURRENCY` 防御性解析（非法/非正数回退默认 5、上限 32）；EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加后缀（不再覆盖元数据列）。
-
-### 0.1.14 - 2026-07-07
-- **域层过滤参数类型化**：`security`/`industry`/`rating` 等过滤参数由 `Any` 收窄为 `str | int | Sequence[str | int]`（`FilterValue` 别名），单值或列表均可——IDE 补全 + mypy 拦误用；int（如 `industry=1`、`fiscal_year=2025`）与 str 都保持有效（与接口一致）。无端点/API 表面变更，仍对齐 CLI v0.23.0、86 接口。
-- **矩阵端点 DataFrame 构建 2-5x 提速**：列式 `{fieldList, list}` 响应（财报、EDE 指标等）直接按列矩阵构建，不再转成逐行 dict 再转回；输出逐值 + dtype 完全一致。
-- 分页 `from`/`size` 拒绝 `bool`（`int` 子类）抛 `ValidationError`，与行情 `limit` 校验一致。
-- 每个请求带 `User-Agent: gangtise-openapi-python/<version>`（同步 + 异步），便于服务端区分 Python SDK 与 npm CLI。
-- 包成熟度 classifier 升至 `Development Status :: 4 - Beta`；新增 pytest-cov 覆盖率、CI 补测 Python 3.11/3.12。
 
 ## 安装
 

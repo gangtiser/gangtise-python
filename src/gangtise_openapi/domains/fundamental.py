@@ -14,8 +14,9 @@ from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
     _extract_rows,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
+    _validate_date,
 )
 
 
@@ -65,6 +66,10 @@ def _earning_forecast_dates(
     end = end_date or dt.date.today().isoformat()
     if start_date is not None:
         return start_date, end
+    # end_date is consumed locally to anchor the default start_date, ahead of
+    # ``_request_body`` — validate here so a bad layout raises ValidationError with
+    # the explanation rather than a bare ValueError from ``fromisoformat``.
+    _validate_date(end, "endDate")
     anchor = dt.date.fromisoformat(end)
     return (anchor - dt.timedelta(days=365)).isoformat(), end
 
@@ -90,7 +95,7 @@ class Fundamental:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "startDate": start_date,
@@ -434,7 +439,7 @@ class Fundamental:
         breakdown 取值 product=产品 / industry=行业 / region=地区；
         period 取值 interim=中报 / annual=年报，支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "startDate": start_date,
@@ -468,7 +473,7 @@ class Fundamental:
         indicator 取值 peTtm/pbMrq/peg/psTtm/pcfTtm/em；
         skip_null=True 时过滤 value/percentileRank 为空的行。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "indicator": indicator,
@@ -510,7 +515,7 @@ class Fundamental:
         holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
         period 取值 q1/interim/q3/annual/latest，支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "holderType": holder_type,
@@ -544,7 +549,7 @@ class Fundamental:
         """
         # TS HEAD parity: default the window to the year before endDate.
         start_date, end_date = _earning_forecast_dates(start_date, end_date)
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "startDate": start_date,
@@ -577,7 +582,7 @@ class AsyncFundamental:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "startDate": start_date,
@@ -917,7 +922,7 @@ class AsyncFundamental:
         breakdown 取值 product=产品 / industry=行业 / region=地区；
         period 取值 interim=中报 / annual=年报，支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "startDate": start_date,
@@ -949,7 +954,7 @@ class AsyncFundamental:
         indicator 取值 peTtm/pbMrq/peg/psTtm/pcfTtm/em；
         skip_null=True 时过滤 value/percentileRank 为空的行。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "indicator": indicator,
@@ -989,7 +994,7 @@ class AsyncFundamental:
         holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
         period 取值 q1/interim/q3/annual/latest，支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "holderType": holder_type,
@@ -1021,7 +1026,7 @@ class AsyncFundamental:
         """
         # TS HEAD parity: default the window to the year before endDate.
         start_date, end_date = _earning_forecast_dates(start_date, end_date)
-        body = _strip_none(
+        body = _request_body(
             {
                 "securityCode": security_code,
                 "startDate": start_date,

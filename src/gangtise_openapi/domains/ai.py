@@ -15,8 +15,9 @@ from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
+    _to_timestamp13,
     _validate_top,
 )
 
@@ -43,25 +44,26 @@ class AI:
         top: int = 10,
         resource_type: FilterValue | None = None,
         knowledge_name: FilterValue | None = None,
-        start_time: int | None = None,
-        end_time: int | None = None,
+        start_time: int | str | None = None,
+        end_time: int | str | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """知识库批量检索（ai.knowledge-batch）。
 
-        query 必填，传至少一个检索词；start_time/end_time 为毫秒时间戳。
+        query 必填，传至少一个检索词；start_time/end_time 收 10/13 位时间戳或
+        "YYYY-MM-DD[ HH:mm[:ss]]" 字符串, 统一转为 13 位毫秒发出。
         """
         queries = _as_list(query)
         if not queries:
             raise ValidationError("query is required: pass at least one query string")
-        body = _strip_none(
+        body = _request_body(
             {
                 "queries": queries,
                 "top": _validate_top(top, name="top", max_value=20),
                 "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
-                "startTime": start_time,
-                "endTime": end_time,
+                "startTime": _to_timestamp13(start_time, "start_time"),
+                "endTime": _to_timestamp13(end_time, "end_time"),
             }
         )
         result = self._client._call("ai.knowledge-batch", body=body)
@@ -87,7 +89,7 @@ class AI:
 
         query_mode 取值: bySecurity=按证券, byIndustry=按行业。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -164,7 +166,7 @@ class AI:
 
         type_ 取值: morning=早报, night=晚报; 支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "themeId": theme_id,
                 "date": date,
@@ -192,7 +194,7 @@ class AI:
         category 取值: morningBriefing=早报 / noonBriefing=午报
         / afternoonFlash=午后快讯 / eveningBriefing=晚报; 支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -223,11 +225,13 @@ class AI:
         dimension 取值: all=全部 / businessOperation=经营情况
         / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
         """
-        body = {
-            "reportDate": report_date,
-            "securityCode": security_code,
-            "discussionDimension": dimension,
-        }
+        body = _request_body(
+            {
+                "reportDate": report_date,
+                "securityCode": security_code,
+                "discussionDimension": dimension,
+            }
+        )
         return self._client._call("ai.management-discuss-announcement", body=body)  # type: ignore[no-any-return]
 
     def management_discuss_earnings_call(
@@ -243,11 +247,13 @@ class AI:
         dimension 取值: all=全部 / businessOperation=经营情况
         / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
         """
-        body = {
-            "reportDate": report_date,
-            "securityCode": security_code,
-            "discussionDimension": dimension,
-        }
+        body = _request_body(
+            {
+                "reportDate": report_date,
+                "securityCode": security_code,
+                "discussionDimension": dimension,
+            }
+        )
         return self._client._call("ai.management-discuss-earnings-call", body=body)  # type: ignore[no-any-return]
 
     # ---- Async-polled endpoints ----
@@ -386,25 +392,26 @@ class AsyncAI:
         top: int = 10,
         resource_type: FilterValue | None = None,
         knowledge_name: FilterValue | None = None,
-        start_time: int | None = None,
-        end_time: int | None = None,
+        start_time: int | str | None = None,
+        end_time: int | str | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """知识库批量检索（ai.knowledge-batch）。
 
-        query 必填，传至少一个检索词；start_time/end_time 为毫秒时间戳。
+        query 必填，传至少一个检索词；start_time/end_time 收 10/13 位时间戳或
+        "YYYY-MM-DD[ HH:mm[:ss]]" 字符串, 统一转为 13 位毫秒发出。
         """
         queries = _as_list(query)
         if not queries:
             raise ValidationError("query is required: pass at least one query string")
-        body = _strip_none(
+        body = _request_body(
             {
                 "queries": queries,
                 "top": _validate_top(top, name="top", max_value=20),
                 "resourceTypes": _as_list(resource_type) or None,
                 "knowledgeNames": _as_list(knowledge_name),
-                "startTime": start_time,
-                "endTime": end_time,
+                "startTime": _to_timestamp13(start_time, "start_time"),
+                "endTime": _to_timestamp13(end_time, "end_time"),
             }
         )
         result = await self._client._call("ai.knowledge-batch", body=body)
@@ -428,7 +435,7 @@ class AsyncAI:
 
         query_mode 取值: bySecurity=按证券, byIndustry=按行业。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -507,7 +514,7 @@ class AsyncAI:
 
         type_ 取值: morning=早报, night=晚报; 支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "themeId": theme_id,
                 "date": date,
@@ -535,7 +542,7 @@ class AsyncAI:
         category 取值: morningBriefing=早报 / noonBriefing=午报
         / afternoonFlash=午后快讯 / eveningBriefing=晚报; 支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -564,11 +571,13 @@ class AsyncAI:
         dimension 取值: all=全部 / businessOperation=经营情况
         / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
         """
-        body = {
-            "reportDate": report_date,
-            "securityCode": security_code,
-            "discussionDimension": dimension,
-        }
+        body = _request_body(
+            {
+                "reportDate": report_date,
+                "securityCode": security_code,
+                "discussionDimension": dimension,
+            }
+        )
         return await self._client._call(  # type: ignore[no-any-return]
             "ai.management-discuss-announcement", body=body
         )
@@ -586,11 +595,13 @@ class AsyncAI:
         dimension 取值: all=全部 / businessOperation=经营情况
         / financialPerformance=财务表现 / developmentAndRisk=发展与风险。
         """
-        body = {
-            "reportDate": report_date,
-            "securityCode": security_code,
-            "discussionDimension": dimension,
-        }
+        body = _request_body(
+            {
+                "reportDate": report_date,
+                "securityCode": security_code,
+                "discussionDimension": dimension,
+            }
+        )
         return await self._client._call(  # type: ignore[no-any-return]
             "ai.management-discuss-earnings-call", body=body
         )

@@ -116,7 +116,7 @@ async def request_json_async(
                     details=parsed,
                     retry_after_ms=retry_after_ms,
                 )
-            return unwrap_envelope(parsed, status_code=status_code)
+            return unwrap_envelope(parsed, status_code=status_code, retry_after_ms=retry_after_ms)
         except Exception as error:
             if attempt >= max_retries or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)

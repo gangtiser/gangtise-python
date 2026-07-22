@@ -10,7 +10,8 @@ import respx
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
 from gangtise_openapi._errors import ValidationError
-from gangtise_openapi.domains.insight import Insight, _to_unix_ms
+from gangtise_openapi.domains._common import _to_timestamp13
+from gangtise_openapi.domains.insight import Insight
 
 
 def _cfg(tmp_path) -> Config:
@@ -167,25 +168,25 @@ def test_announcement_list_scales_seconds_int_to_ms(tmp_path):
     assert b'"startTime":1767225600000' in sent.replace(b" ", b"")
 
 
-def test_to_unix_ms_naive_datetime_uses_local_timezone():
+def test_to_timestamp13_naive_datetime_uses_local_timezone():
     # Matches `new Date("2026-06-01 09:00:00")` in the CLI: system-local tz.
     expected = int(dt.datetime(2026, 6, 1, 9, 0, 0).astimezone().timestamp() * 1000)
-    assert _to_unix_ms("2026-06-01 09:00:00") == expected
+    assert _to_timestamp13("2026-06-01 09:00:00", "start_time") == expected
 
 
-def test_to_unix_ms_date_only_uses_local_midnight():
+def test_to_timestamp13_date_only_uses_local_midnight():
     # TS HEAD parity: CLI date-only values are anchored to local midnight, matching
     # "YYYY-MM-DD 00:00:00" and avoiding boundary-day drift for announcement_list.
     expected = int(dt.datetime(2026, 1, 1).astimezone().timestamp() * 1000)
-    assert _to_unix_ms("2026-01-01") == expected
+    assert _to_timestamp13("2026-01-01", "start_time") == expected
 
 
-def test_to_unix_ms_seconds_int_scaled():
-    assert _to_unix_ms(1767225600) == 1767225600000
+def test_to_timestamp13_seconds_int_scaled():
+    assert _to_timestamp13(1767225600, "start_time") == 1767225600000
 
 
-def test_to_unix_ms_milliseconds_int_passthrough():
-    assert _to_unix_ms(1767225600000) == 1767225600000
+def test_to_timestamp13_milliseconds_int_passthrough():
+    assert _to_timestamp13(1767225600000, "start_time") == 1767225600000
 
 
 def test_announcement_hk_list(tmp_path):

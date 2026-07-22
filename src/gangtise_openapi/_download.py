@@ -610,8 +610,13 @@ def _handle_json_download_response(
             f"download returned JSON content-type but body not parseable: {response.text[:200]}"
         ) from err
     # unwrap_envelope raises ApiError on business failure; non-envelope payloads
-    # pass through unchanged (TS parity).
-    data = unwrap_envelope(parsed, status_code=response.status_code)
+    # pass through unchanged (TS parity). Retry-After rides along so a rate-limited
+    # 200 envelope keeps the server's window instead of the blind backoff.
+    data = unwrap_envelope(
+        parsed,
+        status_code=response.status_code,
+        retry_after_ms=parse_retry_after_ms(response.headers.get("retry-after"), time.time()),
+    )
     if isinstance(data, dict) and isinstance(data.get("url"), str):
         if hop >= _MAX_URL_HOPS:
             raise DownloadError(
@@ -954,7 +959,11 @@ async def _handle_json_download_response_async(
         raise DownloadError(
             f"download returned JSON content-type but body not parseable: {response.text[:200]}"
         ) from err
-    data = unwrap_envelope(parsed, status_code=response.status_code)
+    data = unwrap_envelope(
+        parsed,
+        status_code=response.status_code,
+        retry_after_ms=parse_retry_after_ms(response.headers.get("retry-after"), time.time()),
+    )
     if isinstance(data, dict) and isinstance(data.get("url"), str):
         if hop >= _MAX_URL_HOPS:
             raise DownloadError(

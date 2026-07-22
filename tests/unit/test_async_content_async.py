@@ -60,3 +60,57 @@ async def test_async_poll_exhaustion_raises(monkeypatch):
     assert exc.value.code == "410110"
     assert "14 attempts" in str(exc.value)
     assert calls["n"] == 14
+
+
+# ── TS v0.28.0 mirrors: the renumbered async status codes ──
+
+
+@pytest.mark.anyio
+async def test_async_poll_treats_140001_as_pending(monkeypatch):
+    import anyio
+
+    real_sleep = anyio.sleep  # bind before patching, else fast_sleep recurses
+
+    async def fast_sleep(_):
+        await real_sleep(0)
+
+    monkeypatch.setattr("gangtise_openapi._async_content.anyio.sleep", fast_sleep)
+    state = {"i": 0}
+
+    async def fetch():
+        state["i"] += 1
+        if state["i"] < 3:
+            raise ApiError("生成中", code="140001", status_code=409)
+        return {"content": "done"}
+
+    out = await poll_content_async(fetch)
+    assert out == {"content": "done"}
+    assert state["i"] == 3
+
+
+@pytest.mark.anyio
+async def test_async_poll_treats_140002_as_terminal():
+    async def fetch():
+        raise ApiError("生成失败", code="140002", status_code=500)
+
+    with pytest.raises(ApiError) as exc:
+        await poll_content_async(fetch)
+    assert exc.value.code == "140002"
+
+
+@pytest.mark.anyio
+async def test_async_terminal_error_keeps_server_message_and_trace():
+    async def fetch():
+        raise ApiError(
+            "敏感内容拦截",
+            code="410111",
+            status_code=400,
+            details={"traceId": "830965044897325056"},
+        )
+
+    with pytest.raises(ApiError) as exc:
+        await poll_content_async(fetch)
+    text = str(exc.value)
+    assert "敏感内容拦截" in text
+    assert "830965044897325056" in text
+    assert exc.value.trace_id == "830965044897325056"

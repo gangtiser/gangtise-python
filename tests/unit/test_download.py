@@ -2351,3 +2351,30 @@ async def test_concurrent_auto_named_downloads_keep_both_files_async(
     assert len(results) == 2
     assert results[0] != results[1]
     assert sorted(p.read_bytes() for p in results) == [b"AAA", b"BBB"]
+
+
+# ── TS v0.28.0: a 200-wrapped error envelope on the download path keeps Retry-After ──
+
+
+def test_download_json_envelope_error_keeps_retry_after(tmp_path: Path) -> None:
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "999006", "status": False, "msg": "限流"},
+                headers={"content-type": "application/json", "Retry-After": "3"},
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as exc,
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    assert exc.value.code == "999006"
+    assert exc.value.retry_after_ms == 3000.0

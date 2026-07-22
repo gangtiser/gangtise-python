@@ -138,3 +138,52 @@ def test_poll_transient_errors_still_bounded_by_max_attempts():
     # Transient errors consume attempts; after the budget the pending timeout raises.
     assert state["i"] == 3
     assert exc.value.code == "410110"
+
+
+# ── TS v0.28.0: the 2026-07-17 renumbering of the async status codes ──
+# Probed by the CLI 2026-07-20: the server still emits the legacy 410110/410111,
+# so the new codes are a forward guard. Getting them wrong is expensive — a poll
+# that does not recognize the pending code aborts a job already billed 50 credits.
+
+
+def test_poll_treats_140001_as_pending():
+    state = {"i": 0}
+
+    def fetch():
+        state["i"] += 1
+        if state["i"] < 3:
+            raise ApiError("生成中", code="140001", status_code=409)
+        return {"content": "done"}
+
+    out = poll_content(fetch, sleep=lambda s: None)
+    assert out == {"content": "done"}
+    assert state["i"] == 3
+
+
+def test_poll_treats_140002_as_terminal():
+    def fetch():
+        raise ApiError("生成失败", code="140002", status_code=500)
+
+    with pytest.raises(ApiError) as exc:
+        poll_content(fetch, sleep=lambda s: None)
+    assert exc.value.code == "140002"
+
+
+def test_terminal_error_keeps_server_message_and_trace():
+    # The terminal branch swallows the original error, so this line is the user's
+    # only record of it — it must carry code / msg / traceId, and warn that
+    # resubmitting re-bills.
+    def fetch():
+        raise ApiError(
+            "敏感内容拦截",
+            code="410111",
+            status_code=400,
+            details={"traceId": "830965044897325056"},
+        )
+
+    with pytest.raises(ApiError) as exc:
+        poll_content(fetch, sleep=lambda s: None)
+    text = str(exc.value)
+    assert "敏感内容拦截" in text
+    assert "830965044897325056" in text
+    assert exc.value.trace_id == "830965044897325056"

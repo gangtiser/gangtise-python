@@ -15,8 +15,8 @@ from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
     _extract_rows,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
 )
 
 
@@ -42,7 +42,7 @@ class Vault:
 
         space_type 取值: 1=我的文件, 2=租户文件; 支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -82,7 +82,7 @@ class Vault:
         category 录音来源: upload/link/mobile/gtNote/pc/share;
         space_type 取值: 1=我的记录, 2=租户记录; 均支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -124,7 +124,7 @@ class Vault:
 
         source 录制来源（数字，可单值或列表）: 1=企微会议助理 2=会议服务微信群。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -171,7 +171,7 @@ class Vault:
         research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
         industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -205,7 +205,7 @@ class Vault:
         单页上限 50）；传 size=N 仅取前 N 条。
         """
         names = _as_list(room_name) or []
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -334,7 +334,7 @@ class AsyncVault:
 
         space_type 取值: 1=我的文件, 2=租户文件; 支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -374,7 +374,7 @@ class AsyncVault:
         category 录音来源: upload/link/mobile/gtNote/pc/share;
         space_type 取值: 1=我的记录, 2=租户记录; 均支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -416,7 +416,7 @@ class AsyncVault:
 
         source 录制来源（数字，可单值或列表）: 1=企微会议助理 2=会议服务微信群。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -463,7 +463,7 @@ class AsyncVault:
         research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
         industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -497,7 +497,7 @@ class AsyncVault:
         单页上限 50）；传 size=N 仅取前 N 条。
         """
         names = _as_list(room_name) or []
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,

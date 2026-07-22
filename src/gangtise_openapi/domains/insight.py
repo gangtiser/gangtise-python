@@ -3,7 +3,6 @@
 # text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
 from typing import Any
 
@@ -16,28 +15,11 @@ from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
     _extract_rows,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
+    _to_timestamp13,
     _validate_top,
 )
-
-
-def _to_unix_ms(value: int | str | None) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, int):
-        # TS toTimestamp13: > 1e12 is already milliseconds, > 1e9 is seconds.
-        if value > 1_000_000_000_000:
-            return value
-        if value > 1_000_000_000:
-            return value * 1000
-        return value
-    parsed = dt.datetime.fromisoformat(value)
-    if parsed.tzinfo is None:
-        # Naive datetime and date-only strings are anchored to local timezone,
-        # matching TS HEAD's CLI argument parser.
-        parsed = parsed.astimezone()
-    return int(parsed.timestamp() * 1000)
 
 
 class Insight:
@@ -68,7 +50,7 @@ class Insight:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询国内机构首席观点列表（insight.opinion.list）。"""
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -116,7 +98,7 @@ class Insight:
 
         market 例如 SH/SZ/HK/US。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -184,7 +166,7 @@ class Insight:
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -232,7 +214,7 @@ class Insight:
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -271,7 +253,7 @@ class Insight:
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -304,7 +286,7 @@ class Insight:
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -348,7 +330,7 @@ class Insight:
 
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -409,7 +391,7 @@ class Insight:
 
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -465,12 +447,12 @@ class Insight:
         category 公告分类 ID，用 reference.constant_list(category="aShareAnnouncementCategory")
         查询；常用 103910200 财务报告 / 103910201 业绩预告 / 103910700 股权股本 等。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
-                "startTime": _to_unix_ms(start_time),
-                "endTime": _to_unix_ms(end_time),
+                "startTime": _to_timestamp13(start_time, "start_time"),
+                "endTime": _to_timestamp13(end_time, "end_time"),
                 "keyword": keyword,
                 "searchType": search_type,
                 "rankType": rank_type,
@@ -512,7 +494,7 @@ class Insight:
         category 港股公告分类 ID，用 reference.constant_list(category="hkShareAnnouncementCategory")
         查询。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -559,7 +541,7 @@ class Insight:
         security 传美股代码如 TSLA.O；category 美股公告分类 ID，用
         reference.constant_list(category="usShareAnnouncementCategory") 查询。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -607,7 +589,7 @@ class Insight:
 
         rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -649,7 +631,7 @@ class Insight:
 
         rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -699,7 +681,7 @@ class Insight:
         notice/recruit/investEdu/brand/notes/other。
         keyword 需用数据中的具体词（如「泡泡玛特」），不能用整句白话。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -755,7 +737,7 @@ class Insight:
         """
         # TS body shape (cli.ts): request keys are BARE (source / questionCategory /
         # answerImportant), not the *List convention.
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -791,7 +773,7 @@ class Insight:
         category / typeList / industry / publishTime / page / totalPages /
         imageCaption / imageFootnote / pageContent。免费。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "top": _validate_top(top, name="top", max_value=20),
@@ -1024,7 +1006,7 @@ class AsyncInsight:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询国内机构首席观点列表（insight.opinion.list）。"""
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1070,7 +1052,7 @@ class AsyncInsight:
 
         market 例如 SH/SZ/HK/US。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1132,7 +1114,7 @@ class AsyncInsight:
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1180,7 +1162,7 @@ class AsyncInsight:
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1219,7 +1201,7 @@ class AsyncInsight:
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1252,7 +1234,7 @@ class AsyncInsight:
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1294,7 +1276,7 @@ class AsyncInsight:
 
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1353,7 +1335,7 @@ class AsyncInsight:
 
         search_type 取值 1=标题 2=全文；rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1407,12 +1389,12 @@ class AsyncInsight:
         category 公告分类 ID，用 reference.constant_list(category="aShareAnnouncementCategory")
         查询；常用 103910200 财务报告 / 103910201 业绩预告 / 103910700 股权股本 等。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
-                "startTime": _to_unix_ms(start_time),
-                "endTime": _to_unix_ms(end_time),
+                "startTime": _to_timestamp13(start_time, "start_time"),
+                "endTime": _to_timestamp13(end_time, "end_time"),
                 "keyword": keyword,
                 "searchType": search_type,
                 "rankType": rank_type,
@@ -1452,7 +1434,7 @@ class AsyncInsight:
         category 港股公告分类 ID，用 reference.constant_list(category="hkShareAnnouncementCategory")
         查询。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1497,7 +1479,7 @@ class AsyncInsight:
         security 传美股代码如 TSLA.O；category 美股公告分类 ID，用
         reference.constant_list(category="usShareAnnouncementCategory") 查询。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1543,7 +1525,7 @@ class AsyncInsight:
 
         rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1583,7 +1565,7 @@ class AsyncInsight:
 
         rank_type 取值 1=综合 2=时间倒序。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1633,7 +1615,7 @@ class AsyncInsight:
         notice/recruit/investEdu/brand/notes/other。
         keyword 需用数据中的具体词（如「泡泡玛特」），不能用整句白话。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1689,7 +1671,7 @@ class AsyncInsight:
         """
         # TS body shape (cli.ts): request keys are BARE (source / questionCategory /
         # answerImportant), not the *List convention.
-        body = _strip_none(
+        body = _request_body(
             {
                 "from": from_,
                 "size": size,
@@ -1725,7 +1707,7 @@ class AsyncInsight:
         category / typeList / industry / publishTime / page / totalPages /
         imageCaption / imageFootnote / pageContent。免费。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "top": _validate_top(top, name="top", max_value=20),

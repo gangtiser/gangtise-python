@@ -42,7 +42,13 @@ from gangtise_openapi._transport_async import (
 # AK/SK errors; 0000001008 is a server-side token invalidation (the token still
 # looks valid by local expiry — e.g. logged in elsewhere — so only a forced
 # refresh recovers it).
-AUTH_RETRY_CODES = frozenset({"8000014", "8000015", "0000001008"})
+# 999002 (TOKEN_INVALID) is 0000001008's 2026-07-17 replacement, listed ahead of
+# the rollout so the self-heal does not silently die when the token filter
+# switches. 999011 (bad AK/SK) is deliberately absent and could not act if it
+# were — it comes from auth.login, which runs unauthenticated and never reaches
+# this check; its "never replay" guarantee lives in transport's
+# TERMINAL_API_CODES instead.
+AUTH_RETRY_CODES = frozenset({"8000014", "8000015", "0000001008", "999002"})
 
 logger = get_logger()
 

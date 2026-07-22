@@ -21,6 +21,18 @@ USER_AGENT = f"gangtise-openapi-python/{__version__}"
 
 RETRYABLE_HTTP_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 RETRYABLE_API_CODES: frozenset[str] = frozenset({"999999"})
+# Never replayed on any HTTP status, outranking the 429 and 5xx rules:
+# - 999011 (CREDENTIAL_INVALID): bad AK/SK, only ever from auth.login — which runs
+#   unauthenticated and so never consults AUTH_RETRY_CODES, and declares no retry
+#   policy. Without this a 5xx would be replayed twice for a credential that will
+#   not fix itself.
+# - 140002 (PROCESSING_FAILED, the new code for 410111): the async *-check
+#   endpoints declare no retry policy, so a 140002@500 would be retried twice by
+#   the default policy BEFORE _async_content's terminal check gets to call it
+#   terminal — that guard sits above this retry loop and cannot see the retries.
+#   The code means "generation failed" (terminal by definition) and only those
+#   async endpoints return it, so a blanket rule is safe and skips the waste.
+TERMINAL_API_CODES: frozenset[str] = frozenset({"999011", "140002"})
 _RETRYABLE_HTTPX_EXC: tuple[type[BaseException], ...] = (
     httpx.ConnectError,
     httpx.ConnectTimeout,
@@ -77,18 +89,24 @@ def is_envelope(payload: Any) -> bool:
     return any(k in payload for k in ("msg", "data", "success", "status"))
 
 
-def unwrap_envelope(payload: Any, status_code: int | None = None) -> Any:
+def unwrap_envelope(
+    payload: Any, status_code: int | None = None, retry_after_ms: float | None = None
+) -> Any:
     if not is_envelope(payload):
         return payload
     code = payload.get("code")
     code_str = str(code) if code is not None else None
     ok = payload.get("status") is True or payload.get("success") is True or _success_code(code)
     if not ok:
+        # Gangtise also wraps errors in HTTP 200 bodies; without retry_after_ms a
+        # rate-limited 200 envelope would lose the server's backoff window and
+        # degrade into the blind exponential schedule.
         raise ApiError(
             payload.get("msg") or "API request failed",
             code=code_str,
             status_code=status_code,
             details=payload,
+            retry_after_ms=retry_after_ms,
         )
     return payload.get("data") if "data" in payload else payload
 
@@ -104,6 +122,8 @@ def is_retryable_error(error: BaseException, policy: RetryPolicy = "default") ->
     not retried; everything else follows the default policy.
     """
     if isinstance(error, ApiError):
+        if error.code in TERMINAL_API_CODES:
+            return False
         if error.status_code == 429:
             return True
         if policy == "no-replay":
@@ -237,7 +257,7 @@ def request_json(
                     details=parsed,
                     retry_after_ms=retry_after_ms,
                 )
-            return unwrap_envelope(parsed, status_code=status_code)
+            return unwrap_envelope(parsed, status_code=status_code, retry_after_ms=retry_after_ms)
         except Exception as error:
             if attempt >= max_retries or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)

@@ -13,8 +13,8 @@ from gangtise_openapi._transport import unwrap_envelope
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
     _validate_top,
 )
 
@@ -211,7 +211,7 @@ class Indicator:
         scale 取值 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）;
         indicator_param 形如 {"qte_close": {"adjustmentType": "2"}} 设置前复权等单指标参数。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "indicatorCodeList": _as_list(indicator),
                 "securityCodeList": _as_list(security),
@@ -245,7 +245,7 @@ class Indicator:
         每行一个日期。calendar_type 取值 ND=自然日 TD=交易日 WD=工作日（默认 TD）;
         currency / scale / indicator_param 同 cross_section。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "indicatorCodeList": _as_list(indicator),
                 "securityCodeList": _as_list(security),
@@ -305,7 +305,7 @@ class AsyncIndicator:
         scale 取值 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）;
         indicator_param 形如 {"qte_close": {"adjustmentType": "2"}} 设置前复权等单指标参数。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "indicatorCodeList": _as_list(indicator),
                 "securityCodeList": _as_list(security),
@@ -339,7 +339,7 @@ class AsyncIndicator:
         每行一个日期。calendar_type 取值 ND=自然日 TD=交易日 WD=工作日（默认 TD）;
         currency / scale / indicator_param 同 cross_section。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "indicatorCodeList": _as_list(indicator),
                 "securityCodeList": _as_list(security),

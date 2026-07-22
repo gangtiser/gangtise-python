@@ -10,8 +10,8 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi.domains._common import (
     FilterValue,
+    _request_body,
     _result_to_dataframe,
-    _strip_none,
     _validate_choices,
     _validate_top,
 )
@@ -51,7 +51,7 @@ class Reference:
         # TS body shape (cli.ts:503):
         #   { keyword, category: maybeArray(category) | undefined, top: int }
         # category choices the TS CLI enforces: stock/dr/index/fund.
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "category": _validate_choices(
@@ -131,7 +131,7 @@ class Reference:
         行字段：sectorId / sectorName / hierarchy（层级路径）/ matchScore；
         同名板块可能出现在多个层级，用 hierarchy 区分。
         """
-        body = _strip_none(
+        body = _request_body(
             {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
         )
         result = self._client._call("reference.sector-search", body=body)
@@ -191,7 +191,7 @@ class Reference:
         top 默认 10、上限 10。结果自带 usageScopes 标明每个 ID 适用的接口/参数，
         覆盖各接口的 broker / institution 入参。免费。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "categoryList": _validate_choices(
@@ -224,7 +224,7 @@ class Reference:
         """
         # TS body shape (cli.ts): request key is BARE `category` here (spec),
         # unlike institution-search's `categoryList`.
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "category": _validate_choices(
@@ -257,7 +257,7 @@ class AsyncReference:
 
         category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金；支持单值或列表。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "category": _validate_choices(
@@ -337,7 +337,7 @@ class AsyncReference:
         行字段：sectorId / sectorName / hierarchy（层级路径）/ matchScore；
         同名板块可能出现在多个层级，用 hierarchy 区分。
         """
-        body = _strip_none(
+        body = _request_body(
             {"keyword": keyword, "top": _validate_top(top, name="top", max_value=10)}
         )
         result = await self._client._call("reference.sector-search", body=body)
@@ -397,7 +397,7 @@ class AsyncReference:
         top 默认 10、上限 10。结果自带 usageScopes 标明每个 ID 适用的接口/参数，
         覆盖各接口的 broker / institution 入参。免费。
         """
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "categoryList": _validate_choices(
@@ -430,7 +430,7 @@ class AsyncReference:
         """
         # TS body shape (cli.ts): request key is BARE `category` here (spec),
         # unlike institution-search's `categoryList`.
-        body = _strip_none(
+        body = _request_body(
             {
                 "keyword": keyword,
                 "category": _validate_choices(

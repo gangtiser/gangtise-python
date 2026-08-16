@@ -10,7 +10,7 @@ from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
 from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._normalize import to_dataframe
-from gangtise_openapi.domains.quote import Quote, _normalize_quote_rows
+from gangtise_openapi.domains.quote import Quote, _finalize_quote_result, _normalize_quote_rows
 
 
 def _cfg(tmp_path) -> Config:
@@ -74,7 +74,7 @@ def test_day_kline_all_market_injects_limit_10000(tmp_path):
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-02",
                 end_date="2026-01-02",
             )
@@ -132,7 +132,7 @@ def test_day_kline_partial_shard_failure_aborts_and_sets_flags(tmp_path):
             pytest.warns(UserWarning, match="2/3 day-kline shards failed"),
         ):
             out = Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-05",  # Mon
                 end_date="2026-01-07",  # Wed
                 raw=True,
@@ -180,7 +180,7 @@ def test_day_kline_malformed_shard_response_sets_partial(tmp_path):
             pytest.warns(UserWarning, match="1/3 day-kline shards failed"),
         ):
             out = Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-05",  # Mon
                 end_date="2026-01-07",  # Wed
                 raw=True,
@@ -203,7 +203,7 @@ def test_day_kline_all_shards_failed_raises_api_error(tmp_path):
             pytest.raises(ApiError) as excinfo,
         ):
             Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-05",  # Mon
                 end_date="2026-01-06",  # Tue
             )
@@ -296,13 +296,14 @@ def test_day_kline_matrix_fast_path_matches_normalize_path(tmp_path):
     assert list(df.columns) == fields
 
 
-def test_day_kline_ragged_matrix_rows_fall_back_to_normalize(tmp_path):
-    # Ragged rows must NOT take the fast path: the normalize path silently
-    # drops extra elements and leaves missing trailing fields as NaN.
+def test_day_kline_ragged_matrix_rows_are_refused(tmp_path):
+    # Ragged rows used to fall back to the normalize path, which padded the short
+    # row and dropped the extra value — a silently mis-columned table. Since
+    # v0.28.3 a length disagreement with fieldList is a hard failure instead.
     fields = ["securityCode", "tradeDate", "close"]
     rows = [
-        ["000001.SH", "2026-01-05", 1.0, "EXTRA"],  # too long -> extra dropped
-        ["000002.SZ", "2026-01-05"],  # too short -> close missing
+        ["000001.SH", "2026-01-05", 1.0, "EXTRA"],
+        ["000002.SZ", "2026-01-05"],
     ]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-quote/kline/daily").mock(
@@ -315,12 +316,9 @@ def test_day_kline_ragged_matrix_rows_fall_back_to_normalize(tmp_path):
                 },
             )
         )
-        with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
-    assert list(df.columns) == fields
-    assert df.shape == (2, 3)
-    assert df.iloc[0]["close"] == 1.0
-    assert pd.isna(df.iloc[1]["close"])
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="响应字段数与 fieldList 不匹配"):
+                Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
 
 
 def test_day_kline_duplicate_fields_fall_back_to_normalize(tmp_path):
@@ -374,7 +372,7 @@ def test_day_kline_shards_skip_all_weekend_windows(tmp_path):
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-01",  # Thu
                 end_date="2026-01-05",  # Mon
             )
@@ -394,12 +392,12 @@ def test_day_kline_all_weekend_range_makes_no_requests(tmp_path):
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-03",  # Sat
                 end_date="2026-01-04",  # Sun
             )
             out = Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-03",
                 end_date="2026-01-04",
                 raw=True,
@@ -410,7 +408,7 @@ def test_day_kline_all_weekend_range_makes_no_requests(tmp_path):
     assert out == {"list": []}
 
 
-def test_index_day_kline_30_day_shards(tmp_path):
+def test_index_day_kline_15_day_shards(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         route = router.post("/application/open-quote/index/kline/daily").mock(
             return_value=httpx.Response(
@@ -424,8 +422,9 @@ def test_index_day_kline_30_day_shards(tmp_path):
                 start_date="2026-01-01",
                 end_date="2026-03-31",
             )
-        # 90 days / 30 per shard = 3 shards
-        assert route.call_count == 3
+        # 90 days / 15 per shard = 6 shards. 30-day windows (~22 trading days x 531
+        # index rows) blew past the 10000-row cap and lost ~11% of the range.
+        assert route.call_count == 6
 
 
 def test_index_day_kline_passes_through_security_name(tmp_path):
@@ -703,7 +702,7 @@ def test_day_kline_shard_merge_keeps_first_fieldList(tmp_path):
         router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Quote(client).day_kline(
-                security="all", start_date="2026-01-05", end_date="2026-01-06"
+                security="aShares", start_date="2026-01-05", end_date="2026-01-06"
             )
     assert list(df.columns) == fields
     assert len(df) == 1
@@ -737,7 +736,7 @@ def test_day_kline_truncated_shard_windows_in_payload(tmp_path):
             pytest.warns(UserWarning, match="see truncatedShards"),
         ):
             out = Quote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-05",  # Mon
                 end_date="2026-01-07",  # Wed
                 raw=True,
@@ -745,3 +744,81 @@ def test_day_kline_truncated_shard_windows_in_payload(tmp_path):
     assert out["partial"] is True
     assert out["truncatedShards"] == [{"startDate": "2026-01-06", "endDate": "2026-01-06"}]
     assert "failedShards" not in out
+
+
+def test_realtime_column_mismatch_message_carries_the_trace_id(tmp_path):
+    # realtime is the guard's HEADLINE case (a turnover rate landing under `close`),
+    # so this path in particular must stay traceable — it was the call site the
+    # traceId wiring originally missed.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/quote/realtime").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "traceId": "830965044897325056",
+                    "data": {
+                        "fieldList": ["securityCode", "close", "turnoverRate"],
+                        "list": [["600519.SH", 28.5573]],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="trace 830965044897325056"):
+                Quote(client).realtime(
+                    security="600519.SH", field=["securityCode", "close", "turnoverRate"]
+                )
+
+
+def test_day_kline_column_mismatch_keeps_the_trace_on_a_single_request(tmp_path):
+    # The K-line path rebuilds its payload from the merged shards, which dropped the
+    # envelope traceId — the wiring was in place but inert. A single (unsharded)
+    # request has exactly one trace, so it can be carried honestly.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "traceId": "830965044897325056",
+                    "data": {
+                        "fieldList": ["securityCode", "tradeDate", "close"],
+                        "list": [["600519.SH", "2026-01-05"]],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="trace 830965044897325056"):
+                Quote(client).day_kline(security="600519.SH")
+
+
+def test_sharded_kline_does_not_claim_a_single_trace(tmp_path):
+    # Merging N shards means merging N responses with N traceIds; picking one would
+    # be a fabricated attribution, so the merged payload carries none.
+    from gangtise_openapi._transport import unwrap_envelope
+
+    sources = [
+        unwrap_envelope(
+            {
+                "code": "000000",
+                "status": True,
+                "traceId": f"trace-{i}",
+                "data": {"fieldList": ["a"], "list": [[i]]},
+            }
+        )
+        for i in range(2)
+    ]
+    payload, _rows = _finalize_quote_result(
+        sources,
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=[],
+        shards=None,
+    )
+    assert getattr(payload, "envelope_trace_id", None) is None

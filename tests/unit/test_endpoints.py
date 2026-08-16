@@ -4,7 +4,7 @@ from gangtise_openapi._endpoints import ENDPOINTS, EndpointDef, lookup
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 92
+    assert len(ENDPOINTS) == 99
 
 
 def test_lookup_known_endpoint():
@@ -26,10 +26,12 @@ def test_pagination_registry_matches_ts_source():
     expected: dict[str, int] = {
         "insight.opinion.list": 50,
         "insight.summary.list": 50,
+        "insight.pamirs-summary.list": 50,
         "insight.roadshow.list": 50,
         "insight.site-visit.list": 50,
         "insight.strategy.list": 50,
         "insight.forum.list": 50,
+        "insight.performance-calendar.list": 50,
         "insight.research.list": 50,
         "insight.foreign-report.list": 50,
         "insight.announcement.list": 50,
@@ -113,6 +115,7 @@ def test_retry_policy_registry_matches_ts_source():
     # double-bills (missing no-replay) or degrades reliability (spurious one).
     expected_no_replay = {
         "insight.summary.download",
+        "insight.pamirs-summary.download",
         "insight.foreign-report.download",
         "ai.knowledge-batch",
         "ai.one-pager",
@@ -128,30 +131,46 @@ def test_retry_policy_registry_matches_ts_source():
         "vault.my-conference.download",
         "alternative.concept-info",
         "alternative.concept-securities",
+        "tool.file-parse.submit",
     }
     expected_no_999999 = {
         "indicator.search",
         "indicator.cross-section",
         "indicator.time-series",
+        "indicator.screener",
     }
     assert {k for k, ep in ENDPOINTS.items() if ep.retry == "no-replay"} == expected_no_replay
     assert {k for k, ep in ENDPOINTS.items() if ep.retry == "no-999999"} == expected_no_999999
 
 
 def test_timeout_floor_registry_matches_ts_source():
-    # The 7 synchronous AI generation endpoints get a 120s floor (TS v0.24.0).
+    # The 7 synchronous AI generation endpoints get a 120s floor (TS v0.24.0);
+    # the file-parse upload gets 300s because a 100MB multipart POST does not fit
+    # in the default window (TS v0.29.0).
     expected = {
-        "ai.one-pager",
-        "ai.investment-logic",
-        "ai.peer-comparison",
-        "ai.theme-tracking",
-        "ai.research-outline",
-        "ai.management-discuss-announcement",
-        "ai.management-discuss-earnings-call",
+        "ai.one-pager": 120_000,
+        "ai.investment-logic": 120_000,
+        "ai.peer-comparison": 120_000,
+        "ai.theme-tracking": 120_000,
+        "ai.research-outline": 120_000,
+        "ai.management-discuss-announcement": 120_000,
+        "ai.management-discuss-earnings-call": 120_000,
+        "tool.file-parse.submit": 300_000,
     }
     floors = {k: ep.timeout_ms for k, ep in ENDPOINTS.items() if ep.timeout_ms is not None}
-    assert set(floors) == expected
-    assert all(v == 120_000 for v in floors.values())
+    assert floors == expected
+
+
+def test_big_int_fields_registry_matches_ts_source():
+    # Only the file-parse taskId is guarded (TS v0.29.0) — a rounded ID would
+    # strand an already-billed parse job.
+    assert {k: ep.big_int_fields for k, ep in ENDPOINTS.items() if ep.big_int_fields} == {
+        "tool.file-parse.submit": ("taskId",),
+    }
+
+
+def test_upload_endpoints_marked():
+    assert [k for k, ep in ENDPOINTS.items() if ep.kind == "upload"] == ["tool.file-parse.submit"]
 
 
 def test_all_endpoint_keys_match_ts_source():
@@ -162,10 +181,14 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.opinion.list",
         "insight.summary.list",
         "insight.summary.download",
+        "insight.pamirs-summary.list",
+        "insight.pamirs-summary.download",
         "insight.roadshow.list",
         "insight.site-visit.list",
         "insight.strategy.list",
         "insight.forum.list",
+        "insight.performance-calendar.list",
+        "insight.performance-calendar.download",
         "insight.research.list",
         "insight.research.download",
         "insight.foreign-report.list",
@@ -248,5 +271,8 @@ def test_all_endpoint_keys_match_ts_source():
         "indicator.search",
         "indicator.cross-section",
         "indicator.time-series",
+        "indicator.screener",
+        "tool.file-parse.submit",
+        "tool.file-parse.result",
     }
     assert set(ENDPOINTS.keys()) == expected

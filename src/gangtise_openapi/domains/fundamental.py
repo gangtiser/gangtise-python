@@ -95,6 +95,18 @@ class Fundamental:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """Shared body builder for the eight statement endpoints.
+
+        ⚠️ **Point-in-time alignment must use ``earliestAnncDate``** (首次公告日,
+        added server-side 2026-08-14), not ``announcementDate``: some securities
+        fill all four quarters of ``announcementDate`` with the ANNUAL report's
+        publish date (五粮液 FY2025 returns 20260430 four times), while
+        ``earliestAnncDate`` returns 20250426 / 20250828 / 20251031 / 20260430,
+        matching the announcement list. After-hours disclosures count as the next
+        day, so it is never EARLIER than the real disclosure — the safe direction.
+        No column pinning here (``schema=None``), so both fields flow through as
+        the server sends them.
+        """
         body = _request_body(
             {
                 "securityCode": security_code,
@@ -582,6 +594,18 @@ class AsyncFundamental:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
+        """Shared body builder for the eight statement endpoints.
+
+        ⚠️ **Point-in-time alignment must use ``earliestAnncDate``** (首次公告日,
+        added server-side 2026-08-14), not ``announcementDate``: some securities
+        fill all four quarters of ``announcementDate`` with the ANNUAL report's
+        publish date (五粮液 FY2025 returns 20260430 four times), while
+        ``earliestAnncDate`` returns 20250426 / 20250828 / 20251031 / 20260430,
+        matching the announcement list. After-hours disclosures count as the next
+        day, so it is never EARLIER than the real disclosure — the safe direction.
+        No column pinning here (``schema=None``), so both fields flow through as
+        the server sends them.
+        """
         body = _request_body(
             {
                 "securityCode": security_code,

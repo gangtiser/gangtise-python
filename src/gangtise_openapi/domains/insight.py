@@ -3,6 +3,7 @@
 # text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
+from gangtise_openapi._errors import ValidationError
 from gangtise_openapi._normalize import to_dataframe
 from gangtise_openapi.domains._common import (
     FilterValue,
@@ -18,8 +20,55 @@ from gangtise_openapi.domains._common import (
     _request_body,
     _result_to_dataframe,
     _to_timestamp13,
+    _validate_choices,
     _validate_top,
 )
+
+# Enum whitelists. Only applied where the server was probed NOT to reject a bad
+# value — it silently drops the condition and answers with the UNFILTERED set, so
+# a typo masquerades as "these are the results" while billing for the full dump
+# (TS v0.32.0).
+_PAMIRS_CATEGORIES = ("companyAnalysis", "industryAnalysis")
+_PAMIRS_MARKETS = ("aShares", "hkStocks", "usChinaConcept", "usStocks")
+_PERFORMANCE_MARKETS = ("aShares", "hkStocks", "usChinaConcept", "usStocks")
+_PERFORMANCE_CATEGORIES = (
+    "performanceForecast",
+    "performanceExpress",
+    "performanceAnnouncement",
+)
+
+# Row ceiling applied when ``security`` is the only thing bounding a
+# performance-calendar fetch. Far above any single company's calendar (a whole
+# A-share history is dozens of rows), far below the 50k that auto-pagination would
+# otherwise pull if the server ever stopped honouring securityList.
+_SECURITY_ONLY_ROW_CAP = 1000
+
+
+def _flag_implicit_cap_hit(data: Any, cap: int, from_: int) -> None:
+    """Mark and announce a ``security``-only fetch that landed on the implicit cap
+    with rows still unfetched.
+
+    That is the signature of a filter that did not narrow anything: the rows on
+    screen are then a truncated slice of the WHOLE calendar rather than one
+    company's. ``total`` decides it — a result that happens to be exactly ``cap``
+    rows long IS complete (``from + rows`` covers ``total``) and must not be
+    flagged, or every automated caller reads a full answer as truncated.
+    """
+    if not isinstance(data, dict):
+        return
+    rows = data.get("list")
+    if not isinstance(rows, list) or len(rows) < cap:
+        return
+    total = data.get("total")
+    if isinstance(total, int) and from_ + len(rows) >= total:
+        return
+    data["partial"] = True
+    warnings.warn(
+        f"security was the only bound, so the fetch was capped at {cap} rows and more "
+        f"remain (total={total}) — the filter may not have narrowed anything. Re-run "
+        "with start_date/end_date or an explicit size.",
+        stacklevel=3,
+    )
 
 
 class Insight:
@@ -123,6 +172,139 @@ class Insight:
         self._client._record_list_titles(
             list_endpoint_key="insight.summary.list",
             id_field="summaryId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
+    def pamirs_summary_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int = 1,
+        rank_type: int = 1,
+        research_area: FilterValue | None = None,
+        security: FilterValue | None = None,
+        category: FilterValue | None = None,
+        market: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询帕米尔专家纪要列表（insight.pamirs-summary.list）。
+
+        这是一个**独立的专家纪要库**, 不是 summary_list 的筛选项, 需单独购买专家纪要数据库
+        （未开通报 999004）, 且不受历史数据范围限制。
+
+        筛选项是 summary_list 的真子集: 只有 search_type / rank_type / keyword /
+        research_area / security / category / market——**没有** source / institution /
+        participant_role。故意不复用 summary_list 的 body: 服务端会静默丢弃不认识的字段,
+        照搬会让调用方以为过滤生效、实际拿到全量。
+
+        category 取值 companyAnalysis / industryAnalysis; market 取值
+        aShares / hkStocks / usChinaConcept / usStocks——两者都本地校验, 因为服务端对非法
+        枚举是静默忽略该条件返回全量。research_area 中信码（1008001xx）与申万码
+        （104xx0000）都认, 但方向码（122000xxx）在本端点返 0。
+
+        ⚠️ 已知返回口径（实测 2026-08-08）: conceptList 在所有查法下都是空的（当前拿不到
+        主题概念标签, 也没有 concept 过滤参数）; categoryList / marketList 只在用 category 或
+        market 过滤时才回填——所以按这两个维度分组要靠过滤参数取, 别拉全量再本地分组。
+        """
+        body = _request_body(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "researchAreaList": _as_list(research_area),
+                "securityList": _as_list(security),
+                "categoryList": _validate_choices(
+                    category, name="category", allowed=_PAMIRS_CATEGORIES
+                ),
+                "marketList": _validate_choices(market, name="market", allowed=_PAMIRS_MARKETS),
+            }
+        )
+        result = self._client._call("insight.pamirs-summary.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.pamirs-summary.list",
+            id_field="summaryId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
+    def performance_calendar_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        security: FilterValue | None = None,
+        market: FilterValue | None = None,
+        category: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询财报日历（insight.performance-calendar.list）: 业绩预告 / 快报 / 公告。
+
+        它是唯一按 **start_date / end_date**（yyyy-MM-dd, 过滤 publishDate）筛选的 insight
+        列表, 其余用 start_time; 也没有 keyword / rank_type / search_type。
+        market 取值 aShares / hkStocks / usChinaConcept / usStocks;
+        category 取值 performanceForecast / performanceExpress / performanceAnnouncement——
+        两者本地白名单校验, 拼错直接报错（服务端对错枚举是静默返全量, 按 0.1 积分/条计费）。
+
+        ⚠️ 本接口数据量很大（含未来排期）, 省略 size 等于按分页上限拉满
+        （1000 页 × 50 = 5 万条, 按 0.1 积分/条约 5000 积分）, 因此**至少要给一个约束**:
+        完整日期区间 / security / 显式 size, 否则本地报错且不发请求。只给 security 时另加 1000 行隐式上限——
+        撞上上限且仍有剩余会标 partial 并 warning。
+        """
+        market_list = _validate_choices(market, name="market", allowed=_PERFORMANCE_MARKETS)
+        category_list = _validate_choices(
+            category, name="category", allowed=_PERFORMANCE_CATEGORIES
+        )
+        securities = _as_list(security)
+        explicitly_bounded = size is not None or bool(start_date and end_date)
+        if not explicitly_bounded and not securities:
+            raise ValidationError(
+                "performance_calendar_list without a bound would auto-paginate the whole "
+                "calendar — up to 50k rows at 0.1 credits each: pass start_date and "
+                "end_date, or security, or an explicit size"
+            )
+        # `security` is only a real bound while the server honours securityList. It
+        # does today (probed 2026-07-25: an unknown code returns total 0, it is not
+        # silently ignored like a bad enum) — but a five-figure credit bill must not
+        # rest on that staying true. One company's whole calendar is dozens of rows,
+        # so the cap is invisible in normal use and turns a filter regression into a
+        # truncated result instead of a 5000-credit pull.
+        implicit_cap = None if explicitly_bounded else _SECURITY_ONLY_ROW_CAP
+        body = _request_body(
+            {
+                "from": from_,
+                "size": size if size is not None else implicit_cap,
+                "startDate": start_date,
+                "endDate": end_date,
+                "marketList": market_list,
+                "securityList": securities,
+                "categoryList": category_list,
+            }
+        )
+        result = self._client._call("insight.performance-calendar.list", body=body)
+        if implicit_cap is not None:
+            _flag_implicit_cap_hit(result, implicit_cap, from_)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        self._client._record_list_titles(
+            list_endpoint_key="insight.performance-calendar.list",
+            id_field="performanceReportId",
             title_field="title",
             rows=rows,
         )
@@ -812,6 +994,53 @@ class Insight:
             title_lookup=("insight.summary.list", "summaryId", summary_id),
         )
 
+    def pamirs_summary_download(
+        self,
+        *,
+        summary_id: str,
+        file_type: int | None = None,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载帕米尔专家纪要原文/HTML（insight.pamirs-summary.download）。
+
+        file_type 取值 1=原文（默认） 2=HTML。需已开通专家纪要数据库。
+        """
+        query: dict[str, str | int] = {"summaryId": summary_id}
+        if file_type is not None:
+            query["fileType"] = file_type
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.pamirs-summary.download",
+            query=query,
+            output=output,
+            fallback_name=f"pamirs-summary-{summary_id}",
+            title_lookup=("insight.pamirs-summary.list", "summaryId", summary_id),
+        )
+
+    def performance_calendar_download(
+        self,
+        *,
+        performance_report_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载业绩报告原文 PDF（insight.performance-calendar.download）。
+
+        A股 10 积分 / 港美股 20 积分; 仅 hasAttachment=True 的记录可下。
+        省略 output 时用 title-cache 里的真实标题命名。
+        """
+        return download_to_path(
+            client=self._client,
+            endpoint_key="insight.performance-calendar.download",
+            query={"performanceReportId": performance_report_id},
+            output=output,
+            fallback_name=f"performance-calendar-{performance_report_id}",
+            title_lookup=(
+                "insight.performance-calendar.list",
+                "performanceReportId",
+                performance_report_id,
+            ),
+        )
+
     def research_download(
         self,
         *,
@@ -1077,6 +1306,139 @@ class AsyncInsight:
         await self._client._record_list_titles(
             list_endpoint_key="insight.summary.list",
             id_field="summaryId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
+    async def pamirs_summary_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int = 1,
+        rank_type: int = 1,
+        research_area: FilterValue | None = None,
+        security: FilterValue | None = None,
+        category: FilterValue | None = None,
+        market: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询帕米尔专家纪要列表（insight.pamirs-summary.list）。
+
+        这是一个**独立的专家纪要库**, 不是 summary_list 的筛选项, 需单独购买专家纪要数据库
+        （未开通报 999004）, 且不受历史数据范围限制。
+
+        筛选项是 summary_list 的真子集: 只有 search_type / rank_type / keyword /
+        research_area / security / category / market——**没有** source / institution /
+        participant_role。故意不复用 summary_list 的 body: 服务端会静默丢弃不认识的字段,
+        照搬会让调用方以为过滤生效、实际拿到全量。
+
+        category 取值 companyAnalysis / industryAnalysis; market 取值
+        aShares / hkStocks / usChinaConcept / usStocks——两者都本地校验, 因为服务端对非法
+        枚举是静默忽略该条件返回全量。research_area 中信码（1008001xx）与申万码
+        （104xx0000）都认, 但方向码（122000xxx）在本端点返 0。
+
+        ⚠️ 已知返回口径（实测 2026-08-08）: conceptList 在所有查法下都是空的（当前拿不到
+        主题概念标签, 也没有 concept 过滤参数）; categoryList / marketList 只在用 category 或
+        market 过滤时才回填——所以按这两个维度分组要靠过滤参数取, 别拉全量再本地分组。
+        """
+        body = _request_body(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "searchType": search_type,
+                "rankType": rank_type,
+                "researchAreaList": _as_list(research_area),
+                "securityList": _as_list(security),
+                "categoryList": _validate_choices(
+                    category, name="category", allowed=_PAMIRS_CATEGORIES
+                ),
+                "marketList": _validate_choices(market, name="market", allowed=_PAMIRS_MARKETS),
+            }
+        )
+        result = await self._client._call("insight.pamirs-summary.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        await self._client._record_list_titles(
+            list_endpoint_key="insight.pamirs-summary.list",
+            id_field="summaryId",
+            title_field="title",
+            rows=rows,
+        )
+        return to_dataframe(rows, schema=None)
+
+    async def performance_calendar_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        security: FilterValue | None = None,
+        market: FilterValue | None = None,
+        category: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询财报日历（insight.performance-calendar.list）: 业绩预告 / 快报 / 公告。
+
+        它是唯一按 **start_date / end_date**（yyyy-MM-dd, 过滤 publishDate）筛选的 insight
+        列表, 其余用 start_time; 也没有 keyword / rank_type / search_type。
+        market 取值 aShares / hkStocks / usChinaConcept / usStocks;
+        category 取值 performanceForecast / performanceExpress / performanceAnnouncement——
+        两者本地白名单校验, 拼错直接报错（服务端对错枚举是静默返全量, 按 0.1 积分/条计费）。
+
+        ⚠️ 本接口数据量很大（含未来排期）, 省略 size 等于按分页上限拉满
+        （1000 页 × 50 = 5 万条, 按 0.1 积分/条约 5000 积分）, 因此**至少要给一个约束**:
+        完整日期区间 / security / 显式 size, 否则本地报错且不发请求。只给 security 时另加 1000 行隐式上限——
+        撞上上限且仍有剩余会标 partial 并 warning。
+        """
+        market_list = _validate_choices(market, name="market", allowed=_PERFORMANCE_MARKETS)
+        category_list = _validate_choices(
+            category, name="category", allowed=_PERFORMANCE_CATEGORIES
+        )
+        securities = _as_list(security)
+        explicitly_bounded = size is not None or bool(start_date and end_date)
+        if not explicitly_bounded and not securities:
+            raise ValidationError(
+                "performance_calendar_list without a bound would auto-paginate the whole "
+                "calendar — up to 50k rows at 0.1 credits each: pass start_date and "
+                "end_date, or security, or an explicit size"
+            )
+        # `security` is only a real bound while the server honours securityList. It
+        # does today (probed 2026-07-25: an unknown code returns total 0, it is not
+        # silently ignored like a bad enum) — but a five-figure credit bill must not
+        # rest on that staying true. One company's whole calendar is dozens of rows,
+        # so the cap is invisible in normal use and turns a filter regression into a
+        # truncated result instead of a 5000-credit pull.
+        implicit_cap = None if explicitly_bounded else _SECURITY_ONLY_ROW_CAP
+        body = _request_body(
+            {
+                "from": from_,
+                "size": size if size is not None else implicit_cap,
+                "startDate": start_date,
+                "endDate": end_date,
+                "marketList": market_list,
+                "securityList": securities,
+                "categoryList": category_list,
+            }
+        )
+        result = await self._client._call("insight.performance-calendar.list", body=body)
+        if implicit_cap is not None:
+            _flag_implicit_cap_hit(result, implicit_cap, from_)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        rows = _extract_rows(result)
+        await self._client._record_list_titles(
+            list_endpoint_key="insight.performance-calendar.list",
+            id_field="performanceReportId",
             title_field="title",
             rows=rows,
         )
@@ -1742,6 +2104,53 @@ class AsyncInsight:
             output=output,
             fallback_name=f"summary-{summary_id}",
             title_lookup=("insight.summary.list", "summaryId", summary_id),
+        )
+
+    async def pamirs_summary_download(
+        self,
+        *,
+        summary_id: str,
+        file_type: int | None = None,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载帕米尔专家纪要原文/HTML（insight.pamirs-summary.download）。
+
+        file_type 取值 1=原文（默认） 2=HTML。需已开通专家纪要数据库。
+        """
+        query: dict[str, str | int] = {"summaryId": summary_id}
+        if file_type is not None:
+            query["fileType"] = file_type
+        return await download_to_path_async(
+            client=self._client,
+            endpoint_key="insight.pamirs-summary.download",
+            query=query,
+            output=output,
+            fallback_name=f"pamirs-summary-{summary_id}",
+            title_lookup=("insight.pamirs-summary.list", "summaryId", summary_id),
+        )
+
+    async def performance_calendar_download(
+        self,
+        *,
+        performance_report_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载业绩报告原文 PDF（insight.performance-calendar.download）。
+
+        A股 10 积分 / 港美股 20 积分; 仅 hasAttachment=True 的记录可下。
+        省略 output 时用 title-cache 里的真实标题命名。
+        """
+        return await download_to_path_async(
+            client=self._client,
+            endpoint_key="insight.performance-calendar.download",
+            query={"performanceReportId": performance_report_id},
+            output=output,
+            fallback_name=f"performance-calendar-{performance_report_id}",
+            title_lookup=(
+                "insight.performance-calendar.list",
+                "performanceReportId",
+                performance_report_id,
+            ),
         )
 
     async def research_download(

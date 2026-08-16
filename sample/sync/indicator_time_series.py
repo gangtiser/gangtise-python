@@ -34,7 +34,7 @@ def main():
             calendar_type="TD",  # 日历: ND=自然日 TD=交易日 WD=工作日（默认 TD）
             currency="CNY",  # 币种: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）
             scale="0",  # 数量级: 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）
-            indicator_param={"qte_close": {"adjustmentType": "2"}},  # 单指标参数, 此处 2=前复权
+            indicator_param={"qte_close": {"adjustType": "2"}},  # 单指标参数, 此处 2=前复权
         ),
         __file__,
     )
@@ -47,6 +47,19 @@ def main():
             indicator="qte_close",
             security="600519.SH",
             raw=True,  # True=返回服务端原始 data, 不做矩阵摊平
+        ),
+        __file__,
+    )
+
+    # 示例 4 · 列头改用代码: 单指标 × 多证券时列名为 securityCode（多指标 × 单证券则为
+    # indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠。
+    show_result(
+        gangtise.indicator.time_series(
+            start_date="2025-01-01",
+            end_date="2025-06-30",
+            indicator="qte_close",
+            security=["600519.SH", "000001.SZ"],
+            key_by="code",  # 列头来源: name=服务端显示名（默认） code=indicatorCode / securityCode
         ),
         __file__,
     )

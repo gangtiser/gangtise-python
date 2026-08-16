@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 HttpMethod = Literal["GET", "POST"]
-EndpointKind = Literal["json", "download"]
+# "upload": a multipart POST that streams a local file up (tool.file-parse.submit);
+# it shares requestJson's auth / retry / envelope handling but not its JSON body.
+EndpointKind = Literal["json", "download", "upload"]
 
 # "no-replay" (per-call billed endpoints — billing probed 2026-07-11: charged per
 # call with NO cache-hit exemption, so a replay double-bills): never resend a
@@ -36,6 +38,20 @@ class EndpointDef:
     # must not be replayed (see "no-replay"). The transport lifts the request
     # timeout to this value, never lowering a higher user-configured timeout.
     timeout_ms: int | None = None
+    # Response fields whose BARE numbers must be re-quoted before json.loads sees
+    # them. Python ints are arbitrary precision, so a snowflake ID survives here
+    # where JS would round it — but the value also has to survive a round-trip
+    # back to the server as the same string, and `str(int)` of a float-parsed
+    # number would not. Kept as a registry fact so the guard travels with the
+    # endpoint (TS v0.29.0).
+    big_int_fields: tuple[str, ...] = ()
+    # Legal ``fileType`` values for a download endpoint that takes one. Declared
+    # on the ENDPOINT rather than at each wrapper so a download added later cannot
+    # forget it: ``download_to_path`` refuses a fileType the registry does not
+    # cover. The server treats an out-of-range value like an unknown field —
+    # it ignores it — so a typo would silently fetch the default format
+    # (TS v0.32.0 made this a required field of the download spec).
+    file_types: tuple[int, ...] = ()
 
 
 def _ep(
@@ -48,6 +64,8 @@ def _ep(
     paginated: int | None = None,
     retry: RetryPolicy = "default",
     timeout_ms: int | None = None,
+    big_int_fields: tuple[str, ...] = (),
+    file_types: tuple[int, ...] = (),
 ) -> EndpointDef:
     return EndpointDef(
         key=key,
@@ -58,6 +76,8 @@ def _ep(
         pagination=Pagination(max_page_size=paginated) if paginated else None,
         retry=retry,
         timeout_ms=timeout_ms,
+        big_int_fields=big_int_fields,
+        file_types=file_types,
     )
 
 
@@ -105,6 +125,27 @@ ENDPOINTS: dict[str, EndpointDef] = {
         kind="download",
         # 50/篇 — same price tier as the AI Agent calls; billing probed non-idempotent.
         retry="no-replay",
+        file_types=(1, 2),
+    ),
+    "insight.pamirs-summary.list": _ep(
+        "insight.pamirs-summary.list",
+        "POST",
+        "/application/open-insight/pamirs-summary/getList",
+        "List Pamirs expert summaries (requires the expert-summary database)",
+        paginated=50,
+    ),
+    "insight.pamirs-summary.download": _ep(
+        "insight.pamirs-summary.download",
+        "GET",
+        "/application/open-insight/pamirs-summary/download/file",
+        "Download a Pamirs expert summary file",
+        kind="download",
+        # The 2026-08-07 spec states an entitlement (the expert-summary database)
+        # but no per-call price. Treated as non-idempotent anyway, like its
+        # insight.summary.download sibling: if it does meter, a 5xx replay
+        # double-bills, and the only cost of being wrong is losing one retry.
+        retry="no-replay",
+        file_types=(1, 2),
     ),
     "insight.roadshow.list": _ep(
         "insight.roadshow.list",
@@ -134,6 +175,20 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "List forums",
         paginated=50,
     ),
+    "insight.performance-calendar.list": _ep(
+        "insight.performance-calendar.list",
+        "POST",
+        "/application/open-insight/schedule/performance-calendar/getList",
+        "List earnings calendar events (forecast / express / announcement)",
+        paginated=50,
+    ),
+    "insight.performance-calendar.download": _ep(
+        "insight.performance-calendar.download",
+        "GET",
+        "/application/open-insight/schedule/performance-calendar/download/file",
+        "Download an earnings report file (A-share 10 credits, HK/US 20)",
+        kind="download",
+    ),
     "insight.research.list": _ep(
         "insight.research.list",
         "POST",
@@ -147,6 +202,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/broker-report/download/file",
         "Download broker research report",
         kind="download",
+        file_types=(1, 2),
     ),
     "insight.foreign-report.list": _ep(
         "insight.foreign-report.list",
@@ -162,6 +218,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download foreign report",
         kind="download",
         retry="no-replay",
+        file_types=(1, 2, 3, 4),
     ),
     "insight.announcement.list": _ep(
         "insight.announcement.list",
@@ -176,6 +233,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/announcement/download/file",
         "Download A-share announcement file",
         kind="download",
+        file_types=(1, 2),
     ),
     "insight.announcement-hk.list": _ep(
         "insight.announcement-hk.list",
@@ -190,6 +248,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/announcement-hk/download/file",
         "Download HK announcement file",
         kind="download",
+        file_types=(1, 2),
     ),
     "insight.announcement-us.list": _ep(
         "insight.announcement-us.list",
@@ -204,6 +263,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/announcement-us/download/file",
         "Download US announcement file",
         kind="download",
+        file_types=(1, 2),
     ),
     "insight.foreign-opinion.list": _ep(
         "insight.foreign-opinion.list",
@@ -225,6 +285,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/independent-opinion/download/file",
         "Download foreign independent opinion file",
         kind="download",
+        file_types=(1, 2),
     ),
     "insight.official-account.list": _ep(
         "insight.official-account.list",
@@ -239,6 +300,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/officialAccount/download/file",
         "Download WeChat official account article (txt/HTML)",
         kind="download",
+        file_types=(1, 2),
     ),
     "insight.qa.list": _ep(
         "insight.qa.list",
@@ -687,6 +749,38 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-indicator/EDE/time-series",
         "Get time-series data (multi-indicator x single-security OR single-indicator x multi-security)",
         retry="no-999999",
+    ),
+    # Note the path: the screener sits directly under open-indicator, NOT under
+    # the EDE/ prefix its three siblings share.
+    "indicator.screener": _ep(
+        "indicator.screener",
+        "POST",
+        "/application/open-indicator/screener",
+        "Screen securities by an expression over indicator values (条件选股)",
+        retry="no-999999",
+    ),
+    # ─── tool (open-tool: async file parsing) ───
+    "tool.file-parse.submit": _ep(
+        "tool.file-parse.submit",
+        "POST",
+        "/application/open-tool/file-parse/submit",
+        "Submit a PDF for parsing (multipart upload), returns taskId",
+        kind="upload",
+        # Billed per page (0.8/页) at submit time, and the upload itself can take
+        # minutes on a 100MB file — never replay it, and don't let the default
+        # 30s timeout kill an in-flight upload.
+        timeout_ms=300_000,
+        retry="no-replay",
+        # Probed 2026-07-25: taskId comes back as a string today. Guard anyway —
+        # if it ever arrives as a bare number, rounding would strand a paid job.
+        big_int_fields=("taskId",),
+    ),
+    "tool.file-parse.result": _ep(
+        "tool.file-parse.result",
+        "POST",
+        "/application/open-tool/file-parse/result",
+        "Fetch a file-parse result ZIP by taskId (140001 = still generating)",
+        kind="download",
     ),
 }
 

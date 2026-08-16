@@ -51,7 +51,9 @@ path = "src/gangtise_openapi/__about__.py"
 packages = ["src/gangtise_openapi"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/", "README.md", "LICENSE", "CHANGELOG.md", "pyproject.toml"]
+# Anchored with a leading "/": a bare "README.md" also matched sample/README.md,
+# shipping a sample index whose scripts and API_PARAMETERS.md are not in the sdist.
+include = ["src/", "/README.md", "/LICENSE", "/CHANGELOG.md", "/pyproject.toml"]
 
 [tool.ruff]
 line-length = 100

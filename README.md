@@ -1,14 +1,37 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.28.0 功能对齐，覆盖 90 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.34.1 功能对齐，覆盖 97 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
 
+### 0.3.0 - 2026-08-15
+- 对齐 CLI **v0.28.3–v0.34.1**（9 个版本）。新增条件选股、帕米尔专家纪要、财报日历、PDF 解析四组接口，**97 个上游接口**（此前 90）。**次版本号：本版会拒掉上一版会转发的入参，也会对上一版当成功渲染的响应报错。**
+- 🔴 **修复：`indicator.cross_section` / `time_series` 此前对线上 API 完全不可用。** 服务端 2026-08-01 重构了 EDE 契约，而 SDK 仍在发旧 body（`securityCodeList` + 根级 `date`）、读旧响应（两个平行 name/code 数组 + 未转置矩阵），旧 body 一律被回 `100001 缺少必填参数`。现已对齐：`universe`、每指标各自的 `tradeDate`、结构化 `indicatorList`、截面 `values` 转置为 `[证券][指标]`、截面输出不再有 `date` 列。
+- 🔴 **复权参数名是 `adjustType`，不是 `adjustmentType`**——服务端对错参数名静默忽略并退回不复权，数看着正常实则错（茅台 2024-01-02：`adjustType=3` → 13609.6168 真后复权，错名 → 1685.01 不复权）。文档、示例、参数表全线改正。
+- ⚠️ **报告期类指标（`is_*` 等）自 2026-08-14 起拒收 `tradeDate`**，须用 `indicator_param` 传 `reportDate`。哪个指标吃哪个日期**不能按 code 前缀推断**（170 指标抽样：7 个 `finc_*`、3 个 `div_*` 要 `reportDate`，而 8 个 `is_*`、4 个 `cf_*` 要 `tradeDate`；`div_cash_yld` 两个都要），新增按服务端**消息内容**匹配的提示层，直接给出该改的写法并指向 `indicator.search` 的 `parameterList`。
+- 🔴 **修复：`quote.day_kline` 拉不了全市场。** 服务端 2026-08-14 停止支持 `"all"`，改为 `aShares` / `hkStocks` / `usStocks` 且**必须单独传**——两种错法服务端都回 `120001「证券代码无效」`，提示指向本来没问题的代码，照着排查会一路走偏，故本地先拦并给出该用哪个关键字。分片改为按市场取粒度（A/美股 1 天、港股 2 天）；`index_day_kline` 从 30 天改 **15 天**（531 行/交易日 × 30 天窗口约 11.7K，必然撞 10000 上限并静默截断）；关键字改为按小写比对并归一化后再下发（`fund-flow` 是唯一服务端不折叠大小写的端点，这一步是它能收 `ashares` 的唯一原因）。
+- 🔴 **`quote.fund_flow` 不再把「关键字 + 代码」静默降级成单只**（服务端在该端点上是静默丢弃关键字、只返代码那几行）；**`ai.stock_summary_list` 拒收市场关键字**（服务端已移除全市场批量，且该接口按 3 积分/条计费，拦在发请求前）。
+- 🔴 **列式响应行长与 `fieldList` 不符改为硬失败。** 此前短行补 `None`、长行丢值，而按位置拍平会把值贴到错误的字段上：`quote.realtime` 传 `field=["securityCode","close","turnoverRate"]`（realtime 根本没有 `close`）只回 2 个值，换手率 28.5573 被贴成 `close`，读起来就是「茅台收盘价 28.56」（真实价 1297.41）——不报错、数字看着合理、却完全是另一个指标。
+- 🔴 **`search_type` / `rank_type` / `file_type` 改为本地白名单。** 传了范围外的枚举值时，可观察到的结果是：该筛选条件不生效、返回**未过滤的结果集**、HTTP 200——与传一个服务端不认识的字段表现一致。最坏的一例是非法 `search_type` 会连 `keyword` 一起失效，`summary_list(keyword=…)` 返回的不再是这个关键词的结果，而是**整库量级**（实测相差三个数量级），自动化流程里几乎不可能发现。守卫挂在 `_request_body` 与端点表上，新增的 wrapper / 下载端点自动覆盖。
+- **分页新增 `total` 封顶探测。** `insight.opinion*` 三个端点的 `total` 恒为 10000 而实际记录远不止，于是全量拉取正好取满就停、`collected == total`，所有完整性检查都通过——一次自以为完整的截断导出，而该端点按 30 积分/条计费。现全量拉取后探一行 `from = total`，探到数据就标 `partial` + `totalCapped` 并告警（判据不写死 10000；`total` 诚实时探针返回空且按条计费下不产生费用）。分页首包异形、`total` 跨页漂移同样标 `partial`。
+- **矩阵护栏**：身份轴（证券代码 / 日期 / 指标 code）一律不许强转（`None` 曾变成字面量 `"null"` 标签，凭空造出的身份比缺数据更危险）；行数与每行单元格数双向校验；时序响应同时出现多证券与多指标改为硬失败（该形态无法归属，且请求/响应差集为空，没有别的守卫会注意到）；`securityNameList` 长度不符**只丢名称、保住数值**（名称是标题不是身份，与其他必须致命的守卫有意不对称）；板块 ID 一律优先按证券轴出列；服务端未能解析的 code 标 `partial` + `omittedIndicators` / `omittedSecurities`。
+- **形状错误不再丢 trace**：`unwrap_envelope` 剥掉信封时会把 `traceId` 一并丢掉，而形状守卫恰好都在 transport 之外——报障时最需要的那个 id 拿不到。现解包后的载荷带着信封的 id（dict 子类，序列化/比较/建表与普通 dict 无差），`ApiError.trace_id` 回落到它；EDE 双层信封会把**外层** id 传下去（内层本身没有）。
+- **示例 93 → 100（每侧）**，`sample/API_PARAMETERS.md` 补 7 个方法段；三大报表补充 **`earliestAnncDate`** 的用法说明（做 point-in-time 对齐要用它——实测存在个股把 `announcementDate` 四个季度全填成年报披露日）。
+- **查证后未改**：CLI v0.34.1 的两条 title-cache 并发缺陷在 Python 不成立（`flush` 全程持锁、`_load` 只在构造时跑一次），已补两条回归测试钉住这个性质，而不是假定它成立。
+
+### 0.2.1 - 2026-07-24
+- 对齐 CLI v0.28.1–v0.28.2。indicator `cross_section`/`time_series` 新增 `key_by`（`name` 默认 / `code` 用 `indicatorCode`·`securityCode` 做列头——列头就是你传进去的 code，实测服务端按自己的顺序返回列，位置索引不可靠、显示名还要再查一次 `search` 才能映射回 code）；EDE `999999` 无数据提示收窄到取数端点，`search` 回落通用提示。
+- **修复：指标无显示名时不再落成名为 `None` 的列。** 服务端确实会发 null 显示名（实测 `qte_open` 回 `indicatorNameList: [None, "日收盘价"]`），此前被字符串化成 `"None"` 当列头；现回退用 `indicatorCode`，`securityNameList` 的 null 也保持 null 而非文本 `"None"`。
+- **修复：sdist 不再夹带 `sample/README.md`**（`include` 的 `README.md` 未锚定，把它一起打了进去，而它引用的示例脚本与 `API_PARAMETERS.md` 并不在包里）。
+- `sample/API_PARAMETERS.md` 与四个 indicator 示例补上 `key_by`；live 测试新增 3 个 indicator 用例，钉住「服务端重排列序下 `indicatorCodeList` 仍与 `values` 行序平行」这个只能线上验的假设。**补丁号：`key_by` 默认 `name`。**
+
 ### 0.2.0 - 2026-07-22
 - 对齐 CLI v0.28.0（2026-07-17 错误码三层重排 + 日期严格校验 + 重试策略修正）。**无新增接口**，仍 90 个上游接口。**次版本号而非补丁号：本版会拒掉上一版会转发的入参。**
-- **破坏性：日期参数只收 `YYYY-MM-DD`。** `start_date`/`end_date`/`date`/`report_date` 其余写法在发请求前抛 `ValidationError`，包括服务端本能正确处理的 `2026/07/01`、`20260701`——统一成一种入参形态，好过按端点逐一探针维护白名单。真正要堵的是另一类：实测（2026-07-22，`insight.research.list` 同窗口比 `total`）服务端**按分隔符翻转日月且静默接受**——`07/01/2026`(斜杠) 读成 `2026-01-07`（total 246534）、`07-01-2026`(横杠) 读成 `2026-07-01`（total 24092），同样三个数字差半年、都 HTTP 200、响应不回显实际采用的日期（用 `25/12/2026` 可解析而 `12/25/2026` 报错交叉验证）。客户端无从判断用户想要哪个读法，故只转发无歧义写法。
+- **破坏性：日期参数只收 `YYYY-MM-DD`。** `start_date`/`end_date`/`date`/`report_date` 其余写法在发请求前抛 `ValidationError`，包括服务端本能正确处理的 `2026/07/01`、`20260701`——统一成一种入参形态，好过按端点逐一探针维护白名单。真正要堵的是另一类：实测（2026-07-22，`insight.research.list` 同窗口比 `total`）年在后的写法**按分隔符不同被解析成不同的日期**——`07/01/2026`(斜杠) 读成 `2026-01-07`、`07-01-2026`(横杠) 读成 `2026-07-01`，同样三个数字差半年、都 HTTP 200、响应不回显实际采用的日期（用 `25/12/2026` 可解析而 `12/25/2026` 报错交叉验证）。客户端无从判断调用方想要哪个读法，故只转发无歧义写法。
+
+  > 该解析差异已于 2026-08-14 由服务端统一（2026-08-16 复测：三种「7月1日」写法同一个结果）。**本地守卫仍保留**：统一为「月在前」之后，欧洲习惯的 `01-07-2026` 仍会被读成 1 月 7 日而非 7 月 1 日，差半年且无提示。
 - **破坏性：时间参数只收 10/13 位时间戳或 `YYYY-MM-DD[ HH:mm[:ss]]`**（空格或 `T` 分隔）。`start_time`/`end_time` 按字段校验后**原样透传**——透传型 list 端点对年在后格式的误读方式与日期端点完全一致。这些字段拒绝 `.SSS` 毫秒尾与时区尾（服务端按自己时区解析该字符串，SDK 不转换就无权替它假设偏移）。校验**与客户端时区无关**：本地时区跳过的墙钟时刻（DST 缺口）照常转发，合法性只由服务端时区决定。
 - **破坏性：`ai.knowledge_batch(start_time=…)` 改收 `int | str`** 并统一转 13 位毫秒（与 A 股 `insight.announcement_list` 一致）；此前只收裸 `int` 且不做任何校验。私有 helper `domains.insight._to_unix_ms` 并入共享的 `domains._common._to_timestamp13`。
 - **新增 `ApiError.trace_id`**，并在 `str(err)` 里渲染成 `[trace 830965044897325056]`——这是 Gangtise 侧唯一能回溯一次失败的抓手，报障请带上。两个转换端点额外接受带时区的 ISO 串（`2026-01-01T00:00:00+08:00` / `Z` / `+0800`），这是有意比 CLI 放宽：转成毫秒时显式偏移无歧义，且 `dt.datetime.now(tz).isoformat()` 是 Python 常见写法。
@@ -34,23 +57,6 @@
 - **自动命名下载恢复原子可见 + 后缀正确**：v0.1.16 的 `O_CREAT|O_EXCL` 占名会先创建 0 字节最终文件再 rename（崩溃可能留下看似成功的空文件），且 `report-1.pdf` 碰撞会落成 `report-1-1.pdf` 而非 `report-2.pdf`；现改用 os.link 把完成的 `.part` 硬链接到目标（完整文件一次性出现、后缀从原始名扫描），仅在不支持硬链接的文件系统回退 O_EXCL 占位（仍非 clobber）。
 - **EDE 内层 999999 补正确提示**：双层 envelope 的内层错误在 transport 之外解包，此前仍是「请稍后重试」；现与外层同用「检查查询条件」的 EDE 提示。
 - **零警告固化**：`pyproject.toml` 的 `filterwarnings` 把本项目的 `UserWarning` 升级为错误，未来分片/漂移告警会让本地与 CI/release 套件失败（此前仅在个别测试临时断言）。无端点/API 表面变更，仍对齐 CLI v0.27.0、90 接口。
-
-### 0.1.16 - 2026-07-11
-- **安全**：签名 URL 不再泄露进异常信息——此前预签名下载失败的 `DownloadError` 会带完整 URL（含 `X-Amz-Signature` 查询串与 `user:password@` 认证段），终端/CI/错误采集系统都会记录；现只保留 `scheme://host[:port]/path`（userinfo、query、fragment 全部剥离，IPv6 主机自动补回方括号）。
-- **数据完整性**：自动命名下载不再互相覆盖——两个 `output=None` 的并发下载解析到同名文件时，此前后完成者会静默覆盖前者；现改用 `O_CREAT|O_EXCL` 原子占名提交，输家自动改用下一个 `-1..-99` 后缀，最终移动失败时清理占位文件。全文件系统可用（不依赖硬链接）；显式 `output=` 保持文档化的覆盖语义。
-- 签名 URL 拉取遇瞬态网络错误现会重试（默认策略、每次尝试独立 10× 硬截止）——重放签名 URL 恒安全，**计费上游端点绝不重发**；签名 URL 的 HTTP ≥400 仍立即失败（签名会过期，重放 403 无意义）。
-- MIME→扩展名映射补齐图片类（png/jpeg/gif/webp/svg，与 TS 一致）：`report_image_download` 自动命名现落地为 `report-image-<id>.jpg` 而非无扩展名。
-- no-replay 端点的 999999 提示不再写「请稍后重试」（SDK 未自动重试、请求可能已执行计费），改为提示先核实结果/扣费再决定是否手动重试。
-- 测试套件在 `-W error::UserWarning` 下零警告通过（分页 fixture 统一为真实 `{total, list}` 形状），真实协议漂移告警不再被噪音掩盖。无端点/API 表面变更，仍对齐 CLI v0.27.0、90 接口。
-
-### 0.1.15 - 2026-07-11
-- 对齐 CLI v0.24.0–v0.27.0。**计费安全（重要）**：16 个按次计费端点（7 个 AI 同步生成、`earnings_review`/`viewpoint_debate` 的 get-id、`hot_topic`、`knowledge_batch`、`concept_info`/`concept_securities`、`summary`/`foreign_report`/`my_conference` 三个下载）改为 **no-replay 重试策略**——5xx/响应超时/999999 不再自动重放（实测平台按次计费且缓存命中不豁免，同参数重放每次都扣分）；仅连接期错误（请求未发出）、429 限流和 token 自愈仍重试。
-- **EDE 指标三端点对 999999 不再重试**——服务端用 HTTP 500 + 999999 表示「查询无数据」（节假日/未来日期/未覆盖标的），此前每次空查询白烧 3 个请求 + ~4 秒；错误提示改为指向检查查询条件而非「稍后重试」。
-- **7 个 AI 同步生成端点内置 120s 超时下限**（`one_pager`/`investment_logic`/`peer_comparison`/`theme_tracking`/`research_outline`/`management_discuss_*`×2）——生成耗时长不再撞 30s 默认超时；显式设更大 timeout 仍生效（取 max）。
-- **新增接口 ×4**（86→90）：`insight.qa_list` 投资者问答（按证券提取互动平台/电话会议/调研纪要的提问与回答，11 类问题类型过滤，自动翻页单页上限 500，0.1 积分/条）；`insight.report_image_list` / `report_image_download` 研报图表（按关键词搜研报图片返回 chunkId+元数据，list 免费、下载原图 JPEG 0.1 积分/张）；`reference.official_account_search` 公众号 ID 搜索（返回 accountId 喂 `official_account_list`；免费）。
-- 429 尊重 `Retry-After`（秒或 HTTP-date，优先于指数退避，60s 封顶；JSON 与下载路径都生效）。
-- 本地校验（实测服务端对超限值静默截断、对拼错分类静默忽略/返回空）：`top`/`limit` 上限——reference 六个搜索 ≤10、`report_image_list`/`knowledge_batch` ≤20、`edb_search` ≤200、`indicator.search` ≤100；category 白名单——`securities_search`/`institution_search`/`official_account_search`；错误码 100003 补中文提示。
-- 可靠性：AI 异步轮询容忍瞬态错误（5xx/网络抖动只消耗一次尝试并继续等待，不再作废整段等待）；全市场分片硬错后熔断（剩余分片不再派发、计入 `failedShards`，省配额）、shape 破损分片计入 `failedShards`、撞行数上限的分片输出 `truncatedShards` 具体日期窗口（可定向缩窗补拉）；分页端点首页形状漂移发 `UserWarning`（不再完全静默退化单页）；自动命名 100 个重名耗尽时抛 `DownloadError`（不再静默覆盖第一个文件）；签名 URL 下载加整体硬截止（10× 单请求超时，慢滴速传输不再无限续命）；`GANGTISE_PAGE_CONCURRENCY` 防御性解析（非法/非正数回退默认 5、上限 32）；EDE 矩阵中与 `date`/`security`/`name` 同名的指标列自动加后缀（不再覆盖元数据列）。
 
 ## 安装
 
@@ -116,18 +122,19 @@ uv run python sample/async/quote_day_kline.py
 
 ## 接口
 
-SDK 覆盖 10 个领域下的 90 个上游接口：
+SDK 覆盖 11 个领域下的 97 个上游接口：
 
 - `gangtise.auth.*` — 登录、状态
 - `gangtise.lookup.*` — 本地查表（券商机构、会议机构）
 - `gangtise.reference.*` — 证券搜索（GTS 代码）、机构 ID 搜索、公众号 ID 搜索、常量分类与常量值（行业/城市/公告分类/区域）、题材 ID 搜索、板块 ID 搜索与成分股
-- `gangtise.insight.*` — 观点、研报、研报图表、公告、日程、投资者问答
+- `gangtise.insight.*` — 观点、研报、研报图表、公告、日程、财报日历、帕米尔专家纪要、投资者问答
 - `gangtise.quote.*` — K 线、实时行情、A 股资金流向
 - `gangtise.fundamental.*` — 财务报表、估值、股东、盈利预测
 - `gangtise.ai.*` — AI 生成的洞察（一页通、同业对比、业绩点评等）
 - `gangtise.vault.*` — 个人云盘、会议记录、股票池、微信
 - `gangtise.alternative.*` — 经济指标（EDB）、题材（概念）指数画像与成分股
-- `gangtise.indicator.*` — 证券级数据指标（EDE）：搜索指标码、截面、时序
+- `gangtise.indicator.*` — 证券级数据指标（EDE）：搜索指标码、截面、时序、条件选股
+- `gangtise.tool.*` — PDF 解析（异步：提交 → 取结果 ZIP）
 
 Python 封装接受与 CLI 参数相同的入参，只是用 `snake_case` 代替 `--kebab-case`。例如 CLI 的 `--start-date` 对应 Python 的 `start_date`。
 

@@ -19,6 +19,14 @@
 3. Update `CHANGELOG.md` with the new version section and `README.md` with the
    matching "最近 5 个版本" entry; release CI checks both before publishing.
 4. Bump `src/gangtise_openapi/__about__.py` (`__version__`).
+
+   > ⚠️ **Verify the bump against `__about__.py` and the built filenames in `dist/`,
+   > never against `pip list` / `importlib.metadata.version()`.** An editable install
+   > records the version it was installed at and does NOT follow later bumps, so
+   > `importlib.metadata.version("gangtise-openapi")` can report the OLD number while
+   > `__about__.__version__`, `USER_AGENT` and the built artifacts are all correct.
+   > Checking the wrong object is how a correct bump gets "confirmed" as broken —
+   > or, worse, a missing one gets confirmed as done.
 5. Commit: `git add -A && git commit -m "release: vX.Y.Z"`. (Use `git add -A`, **not**
    `git commit -am` — `-am` skips new untracked files, so a release that adds a new
    domain/sample file would ship a tree that fails to import on a clean checkout.)

@@ -5,6 +5,340 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-08-15
+
+Sync with `gangtise-openapi-cli` **v0.28.3 → v0.34.1** (nine releases). New endpoints:
+the screener, the Pamirs expert-summary library, the earnings calendar, and the async
+PDF parse tool — **97 network / 99 registry endpoints** (was 90 / 92).
+
+**Minor, not patch:** the server rewrote the EDE contract on 2026-08-01 and retired
+`quote day-kline`'s `"all"` keyword on 2026-08-14, and this release also turns three
+silent-wrong-data paths into explicit failures. Several inputs the previous version
+forwarded are now rejected, and several payloads it rendered as success now raise.
+
+### 🔴 Fixed — the EDE endpoints were unusable against the live API
+
+`indicator.cross_section` / `time_series` were still sending the pre-2026-08-01 body
+(`securityCodeList`, a root-level `date`) and reading the pre-2026-08-01 response
+(two parallel `indicatorCodeList` / `indicatorNameList` arrays, an untransposed
+matrix). The server answers the old body with `100001 缺少必填参数`, so **both methods
+failed on every call** against the current API. The new contract:
+
+- **`securityCodeList` → `universe`** on both endpoints.
+- **The root-level `date` is gone.** `date=` is now sent as each indicator's own
+  `tradeDate`. An indicator that already carries `tradeDate` / `reportDate` in
+  `indicator_param` keeps the caller's value. ⚠️ `sDate` deliberately does NOT count
+  as "already dated": on interval indicators it is the interval START while the
+  required `tradeDate` is its END, so treating it as a replacement silently moved the
+  interval end (茅台 `sDate=2024-01-02`: 2,265,873,849 without a `tradeDate` vs
+  65,687,435 with `tradeDate=2024-01-31`, both "successful").
+- **`indicatorList: [{code, name, dataType}]`** replaces the two parallel arrays, and
+  **cross-section's `values` matrix is transposed** to `[security][indicator]`.
+  Reading the new payload with the old code produced a fully transposed table.
+- **Cross-section output has no `date` column any more** — the query date now lives on
+  each indicator's own parameters and may legitimately differ per column.
+- 🔴 **The 前复权 parameter is `adjustType`, not `adjustmentType`.** The server
+  silently ignores the wrong name and falls back to unadjusted prices, so the numbers
+  look normal and are wrong (茅台 2024-01-02: `adjustType=3` → 13609.6168 真后复权,
+  the misspelling → 1685.01 不复权). Docstrings, samples and
+  `sample/API_PARAMETERS.md` corrected throughout.
+- ⚠️ **Report-period indicators (`is_*` and friends) now REJECT `tradeDate`** (server
+  change 2026-08-14): pass `indicator_param={"code": {"reportDate": "…"}}`. Which date
+  a given indicator wants is **not** derivable from its code prefix — a 170-indicator
+  survey found 7 `finc_*` and 3 `div_*` wanting `reportDate` while 8 `is_*` and 4
+  `cf_*` want `tradeDate`, `div_cash_yld` wants both, and two `div_*` want
+  `fiscalYear`. A new message-keyed hint fires on the server's own sentence (under
+  either `100001` or `100003`) and points at `indicator.search`'s `parameterList`.
+
+### 🔴 Fixed — `quote.day_kline` could not fetch the whole market
+
+The server stopped accepting `["all"]` on the unified day-kline on 2026-08-14, replacing
+it with `aShares` / `hkStocks` / `usStocks`, each of which must be passed **alone**. Both
+mistakes come back as a bare `120001 "invalid security code"` pointing at codes that are
+perfectly fine, so the SDK now refuses them locally and names the keyword to use.
+
+- **Sharding is per market**: `aShares` / `usStocks` 1 day per shard, `hkStocks` 2
+  (single-trading-day row counts probed 2026-08-13: A 5543 / US 5919 / HK 2810).
+- **`index_day_kline` shards at 15 days, not 30.** ~531 index rows per trading day ×
+  ~22 trading days in a 30-day window is ~11.7K — every shard silently maxed out at the
+  10000-row cap and lost ~11% of the range.
+- **Market keywords are matched case-insensitively and normalized before sending.** That
+  folding is load-bearing, not tidiness: `quote.fund-flow` is the one endpoint that does
+  NOT fold case server-side (`ashares` → `120001 非有效A股`), so this is the only reason
+  a case variant works there at all.
+- 🔴 **`quote.fund_flow` no longer silently narrows a mixed request.** The server drops
+  the keyword and answers with just the explicit codes — one row, no warning — so
+  "the whole market plus this one" quietly became "only this one".
+- **`ai.stock_summary_list` rejects market keywords.** The server removed whole-market
+  batching on 2026-08-14; the endpoint bills 3 credits per security, so the check fires
+  before the request rather than after.
+- `day_kline` now documents its widened coverage (HK / US / exchange, concept and
+  industry indices, mixable in one request); `day_kline_hk` / `day_kline_us` /
+  `index_day_kline` are marked deprecated. They are **not** removed: `index_day_kline`
+  can still fetch all 531 indices at once and returns `securityName`, neither of which
+  `day_kline` does.
+
+### Added
+- **`indicator.screener`** — 条件选股: bind variables to indicators
+  (`indicator={"F1": "qte_mkt_cptl"}`) and filter with an expression
+  (`"F1 >= 500 && F2 <= 30"`, plus `contains` / `notcontains` on string indicators).
+  `indicator_param` keys off the **variable**, not the code, because the same indicator
+  may legitimately appear under two variables with different parameters.
+  - **The returned bindings are validated.** Each column's `field` is the only thing
+    tying it back to the filter it came from, and nothing else in the payload can catch
+    it going wrong — a response labelling a requested `F1` as `F9` printed a perfectly
+    ordinary table. A mismatched, unknown or duplicated binding now raises `ApiError`.
+  - **A missing column is weighed against the expression's boolean structure**, not
+    against the mere presence of a `||`. `A && B` needs both sides; `A || B` needs one.
+    No evaluable branch → `ApiError` (the rows cannot be shown to satisfy anything);
+    some branch survives → `partial` + warning, data kept.
+- **`insight.pamirs_summary_list` / `pamirs_summary_download`** — the Pamirs expert
+  summary library (a separate purchase; `999004` when not entitled). Its filter set is a
+  strict subset of `summary_list`'s and is deliberately not copied from it: the server
+  silently drops fields it does not recognise, so a reused parameter set would read as
+  applied while returning the unfiltered library.
+- **`insight.performance_calendar_list` / `performance_calendar_download`** — the
+  earnings calendar (业绩预告 / 快报 / 公告). It is the only insight list filtered by
+  `start_date` / `end_date` rather than `start_time`. **It requires a bound**: unfiltered
+  an omitted `size` means "fetch everything" — up to 50k rows at 0.1 credits each. A `security`-only pull gets an implicit 1000-row cap that marks the result
+  `partial` if rows remain — the signature of a server-side filter regression.
+- **`tool.file_parse` / `tool.file_parse_check`** — async PDF → Markdown parsing, a new
+  `gangtise.tool` domain. Submit is a multipart upload billed **0.8 credits per page at
+  submit time** (`no-replay`, 300s timeout floor); fetching the result ZIP is free and
+  `wait=True` polls on the same backoff budget as the AI async endpoints.
+- **`EndpointDef.big_int_fields`** — declared fields are re-quoted before parsing so an
+  id's type never depends on the server's serializer (Python parses big ints exactly, so
+  unlike the CLI this is a type-stability guard, not a precision fix).
+- **`EndpointDef.file_types`** — the legal `file_type` values live on the endpoint, so a
+  download added later cannot forget the whitelist.
+
+### Changed (breaking)
+- **`indicator.cross_section` / `time_series` require `indicator` and `security`.** Both
+  were nominally optional and answered `100001` after a round trip.
+- **A columnar row whose length disagrees with `fieldList` now raises.** It used to be
+  padded (short) or truncated (long), which pastes values onto the wrong fields:
+  `quote.realtime` with `field=["securityCode","close","turnoverRate"]` (realtime has no
+  `close`) returned 2 values and put a turnover rate of 28.5573 under `close` — reading
+  as 茅台收盘价 28.56 when the real price is 1297.41. No error, a plausible number, an
+  entirely different metric. Applies to `normalize_rows`, the quote path and
+  `alternative.edb_data`.
+- **`search_type` / `rank_type` are whitelisted to 1/2, `file_type` to its endpoint's
+  values.** The server treats an out-of-range enum like an unknown field: it drops the
+  condition and returns the UNFILTERED set at HTTP 200. The worst case takes `keyword`
+  down with it: with `search_type=99`, `summary_list(keyword=…)` stops returning that
+  keyword's results and returns the whole library instead — **three orders of magnitude
+  more rows**, at HTTP 200, which an automated pipeline has almost no chance of
+  noticing. `research_list` behaves the same way. Mounted on
+  `_request_body`, the seam every wrapper already funnels through, so it also covers
+  wrappers added later.
+- **`indicator.time_series` hard-fails on an unattributable response**: a payload
+  carrying both multiple securities AND multiple indicators (a shape the endpoint does
+  not support as a request) would silently discard one of the two identities, and the
+  request/response diff is empty so nothing else would flag it.
+- **Matrix identity axes are no longer coerced.** A `None` in `securityCodeList` or
+  `dates` used to become the literal label `"null"` and reach the caller as a perfectly
+  plausible identity; an `indicatorList` entry without a `code` collapsed to `col0`.
+  Both now raise — a fabricated identity is more dangerous than missing data.
+- **Matrix shape is checked on both dimensions.** Row count and each row's cell count
+  must match the axis lengths exactly; the server pads with `null` rather than
+  truncating, so a ragged row is a structural change, not missing data.
+
+### Fixed
+- **A paginated endpoint's `total` is now probed for a server-side cap.** Three
+  `insight.opinion*` endpoints report a fixed 10000 while rows keep coming past that
+  offset, so a fetch-all stopped exactly at the cap with `collected == total` and every
+  completeness check passed — a truncated export that looked complete, on an endpoint
+  billing 30 credits per row. After an unbounded pull the SDK reads one row at
+  `from = total`; if data comes back the result is marked `partial` + `totalCapped` and
+  warns. The judgement is not hardcoded to 10000, and an honest `total` makes the probe
+  return empty (billing nothing, since these charge per row returned).
+- **A malformed first page is marked `partial`, not just warned about.** A string
+  `total` truncates a fetch-all to page 1, which looks complete — worse than an obviously
+  empty payload.
+- **`total` drifting between pages marks the result `partial`** and warns: data shifted
+  under the fetch, so rows may be duplicated or missing even when the counts line up.
+- **`securityNameList` anomalies drop the names instead of mislabelling rows.** Names are
+  positional, so `["泡泡玛特"]` against two codes labels 茅台's row 泡泡玛特. A length
+  mismatch now discards all names and falls back to the security code, with a warning —
+  a deliberate asymmetry with the other guards, which protect values and must be fatal.
+- **A sector ID no longer loses the security axis.** A single `sectorId` is expanded
+  server-side, so the request count says nothing about which axis the columns are; a
+  sector request now always takes the security axis.
+- **A code the server could not resolve is reported.** Since 2026-08-07 a genuine
+  coverage gap comes back as a `null` cell with its row and column intact, so an axis
+  that vanished means a misspelled code or a wrong market suffix (`AAPL.US` vanishes,
+  `AAPL.O` returns) — otherwise invisible, since `key_by="code"` finds no key at all
+  rather than a null. Marked `partial` + `omittedIndicators` / `omittedSecurities`.
+- **A shape error no longer arrives trace-less.** `unwrap_envelope` discards the
+  envelope, and with it the `traceId` — the one handle Gangtise support can trace a
+  failure by. That mattered most for failures raised past the transport, which is
+  exactly where the matrix shape guards live. The unwrapped payload now carries the
+  envelope's id on an attribute (a `dict` subclass, so it still serializes, compares
+  and tabulates like the plain dict it replaces), and `ApiError.trace_id` falls back
+  to it. A double-wrapped EDE response hands the OUTER id down, since the inner
+  envelope carries none of its own.
+- **The date guard follows `date=` into its new home.** It is no longer a body field, so
+  `_request_body`'s check stopped seeing it; `cross_section` / `screener` now validate it
+  explicitly. Caught by the existing wiring test, which is why that test exists.
+
+### Error hints
+- `100006` now covers the single-page size limit (50), not just "asked for too many rows".
+- `110003` no longer says "shorten the window": the bound is the account's data
+  entitlement, so a request entirely below it (`fiscal_year=2015`) answers the same code
+  however narrow the window gets.
+- `130003` covers "resource not generated" as well as "record has no attachment";
+  `130002` drops its claim that an illegal `file_type` lands there (that moved to
+  `130005`); `140002` covers EDE parameter/expression errors as well as AI generation
+  failures; `999004` covers a whole database not being purchased, not just one record
+  being invisible. New: `230002` (WeChat account not bound).
+
+### Fixed — second round (cross-session review + gangtise-mcp cross-check)
+
+- 🔴 **The reportDate hint no longer asserts a key the server never named.** The rule
+  was ported verbatim from the CLI as ONE alternation
+  (`不支持参数 tradeDate|缺少必填参数 reportDate`), so it also fired on the HALF sentence
+  — which only proves `tradeDate` was rejected and says nothing about what to use
+  instead. `scr_exchg_mkt` has an EMPTY `parameterList` (it wants no date at all), and
+  the hint told the caller to pass `reportDate`, which the server rejects too. Split
+  into five ordered all-must-match rules: the joined sentence gets an assertive hint,
+  the half sentence gets a non-assertive one pointing at `parameterList` plus two
+  routes that are known to work. Found by `gangtise-mcp` (C7) and reproduced here
+  before changing anything; the CLI still has the single-alternation form.
+- 🔴 **Indicators that take no date — or only `fiscalYear` — are reachable again.**
+  `_DATE_PARAM_KEYS` injected `tradeDate` on anything not already carrying
+  `tradeDate`/`reportDate`, so a set of indicators (static attributes like
+  `scr_exchg_mkt` / `pty_main_bus`, plus `div_cash_paid_ratio` / `div_cash_yr`) could
+  not be queried on cross-section or the screener at all — the server rejects the whole
+  request over the stray key. Two **opt-in** suppression markers now exist:
+  `indicator_param={"code": {}}` (the indicator takes no parameters) and
+  `{"code": {"fiscalYear": "2025", "tradeDate": None}}` (a `None` marks one key as
+  unwanted while the others still travel; it never reaches the wire). Opt-in means no
+  existing call changes behaviour.
+  - The criterion is **the presence of `tradeDate` in the indicator's
+    `parameterList`, and nothing else** — not the code prefix, not "is this a static
+    attribute". Four cases: it has `tradeDate` (nothing to do); it has `reportDate`
+    instead (supply that, which suppresses the injection on its own); it has neither
+    but does have other parameters like `currency` / `scale` / `fiscalYear` (supply
+    those plus the `None` marker); its `parameterList` is empty (`{}`). The third
+    case is the one that reads like the fourth — `pty_shr_reg` looks like a static
+    attribute but carries `currency` / `scale`, and writing `{}` would drop them
+    silently.
+  - 🔴 **`fiscalYear` is deliberately NOT treated as a date selector**, and that was
+    settled by measurement after a first attempt got it wrong. Listing it would fix the
+    fiscalYear-only pair in one line — but a live `indicator.search` sweep (free
+    endpoint, 323 indicators, 2026-08-15) found **5 indicators that require `fiscalYear`
+    AND `tradeDate`**: `frcst_op_rev`, `frcst_op_rev_yoy`, `frcst_shnp`,
+    `frcst_shnp_yoy`, `frcst_pe`. Listing it would have broken calls that work today.
+    The CLI reached the same conclusion independently.
+  - ⚠️ `sDate` stays out of the set and must: it is an interval START, not a selector,
+    and treating it as one silently moved the interval end.
+- **`zip_field_row` carries the traceId into its message — on all four call sites.**
+  The CLI's version takes a third `source` argument whose id gets appended to the
+  error; the port dropped it, leaving the SDK's only active consumer of the carried
+  id unwired. The first fix reached only one of the four, and the three it missed
+  were the ones that needed it most: `quote.realtime` (the guard's own headline
+  example) and both `alternative.edb_data` paths (whose message tells the caller to
+  file a bug report).
+- **The `totalCapped` probe is skipped on a per-call billed endpoint.** `ai.hot-topic`
+  is the one endpoint that is both paginated and `no-replay`, and there "the probe
+  returns empty so it costs nothing" is simply false. Deliberate divergence from the
+  CLI, whose probe condition has no such exclusion.
+- **`file_type=True` is rejected.** `bool` is an `int` subclass, so `True in (1, 2)`
+  passed the membership test and went out as JSON `true` — the scalar enum guard
+  already rejected bools, and the two are now consistent.
+- **Test coverage for two guards that had none.** Mutation testing (by the reviewer,
+  reproduced here) showed the screener's boolean evaluator could be reverted to the old
+  "does it contain a `||`" heuristic, and its duplicate-binding check could be deleted,
+  with all tests still green — the existing cases used only pure conjunctions and pure
+  disjunctions, never the mixed structures that separate the two. Added
+  `tests/unit/test_screener_expression.py`.
+- **The title-cache concurrency test was flaky and slow for the same reason.** It joined
+  the racing writer from inside the flush's critical section, where the join could only
+  time out, then flushed before the writer had landed — so it sometimes asserted on a
+  half-written file (1 in ~3 runs, 5.4s each). It now joins from the main thread after
+  the lock is released, and observes the writer actually blocked. Stable 8/8, 0.3s.
+
+### Verified, not changed
+- **The CLI's v0.34.1 title-cache concurrency fixes do not apply here.** Its `flush`
+  snapshotted the data and awaited the write, so a write landing during that await was
+  attached to the already-resolving promise and never persisted; its `loadInto` let
+  concurrent callers overwrite each other. Python holds one lock across the whole
+  read-modify-write and loads once in `__init__`, so neither is reachable. Two regression
+  tests now pin that rather than assuming it.
+- **A `null` payload already yields zero rows**, not the phantom `{"value": null}` record
+  the CLI had to remove in v0.33.0.
+
+### Docs & samples
+- Samples: 93 → **100** per side (screener, Pamirs ×2, earnings calendar ×2, file parse
+  ×2), plus the EDE and K-line samples rewritten for the new contracts.
+- `sample/API_PARAMETERS.md`: 7 new method sections, corrected `adjustType`, and
+  `indicator` / `security` marked required on the matrix endpoints.
+- The statement wrappers document **`earliestAnncDate`** (added server-side 2026-08-14):
+  use it for point-in-time alignment, because some securities fill all four quarters of
+  `announcementDate` with the ANNUAL report's publish date (五粮液 FY2025 returns
+  20260430 four times, while `earliestAnncDate` returns 20250426 / 20250828 / 20251031 /
+  20260430). No code change — the statement wrappers pin no schema, so both fields flow
+  through.
+- Live tests pin what only the live API can confirm: the new EDE contract (`universe`,
+  structured `indicatorList`, transposed matrix), the screener's binding echo, and that
+  the local market-keyword rule still matches the server.
+
+## [0.2.1] - 2026-07-24
+
+Sync with `gangtise-openapi-cli` v0.28.1–v0.28.2. v0.28.1 was docs-only (the npm
+package's bundled skill) and has nothing to port; v0.28.2 adds the `key_by` option
+and scopes the EDE no-data hint. No new endpoints (still 90 network / 92 registry).
+
+**Patch, not minor:** `key_by` defaults to `name` (behavior unchanged) and the rest
+are hint/test refinements — nothing the previous version accepted is now rejected.
+
+### Added
+- **`indicator.cross_section(key_by=…)` and `indicator.time_series(key_by=…)`** —
+  `"name"` (default; columns keyed by the indicator's display name) or `"code"`
+  (columns keyed by `indicatorCode`, or `securityCode` on the single-indicator ×
+  multi-security time-series). `key_by="code"` makes the column header the code you
+  passed in; the default `"name"` makes it whatever the server chose to call it.
+  Live-probed 2026-07-24: **the server returns columns in its own order, not the
+  requested one** — `indicator=["cf_finc_exp", "cf_finc_exp_qtr"]` came back
+  `["cf_finc_exp_qtr", "cf_finc_exp"]`, `security=["600519.SH", "000858.SZ"]` came
+  back `["000858.SZ", "600519.SH"]` — so positional indexing is unsafe, and under
+  `key_by="name"` you get a column titled 「财务费用(现金流量表)」 that takes a second
+  `search` call to map back to `cf_finc_exp`. An invalid value raises
+  `ValidationError` before the request is sent.
+
+### Changed
+- **The EDE `999999` "no data" hint is now scoped to the data-fetch endpoints**
+  (`indicator.cross-section` / `time-series`). `indicator.search` shares the
+  `no-999999` retry policy but takes only a keyword, so it keeps the generic hint
+  rather than nonsensical date/scope/param guidance. The hint text now points at the
+  real top cause — date matching the indicator period (financial/MRQ = period-end
+  such as `2025-12-31`, daily valuation = trading day), `scopeList` coverage, and
+  required `parameterList` params.
+
+### Fixed
+- **An indicator with no display name no longer lands under a column literally named
+  `None`.** The server sends them — probed 2026-07-24, `qte_open` comes back as
+  `indicatorNameList: [None, "日收盘价"]` — and the matrix flattener stringified the
+  list before `_build_headers` could fall through to the code, so `"None"` was a
+  truthy header. Such columns now use the `indicatorCode` (`qte_open`), and a null
+  `securityNameList` entry stays null instead of becoming the text `"None"`.
+  Positions are preserved: these lists are parallel to the `values` rows. This is a
+  deliberate divergence from the CLI, which has the same bug and names the column
+  `"null"`.
+- **The sdist no longer ships `sample/README.md`.** The `include` pattern `README.md`
+  was unanchored and matched it, so the source distribution carried a sample index
+  whose scripts and `API_PARAMETERS.md` were not in the package. All four root-file
+  patterns are now anchored (`/README.md` etc.).
+
+### Docs
+- `sample/API_PARAMETERS.md` and the four `indicator` sample scripts (sync + async ×
+  cross-section + time-series) document and demonstrate `key_by`; the samples had
+  claimed to cover every parameter.
+- Live coverage for the new surface: `tests/integration/test_live.py` gains three
+  `indicator` cases. One of them pins the assumption only production can confirm —
+  that `indicatorCodeList` is parallel to the `values` rows even though the server
+  reorders the columns.
+
 ## [0.2.0] - 2026-07-22
 
 Sync with `gangtise-openapi-cli` v0.28.0 — the 2026-07-17 three-tier error-code
@@ -25,10 +359,10 @@ forwarded.** See "Breaking" below.
 
   | `start_time` | `total` | read by the server as |
   | --- | --- | --- |
-  | `2026-01-07` | 246534 | — |
-  | `2026-07-01` | 24092 | — |
-  | `07/01/2026` (slash) | **246534** | 2026-01-07 (`DD/MM/YYYY`) |
-  | `07-01-2026` (hyphen) | **24092** | 2026-07-01 (`MM-DD-YYYY`) |
+  | `2026-01-07` | baseline A | — |
+  | `2026-07-01` | baseline B | — |
+  | `07/01/2026` (slash) | **matches A** | 2026-01-07 (`DD/MM/YYYY`) |
+  | `07-01-2026` (hyphen) | **matches B** | 2026-07-01 (`MM-DD-YYYY`) |
 
   The same three digits, six months apart, both `HTTP 200`, and nothing in the
   response says which date was used. Confirmed by the complement: `25/12/2026`

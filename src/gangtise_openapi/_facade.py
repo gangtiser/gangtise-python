@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         AsyncLookup,
         AsyncQuote,
         AsyncReference,
+        AsyncTool,
         AsyncVault,
         Auth,
         Fundamental,
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
         Lookup,
         Quote,
         Reference,
+        Tool,
         Vault,
     )
 
@@ -71,6 +73,7 @@ class _Facade:
         "lookup": "gangtise_openapi.domains.lookup:Lookup",
         "quote": "gangtise_openapi.domains.quote:Quote",
         "reference": "gangtise_openapi.domains.reference:Reference",
+        "tool": "gangtise_openapi.domains.tool:Tool",
         "vault": "gangtise_openapi.domains.vault:Vault",
     }
     # mapping populated in Phase 5: additional domains added as wrappers land.
@@ -85,6 +88,7 @@ class _Facade:
         lookup: Lookup
         quote: Quote
         reference: Reference
+        tool: Tool
         vault: Vault
 
     def __init__(self) -> None:
@@ -193,6 +197,7 @@ class _AsyncFacade:
         "vault": "gangtise_openapi.domains.vault:AsyncVault",
         "alternative": "gangtise_openapi.domains.alternative:AsyncAlternative",
         "indicator": "gangtise_openapi.domains.indicator:AsyncIndicator",
+        "tool": "gangtise_openapi.domains.tool:AsyncTool",
     }
 
     if TYPE_CHECKING:
@@ -205,6 +210,7 @@ class _AsyncFacade:
         lookup: AsyncLookup
         quote: AsyncQuote
         reference: AsyncReference
+        tool: AsyncTool
         vault: AsyncVault
 
     def __init__(self, parent: _Facade) -> None:

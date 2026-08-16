@@ -41,15 +41,30 @@ def _is_paginated_response(value: Any) -> bool:
     )
 
 
-def _warn_first_page_shape_drift(endpoint: EndpointDef) -> None:
-    """Shape drift (e.g. ``total`` arriving as a string) silently degrades
-    fetch-all to a single page with no partial marker — make it visible
-    (TS v0.27.0 parity)."""
+def _first_page_shape_drift(endpoint: EndpointDef, first_page: Any) -> Any:
+    """Shape drift silently degrades fetch-all to a single page.
+
+    Applies to EVERY malformed shape, not just ``None``: a string ``total``
+    truncates the result to page 1, which LOOKS complete and is therefore worse
+    than an obviously empty payload. All the paginated endpoints are genuine
+    ``{total, list}`` lists (the odd-shaped ones like ``reference.constant-list``
+    are not marked paginated), and the endpoints where ``null`` is a legitimate
+    answer (``ai.one-pager`` for a security with no generated content) are
+    unpaginated and never reach here — so there is no valid response in this
+    branch (TS v0.33.0).
+
+    A warning only helps a human; a caller keys off ``partial``, so mark the
+    payload too when it is a dict that can carry the flag.
+    """
     warnings.warn(
         f"{endpoint.key} is marked paginated but the first page has an unexpected "
-        "shape (no numeric total + list); returning it as-is",
+        "shape (no numeric total + list); returning it as-is — fetch-all silently "
+        "degraded to one page, so this is NOT a complete result",
         stacklevel=4,
     )
+    if isinstance(first_page, dict):
+        return {**first_page, "partial": True}
+    return first_page
 
 
 def _validate_paging_args(body: dict[str, Any]) -> None:
@@ -132,8 +147,7 @@ def collect_paginated(
     first_page = fetch(first_body)
 
     if not _is_paginated_response(first_page):
-        _warn_first_page_shape_drift(endpoint)
-        return first_page
+        return _first_page_shape_drift(endpoint, first_page)
 
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])
@@ -166,7 +180,7 @@ def collect_paginated(
     # page, record it, and stop starting new requests so we don't keep burning
     # quota into a rate limit. firstPage already succeeded to get here.
     failed_pages: list[dict[str, Any]] = []
-    state: dict[str, Any] = {"aborted": False, "first_error": None}
+    state: dict[str, Any] = {"aborted": False, "first_error": None, "total_drift": False}
     if remaining_requests:
         workers = max(1, min(concurrency, len(remaining_requests)))
         lock = threading.Lock()
@@ -192,12 +206,34 @@ def collect_paginated(
                 with lock:
                     failed_pages.append(req)
                 return []
+            if page["total"] != total:
+                with lock:
+                    state["total_drift"] = True
             return page["list"]  # type: ignore[no-any-return]  # may be [] (empty page)
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
             page_lists = list(pool.map(_run_page, remaining_requests))
         for page_list in page_lists:
             collected.extend(page_list)
+
+    total_capped = False
+    if _should_probe_total_cap(
+        endpoint=endpoint,
+        requested_size=requested_size,
+        total=total,
+        collected=len(collected),
+        target=target,
+        state=state,
+        failed_pages=failed_pages,
+        dropped_pages=dropped_pages,
+    ):
+        try:
+            probe = fetch({**initial, "from": total, "size": 1})
+        except Exception:
+            # A failed probe must never fail an otherwise-complete fetch: we simply
+            # do not learn whether the total was capped, which is the prior behaviour.
+            probe = None
+        total_capped = _probe_total_capped(endpoint, total, len(collected), probe)
 
     if requested_size is not None:
         collected = collected[:requested_size]
@@ -210,7 +246,66 @@ def collect_paginated(
         endpoint,
         target=target,
         dropped_pages=dropped_pages,
+        total_capped=total_capped,
     )
+
+
+def _should_probe_total_cap(
+    *,
+    endpoint: EndpointDef,
+    requested_size: int | None,
+    total: int,
+    collected: int,
+    target: int,
+    state: dict[str, Any],
+    failed_pages: list[dict[str, Any]],
+    dropped_pages: int,
+) -> bool:
+    """Whether to spend one request checking that ``total`` is the real row count.
+
+    ``total`` is not always the real row count. Three opinion endpoints report a
+    fixed 10000 while ``from=30000`` still returns real rows with monotonically
+    older publish times (the shape of Elasticsearch's default track_total_hits). A
+    fetch-all then stops exactly at the cap with ``collected == total``, so every
+    completeness check passes and the truncated export LOOKS complete — the worst
+    failure mode there is, because ``insight.opinion`` bills 30 credits per row.
+
+    Only probed on a genuine fetch-all that otherwise looked complete: when
+    ``total`` is honest the probe comes back empty (and bills nothing, since these
+    endpoints charge per row returned).
+
+    **Except on a per-call billed endpoint**, where "the probe returns empty so it
+    costs nothing" is simply false — ``ai.hot-topic`` is the one endpoint that is
+    both paginated and ``no-replay``, and there the probe is a real charge for a
+    diagnostic. Deliberate divergence from the CLI, whose probe condition has no
+    such exclusion (`client.ts`, v0.33.0); reported upstream rather than left to
+    drift silently. The capping this detects was only ever observed on the
+    ``insight.opinion*`` endpoints, which are not per-call billed.
+    """
+    if endpoint.retry == "no-replay":
+        return False
+    return (
+        requested_size is None
+        and total > 0
+        and collected >= target
+        and not state.get("total_drift")
+        and not failed_pages
+        and not dropped_pages
+    )
+
+
+def _probe_total_capped(endpoint: EndpointDef, total: int, collected: int, probe: Any) -> bool:
+    """Read a probe response; warn and return True when rows exist past ``total``."""
+    if not (_is_paginated_response(probe) and probe["list"]):
+        return False
+    warnings.warn(
+        f"{endpoint.key} reported total={total} but rows exist past that offset — "
+        "'total' is a server-side cap, not the real count. This result is TRUNCATED "
+        f"at {collected} rows. Narrow the query (date range / filters) and fetch in "
+        "slices.",
+        stacklevel=2,
+    )
+    return True
 
 
 def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
@@ -234,6 +329,7 @@ def _finalize_partial(
     *,
     target: int,
     dropped_pages: int = 0,
+    total_capped: bool = False,
 ) -> dict[str, Any]:
     """Assemble the paginated result, tagging it ``partial`` whenever it is
     incomplete — fan-out pages failed, the ``MAX_PAGES`` cap dropped pages, or the
@@ -242,6 +338,18 @@ def _finalize_partial(
     default DataFrame path still surfaces it. Shared by the sync and async collectors.
     Mirrors the TS ``requestPaginated`` partial markers (core/client.ts)."""
     result: dict[str, Any] = {**first_page, "total": total, "list": collected}
+    if total_capped:
+        result["partial"] = True
+        result["totalCapped"] = True
+    if state.get("total_drift"):
+        # `total` changed between pages: data shifted under the fetch, so rows may
+        # be duplicated or missing even when the counts happen to line up.
+        result["partial"] = True
+        warnings.warn(
+            f"'total' changed across pages for {endpoint.key} (data shifted during "
+            "fetch); rows may be duplicated or missing",
+            stacklevel=2,
+        )
     if failed_pages:
         result["partial"] = True
         result["failedPages"] = [{"from": p["from"], "size": p["size"]} for p in failed_pages]
@@ -300,8 +408,7 @@ async def collect_paginated_async(
     first_body = {**initial, "from": start_from, "size": first_page_size}
     first_page = await fetch(first_body)
     if not _is_paginated_response(first_page):
-        _warn_first_page_shape_drift(endpoint)
-        return first_page
+        return _first_page_shape_drift(endpoint, first_page)
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])
     available = max(total - start_from, 0)
@@ -330,7 +437,7 @@ async def collect_paginated_async(
     # hits a non-retryable error; record the failures and stop starting new
     # requests. See the sync sibling in collect_paginated.
     failed_pages: list[dict[str, Any]] = []
-    state: dict[str, Any] = {"aborted": False, "first_error": None}
+    state: dict[str, Any] = {"aborted": False, "first_error": None, "total_drift": False}
     if remaining_requests:
         semaphore = anyio.Semaphore(max(1, min(concurrency, len(remaining_requests))))
 
@@ -359,7 +466,27 @@ async def collect_paginated_async(
             # (mirrors the sync _run_page branch).
             failed_pages.append(remaining_requests[idx])
             continue
+        if page["total"] != total:
+            state["total_drift"] = True
         collected.extend(page["list"])  # may be [] — a legitimately empty page
+    total_capped = False
+    if _should_probe_total_cap(
+        endpoint=endpoint,
+        requested_size=requested_size,
+        total=total,
+        collected=len(collected),
+        target=target,
+        state=state,
+        failed_pages=failed_pages,
+        dropped_pages=dropped_pages,
+    ):
+        try:
+            probe = await fetch({**initial, "from": total, "size": 1})
+        except Exception:
+            # A failed probe must never fail an otherwise-complete fetch.
+            probe = None
+        total_capped = _probe_total_capped(endpoint, total, len(collected), probe)
+
     if requested_size is not None:
         collected = collected[:requested_size]
     return _finalize_partial(
@@ -371,4 +498,5 @@ async def collect_paginated_async(
         endpoint,
         target=target,
         dropped_pages=dropped_pages,
+        total_capped=total_capped,
     )

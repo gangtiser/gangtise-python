@@ -61,6 +61,10 @@ _OFFSET_DATETIME = re.compile(
 # every wrapper), so keying the guard on them covers all of them at once.
 _DATE_FIELDS = frozenset({"startDate", "endDate", "date", "reportDate"})
 _DATETIME_FIELDS = frozenset({"startTime", "endTime"})
+# Scalar enum wire fields and their legal values. Mounted here, on the body
+# builder every wrapper already funnels through, so the guard covers all 19 list
+# endpoints at once — and any added later.
+_ENUM_FIELDS: dict[str, tuple[int, ...]] = {"searchType": (1, 2), "rankType": (1, 2)}
 
 
 def _snake(field: str) -> str:
@@ -263,6 +267,8 @@ def _request_body(body: dict[str, Any]) -> dict[str, Any]:
             _validate_date(value, field)
         elif field in _DATETIME_FIELDS:
             _validate_datetime(value, field)
+        elif field in _ENUM_FIELDS:
+            _validate_enum(value, name=_snake(field), allowed=_ENUM_FIELDS[field])
     return _strip_none(body)
 
 
@@ -337,6 +343,33 @@ def _validate_top(value: int, *, name: str, max_value: int) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= max_value:
         raise ValidationError(
             f"{name} must be an integer between 1 and {max_value} (got {value!r})"
+        )
+    return value
+
+
+def _validate_enum(value: Any, *, name: str, allowed: tuple[int, ...]) -> Any:
+    """Whitelist for a SCALAR enum kwarg (``search_type`` / ``rank_type`` /
+    ``file_type``).
+
+    The server treats an out-of-range enum exactly like an unknown field: it drops
+    the condition and answers with the UNFILTERED set at HTTP 200. The worst case
+    is ``search_type``, which takes ``keyword`` down with it — probed by the CLI
+    2026-08-08: ``insight.summary_list(keyword=…)`` returns a few hundred rows
+    normally and **the entire library** with ``search_type=99``, three orders of
+    magnitude more; ``insight.research_list`` behaves the same way. The caller reads
+    it as "results for that keyword" and gets a full dump, which an automated
+    pipeline has almost no chance of noticing. So these are refused locally, before
+    the request (TS v0.32.0).
+
+    (Magnitudes rather than the measured row counts on purpose: this docstring
+    ships inside the wheel, so absolute library sizes would be published with every
+    release. The ratio is what makes the case for the guard.)
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or value not in allowed:
+        raise ValidationError(
+            f"invalid {name}: {value!r} is not one of {'/'.join(str(a) for a in allowed)}"
         )
     return value
 

@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import suppress
 from functools import partial
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 from urllib.parse import unquote, urlsplit
 
 import anyio
@@ -18,7 +18,12 @@ import httpx
 from gangtise_openapi._auth import normalize_token
 from gangtise_openapi._client import AUTH_RETRY_CODES, AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._endpoints import EndpointDef, lookup
-from gangtise_openapi._errors import FOLLOWED_TARGET_HINT, ApiError, DownloadError
+from gangtise_openapi._errors import (
+    FOLLOWED_TARGET_HINT,
+    ApiError,
+    DownloadError,
+    ValidationError,
+)
 from gangtise_openapi._transport import (
     RETRYABLE_HTTP_STATUS,
     _apply_policy_hint,
@@ -245,6 +250,33 @@ def _raise_download_http_error(
     )
 
 
+def _check_file_type(endpoint: EndpointDef, query: dict[str, str | int]) -> None:
+    """Refuse a ``fileType`` the endpoint does not declare.
+
+    The server treats an out-of-range enum like an unknown field: it ignores the
+    value and hands back the DEFAULT format, so a typo silently downloads
+    something other than what was asked for (TS v0.32.0). Checked against the
+    registry rather than at each wrapper so a download endpoint added later
+    cannot quietly skip the guard — an undeclared endpoint that is nonetheless
+    handed a fileType fails loudly here.
+    """
+    if "fileType" not in query:
+        return
+    value = query["fileType"]
+    if not endpoint.file_types:
+        raise ValidationError(
+            f"{endpoint.key} was given a fileType but declares no legal values — "
+            "add file_types= to its registry entry"
+        )
+    # ``bool`` is an ``int`` subclass, so ``True in (1, 2)`` is True — reject it
+    # explicitly, matching ``_validate_enum``'s judgement for the scalar enums.
+    if isinstance(value, bool) or value not in endpoint.file_types:
+        raise ValidationError(
+            f"invalid file_type: {value!r} is not one of "
+            f"{'/'.join(str(v) for v in endpoint.file_types)} for {endpoint.key}"
+        )
+
+
 def download_to_path(
     *,
     client: GangtiseClient,
@@ -253,6 +285,7 @@ def download_to_path(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None = None,
+    body: dict[str, Any] | None = None,
 ) -> Path:
     """Stream a download endpoint to disk.
 
@@ -271,6 +304,7 @@ def download_to_path(
     endpoint = lookup(endpoint_key)
     if endpoint.kind != "download":
         raise DownloadError(f"endpoint {endpoint_key} is not a download endpoint")
+    _check_file_type(endpoint, query)
 
     token = client._get_token()
     attempt = 0
@@ -285,6 +319,7 @@ def download_to_path(
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
+                body=body,
             )
         except ApiError as error:
             if error.from_followed_target:
@@ -332,8 +367,15 @@ def _download_once(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    body: dict[str, Any] | None = None,
 ) -> Path:
     headers: dict[str, str] = {"Authorization": normalize_token(token)}
+    # `body` is only sent for POST download endpoints — tool.file-parse.result takes
+    # {taskId} as JSON and answers with the ZIP bytes rather than an envelope.
+    content: bytes | None = None
+    if endpoint.method == "POST":
+        headers["content-type"] = "application/json"
+        content = json.dumps(body or {}).encode("utf8")
 
     http = client._http_client()
     with http.stream(
@@ -341,6 +383,7 @@ def _download_once(
         endpoint.path,
         params=query,
         headers=headers,
+        content=content,
         # Do NOT auto-follow redirects here. A download endpoint may 3xx to a
         # presigned object-store URL, but if httpx followed inline, a failure on
         # the CDN hop would surface as a connect-phase error on THIS (billed,
@@ -761,6 +804,7 @@ async def download_to_path_async(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None = None,
+    body: dict[str, Any] | None = None,
 ) -> Path:
     """Async counterpart to `download_to_path` — streams a download endpoint
     to disk using `httpx.AsyncClient`. Resolution rules match the sync version.
@@ -768,6 +812,7 @@ async def download_to_path_async(
     endpoint = lookup(endpoint_key)
     if endpoint.kind != "download":
         raise DownloadError(f"endpoint {endpoint_key} is not a download endpoint")
+    _check_file_type(endpoint, query)
 
     token = await client._get_token()
     attempt = 0
@@ -782,6 +827,7 @@ async def download_to_path_async(
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
+                body=body,
             )
         except ApiError as error:
             if error.from_followed_target:
@@ -823,8 +869,15 @@ async def _download_once_async(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    body: dict[str, Any] | None = None,
 ) -> Path:
     headers: dict[str, str] = {"Authorization": normalize_token(token)}
+    # `body` is only sent for POST download endpoints — tool.file-parse.result takes
+    # {taskId} as JSON and answers with the ZIP bytes rather than an envelope.
+    content: bytes | None = None
+    if endpoint.method == "POST":
+        headers["content-type"] = "application/json"
+        content = json.dumps(body or {}).encode("utf8")
 
     http = client._http_client()
     async with http.stream(
@@ -832,6 +885,7 @@ async def _download_once_async(
         endpoint.path,
         params=query,
         headers=headers,
+        content=content,
         # See _download_once: upstream must not auto-follow, or a CDN-hop failure
         # would replay this (possibly no-replay, billed) request. Hand the Location
         # to the signed-URL fetcher instead.

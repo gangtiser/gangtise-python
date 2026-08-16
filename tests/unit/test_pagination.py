@@ -33,16 +33,63 @@ def test_fetches_remaining_pages_concurrently():
 
     def fetch(body):
         pages_seen.append((body["from"], body["size"]))
-        if body["from"] == 0:
-            return {"total": 12, "list": [{"i": j} for j in range(5)]}
-        # remaining pages
+        # Honour `total`: a stub that yields rows for ANY `from` would make the
+        # total-cap probe (which reads one row past the claimed end) see data and
+        # correctly report the export as truncated.
         f, s = body["from"], body["size"]
-        return {"total": 12, "list": [{"i": j} for j in range(f, f + s)]}
+        return {"total": 12, "list": [{"i": j} for j in range(f, min(f + s, 12))]}
 
     out = collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
     assert out["total"] == 12
     assert [row["i"] for row in out["list"]] == list(range(12))
     assert "partial" not in out  # all pages succeeded
+    # The last entry is the total-cap probe: one row at from == total.
+    assert pages_seen[-1] == (12, 1)
+
+
+def test_total_cap_probe_flags_a_capped_total():
+    # Three opinion endpoints report a fixed total while rows keep coming past it.
+    # A fetch-all then stops exactly at the cap with collected == total, so every
+    # other completeness check passes and the truncated export looks complete.
+    def fetch(body):
+        f, s = body["from"], body["size"]
+        return {"total": 10, "list": [{"i": j} for j in range(f, f + s)]}
+
+    with pytest.warns(UserWarning, match="server-side cap"):
+        out = collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=3)
+    assert out["partial"] is True
+    assert out["totalCapped"] is True
+    assert len(out["list"]) == 10
+
+
+def test_total_cap_probe_skipped_for_a_bounded_request():
+    # `--size`-style bounded pulls got exactly what they asked for; there is no
+    # completeness claim to check, so no probe request is spent.
+    pages_seen: list[tuple[int, int]] = []
+
+    def fetch(body):
+        pages_seen.append((body["from"], body["size"]))
+        f, s = body["from"], body["size"]
+        return {"total": 10, "list": [{"i": j} for j in range(f, f + s)]}
+
+    out = collect_paginated(_ep(max_page_size=5), body={"size": 10}, fetch=fetch, concurrency=3)
+    assert "totalCapped" not in out
+    assert (10, 1) not in pages_seen
+
+
+def test_total_cap_probe_failure_never_fails_the_pull():
+    calls = {"n": 0}
+
+    def fetch(body):
+        calls["n"] += 1
+        if body["from"] == 10:
+            raise ApiError("probe blew up")
+        f, s = body["from"], body["size"]
+        return {"total": 10, "list": [{"i": j} for j in range(f, min(f + s, 10))]}
+
+    out = collect_paginated(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=3)
+    assert "partial" not in out
+    assert len(out["list"]) == 10
 
 
 def test_requested_size_truncates_collected():
@@ -63,13 +110,26 @@ def test_non_paginated_response_returned_verbatim():
     assert out == {"total": 0, "list": []}
 
 
-def test_unexpected_shape_returned_as_is():
+def test_unexpected_shape_returned_as_is_but_marked_partial():
+    # Fetch-all silently degraded to one page. A string `total` truncates the
+    # result to page 1, which looks complete — worse than an obviously empty
+    # payload — so the caller gets a machine-readable marker, not just a warning.
     def fetch(body):
         return {"unexpected": "shape"}
 
     with pytest.warns(UserWarning, match="unexpected shape"):
         out = collect_paginated(_ep(), body={}, fetch=fetch, concurrency=3)
-    assert out == {"unexpected": "shape"}
+    assert out == {"unexpected": "shape", "partial": True}
+
+
+def test_non_dict_first_page_warns_without_a_marker():
+    # `data: null` cannot carry a flag; the warning is the whole signal.
+    def fetch(body):
+        return None
+
+    with pytest.warns(UserWarning, match="unexpected shape"):
+        out = collect_paginated(_ep(), body={}, fetch=fetch, concurrency=3)
+    assert out is None
 
 
 def test_invalid_from_raises():
@@ -194,11 +254,54 @@ def test_fanout_malformed_page_is_partial():
 
 def test_first_page_shape_drift_warns_and_returns_as_is(config):
     # A paginated endpoint answering a non-{total,list} shape silently degrades
-    # fetch-all to a single page — surface it (TS v0.27.0 parity).
+    # fetch-all to a single page — surface it (TS v0.27.0), and since v0.33.0 flag
+    # it so a caller reading `partial` sees it too. A string `total` is the nastier
+    # case: page 1 comes back looking like the whole answer.
     from gangtise_openapi._endpoints import lookup
 
     endpoint = lookup("insight.summary.list")
     drifted = {"total": "123", "list": []}
     with pytest.warns(UserWarning, match="unexpected shape"):
         out = collect_paginated(endpoint, body={}, fetch=lambda body: drifted, concurrency=2)
-    assert out is drifted
+    assert out == {"total": "123", "list": [], "partial": True}
+    assert drifted == {"total": "123", "list": []}  # caller's payload not mutated
+
+
+def test_total_cap_probe_is_skipped_on_a_per_call_billed_endpoint():
+    # `ai.hot-topic` is the one endpoint that is both paginated and no-replay.
+    # There "the probe returns empty so it costs nothing" is false — it is a real
+    # charge for a diagnostic, so the probe is skipped. Deliberate divergence from
+    # the CLI, whose probe condition has no such exclusion.
+    from gangtise_openapi._endpoints import lookup
+
+    endpoint = lookup("ai.hot-topic")
+    assert endpoint.pagination is not None and endpoint.retry == "no-replay"
+    pages_seen: list[tuple[int, int]] = []
+
+    def fetch(body):
+        pages_seen.append((body["from"], body["size"]))
+        f, s = body["from"], body["size"]
+        return {"total": 40, "list": [{"i": j} for j in range(f, f + s)]}
+
+    out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
+    assert "totalCapped" not in out
+    assert (40, 1) not in pages_seen
+
+
+def test_total_cap_probe_still_runs_on_a_normal_billed_endpoint():
+    # The counterpart: `insight.opinion.list` is where the capping was observed and
+    # bills per row, so the probe must still fire there.
+    from gangtise_openapi._endpoints import lookup
+
+    endpoint = lookup("insight.opinion.list")
+    assert endpoint.retry == "default"
+
+    # total > one page: a single-page answer early-returns before the probe (same
+    # as the CLI), so the fan-out has to actually run for this to exercise it.
+    def fetch(body):
+        f, s = body["from"], body["size"]
+        return {"total": 120, "list": [{"i": j} for j in range(f, f + s)]}
+
+    with pytest.warns(UserWarning, match="server-side cap"):
+        out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
+    assert out["totalCapped"] is True

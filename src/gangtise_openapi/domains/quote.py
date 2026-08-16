@@ -12,17 +12,21 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._errors import ValidationError
-from gangtise_openapi._normalize import to_dataframe
+from gangtise_openapi._normalize import to_dataframe, zip_field_row
 from gangtise_openapi._quote_sharding import (
     DEFAULT_FULL_MARKET_LIMIT,
     DEFAULT_QUOTE_LIMIT,
-    SHARD_DAYS,
+    MARKET_SHARD_DAYS,
+    REALTIME_MARKETS,
+    canonicalize_market_keywords,
+    check_market_keywords,
     drop_weekend_shards,
     fetch_shards,
     fetch_shards_async,
-    is_full_market,
     plan_shards,
+    resolve_full_market,
 )
+from gangtise_openapi._transport import _attach_envelope_trace_id
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
@@ -50,7 +54,7 @@ def _date_to_iso(value: str | dt.date | None) -> str | None:
     return value
 
 
-def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
+def _normalize_quote_rows(rows: list[Any], fields: Any, source: Any = None) -> list[dict[str, Any]]:
     """Transpose K-line / realtime rows against the response ``fieldList``.
 
     The quote endpoints return a columnar matrix ``{fieldList, list:[[...]]}``;
@@ -58,6 +62,13 @@ def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
     field names. Rows that are already dicts pass through unchanged. The real
     field names are returned verbatim (no schema, no aliases), so the DataFrame
     columns stay in lockstep with the API.
+
+    A row whose length disagrees with ``fieldList`` is refused rather than padded
+    — see :func:`zip_field_row`; ``quote.realtime`` is one of the endpoints that
+    returns values for the valid fields only while echoing every requested name.
+    ``source`` is the payload the rows came out of, passed through so that refusal
+    keeps the response's traceId (the guard's own docstring names realtime as its
+    headline case, so this path in particular must stay traceable).
     """
     normalized: list[dict[str, Any]] = []
     field_names = (
@@ -67,16 +78,14 @@ def _normalize_quote_rows(rows: list[Any], fields: Any) -> list[dict[str, Any]]:
         if isinstance(row, dict):
             item = dict(row)
         elif isinstance(row, list) and field_names:
-            item = {
-                field: row[index] for index, field in enumerate(field_names) if index < len(row)
-            }
+            item = zip_field_row(field_names, row, source)
         else:
             continue
         normalized.append(item)
     return normalized
 
 
-def _kline_dataframe(rows: list[Any], fields: Any) -> pd.DataFrame:
+def _kline_dataframe(rows: list[Any], fields: Any, source: Any = None) -> pd.DataFrame:
     """Build the K-line DataFrame, preferring direct columnar construction.
 
     When ``fields`` is a list of column names and every row is a list of
@@ -97,7 +106,7 @@ def _kline_dataframe(rows: list[Any], fields: Any) -> pd.DataFrame:
         and all(isinstance(r, list) and len(r) == len(fields) for r in rows)
     ):
         return pd.DataFrame(rows, columns=fields)
-    return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+    return to_dataframe(_normalize_quote_rows(rows, fields, source), schema=None)
 
 
 def _quote_rows_and_fields(result: Any) -> tuple[list[Any], Any]:
@@ -171,6 +180,14 @@ def _finalize_quote_result(
             malformed += 1
 
     result_payload: dict[str, Any] = {**merged, "list": rows} if merged else {"list": rows}
+    # Rebuilding the dict drops the envelope traceId the transport attached, which
+    # is precisely what a downstream shape refusal needs (see `zip_field_row`).
+    # Carried only for a SINGLE source payload: merging shards means merging N
+    # responses with N different traceIds, and there is no honest way to pick one.
+    if len(page_results) == 1:
+        result_payload = _attach_envelope_trace_id(
+            result_payload, getattr(page_results[0], "envelope_trace_id", None)
+        )
     if field_list is not None:
         result_payload["fieldList"] = field_list
     if sharded and merged:
@@ -271,16 +288,22 @@ class Quote:
         limit: int | None = None,
         field: FilterValue | None = None,
         raw: bool = False,
-        full_market_value: str = "all",
         require_dates_for_full_market: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         _validate_limit(limit)
-        days_per_shard = SHARD_DAYS[endpoint_key]
+        markets = MARKET_SHARD_DAYS[endpoint_key]
         label = endpoint_key.split(".", 1)[-1]
-        full_market = is_full_market(security, full_market_value)
+        # Validate before anything is sent: a keyword this endpoint does not take,
+        # or one mixed with codes, is a local error — and these endpoints answer it
+        # in the most misleading way (a 120001 pointing at codes that are fine, or
+        # on fund-flow no error at all, just a silently narrowed result).
+        check_market_keywords(security, tuple(markets), f"quote {label}")
+        security = canonicalize_market_keywords(security, tuple(markets))
+        keyword = resolve_full_market(security, markets)
+        full_market = keyword is not None
         if require_dates_for_full_market and full_market and not (start_date and end_date):
             raise ValidationError(
-                f"quote {label} full-market ('{full_market_value}') requires both start_date "
+                f"quote {label} full-market ({keyword!r}) requires both start_date "
                 "and end_date (the full market is fetched via per-day shards)"
             )
         # Full-market lifts the per-request cap to the API max; explicit securities pin to
@@ -288,13 +311,15 @@ class Quote:
         if limit is None:
             limit = DEFAULT_FULL_MARKET_LIMIT if full_market else DEFAULT_QUOTE_LIMIT
 
-        if full_market and start_date and end_date:
+        if keyword is not None and start_date and end_date:
+            # Each market shards at its own granularity: a whole-market HK pull
+            # tolerates 2-day windows where A-share and US pulls need one day each.
             sharded = True
             shards = drop_weekend_shards(
                 plan_shards(
                     start_date=_parse_date(start_date),
                     end_date=_parse_date(end_date),
-                    days_per_shard=days_per_shard,
+                    days_per_shard=markets[keyword],
                 )
             )
         else:
@@ -344,7 +369,7 @@ class Quote:
         )
         if raw:
             return result_payload
-        return _kline_dataframe(rows, result_payload.get("fieldList"))
+        return _kline_dataframe(rows, result_payload.get("fieldList"), result_payload)
 
     def day_kline(
         self,
@@ -356,10 +381,14 @@ class Quote:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询 A 股日 K 线（quote.day-kline）。
+        """查询历史日 K 线（quote.day-kline）：A股 / 港股 / 美股个股 + 交易所指数
+        （沪深京）、概念指数（.GT）、行业指数（中信 .CI / 申万 .SWI），可一次混传。
 
-        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
-        （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        ⚠️ 服务端 2026-08-14 起**不再支持 "all"**，全市场改用 aShares / hkStocks /
+        usStocks，且关键词必须单独传（不能与代码或另一个关键词混填）——两种写法服务端
+        都回 120001「证券代码无效」，提示指向代码本身会把排查带偏，故本地先拦。
+        关键词+日期区间时自动按市场粒度分片并发拉取（aShares/usStocks 每片 1 天、
+        hkStocks 每片 2 天，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
         标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
         """
         return self._day_kline(
@@ -383,6 +412,10 @@ class Quote:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股日 K 线（quote.day-kline-hk）。
+
+        ⚠️ **已下线（deprecated）**：官方菜单已移除，请改用 day_kline()——它已覆盖港股
+        并支持与其他市场混传。接口本身仍可调用，且保留 "all" 全市场关键词；本方法暂不删除，
+        是因为它不校验代码而 day_kline 会校验，且 index_day_kline 另有 day_kline 做不到的能力。
 
         security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
         （每片 2 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
@@ -410,6 +443,10 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股日 K 线（quote.day-kline-us）。
 
+        ⚠️ **已下线（deprecated）**：官方菜单已移除，请改用 day_kline()——它已覆盖美股
+        并支持与其他市场混传。接口本身仍可调用，且保留 "all" 全市场关键词；本方法暂不删除，
+        是因为它不校验代码而 day_kline 会校验，且 index_day_kline 另有 day_kline 做不到的能力。
+
         security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
         （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
         标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
@@ -436,8 +473,13 @@ class Quote:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股指数日 K 线（quote.index-day-kline）。
 
+        ⚠️ **已下线（deprecated）**：官方菜单已移除，请优先用 day_kline()。仍保留是因为
+        本接口有两处 day_kline 做不到的能力——"all" 一次取全部指数，以及返回 securityName
+        指数名称（day_kline 查指数只有代码没有名称）；反过来 day_kline 独有 adjustFactor。
+
         security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
-        （每片 30 个交易日），部分分片失败时结果带 partial/failedShards
+        （每片 **15 天**——约 531 行/交易日 × 30 天窗口约 11.7K 必然撞 10000 行上限并静默
+        截断，15 天窗口约 5.8K 安全），部分分片失败时结果带 partial/failedShards
         标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
         """
         return self._day_kline(
@@ -476,7 +518,6 @@ class Quote:
             limit=limit,
             field=field,
             raw=raw,
-            full_market_value="aShares",
             require_dates_for_full_market=True,
         )
 
@@ -490,11 +531,13 @@ class Quote:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        """查询 A 股分钟 K 线（quote.minute-kline）。
+        """查询分钟 K 线（quote.minute-kline）。
 
-        仅支持单只 A 股代码（不支持列表 / "all"）；start_time/end_time 格式
-        yyyy-MM-dd HH:mm:ss。limit 默认 6000、最大 10000；该接口无翻页，返回行数撞上
-        limit 时结果标 partial（raw 可见）并发 warning，提示缩小时间范围或分批取数。
+        一次一只，仅支持沪深（不含北交所）：A 股个股 .SH/.SZ、交易所指数 .SH/.SZ、
+        概念指数 .GT、行业指数（中信 .CI / 申万 .SWI）；**没有全市场关键词**。
+        start_time/end_time 格式 yyyy-MM-dd HH:mm:ss。limit 默认 6000、最大 10000；
+        该接口无翻页，返回行数撞上 limit 时结果标 partial（raw 可见）并发 warning，
+        提示缩小时间范围或分批取数。
         """
         _validate_limit(limit)
         if limit is None:
@@ -513,7 +556,7 @@ class Quote:
         _flag_single_truncation(result, rows, limit, "minute-kline")
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+        return to_dataframe(_normalize_quote_rows(rows, fields, result), schema=None)
 
     def realtime(
         self,
@@ -525,8 +568,14 @@ class Quote:
         """查询实时行情快照（quote.realtime）。
 
         security 支持单值或列表，也可传市场关键词：
-        aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股。
+        aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股——关键词**必须单独传**，
+        与代码或另一个关键词混填服务端回 120001（提示指向代码本身，会把排查带偏），
+        因此本地先拦。指数没有全市场关键词。
         """
+        # Realtime takes the same keywords as day-kline but never shards (one
+        # snapshot per security), so it only needs the alone-and-known check.
+        check_market_keywords(security, REALTIME_MARKETS, "quote realtime")
+        security = canonicalize_market_keywords(security, REALTIME_MARKETS)
         body = _request_body(
             {
                 "securityList": _as_list(security),
@@ -537,7 +586,7 @@ class Quote:
         if raw:
             return result  # type: ignore[no-any-return]
         rows, fields = _quote_rows_and_fields(result)
-        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+        return to_dataframe(_normalize_quote_rows(rows, fields, result), schema=None)
 
 
 class AsyncQuote:
@@ -556,16 +605,22 @@ class AsyncQuote:
         limit: int | None = None,
         field: FilterValue | None = None,
         raw: bool = False,
-        full_market_value: str = "all",
         require_dates_for_full_market: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         _validate_limit(limit)
-        days_per_shard = SHARD_DAYS[endpoint_key]
+        markets = MARKET_SHARD_DAYS[endpoint_key]
         label = endpoint_key.split(".", 1)[-1]
-        full_market = is_full_market(security, full_market_value)
+        # Validate before anything is sent: a keyword this endpoint does not take,
+        # or one mixed with codes, is a local error — and these endpoints answer it
+        # in the most misleading way (a 120001 pointing at codes that are fine, or
+        # on fund-flow no error at all, just a silently narrowed result).
+        check_market_keywords(security, tuple(markets), f"quote {label}")
+        security = canonicalize_market_keywords(security, tuple(markets))
+        keyword = resolve_full_market(security, markets)
+        full_market = keyword is not None
         if require_dates_for_full_market and full_market and not (start_date and end_date):
             raise ValidationError(
-                f"quote {label} full-market ('{full_market_value}') requires both start_date "
+                f"quote {label} full-market ({keyword!r}) requires both start_date "
                 "and end_date (the full market is fetched via per-day shards)"
             )
         # Full-market lifts the per-request cap to the API max; explicit securities pin to
@@ -573,13 +628,15 @@ class AsyncQuote:
         if limit is None:
             limit = DEFAULT_FULL_MARKET_LIMIT if full_market else DEFAULT_QUOTE_LIMIT
 
-        if full_market and start_date and end_date:
+        if keyword is not None and start_date and end_date:
+            # Each market shards at its own granularity: a whole-market HK pull
+            # tolerates 2-day windows where A-share and US pulls need one day each.
             sharded = True
             shards = drop_weekend_shards(
                 plan_shards(
                     start_date=_parse_date(start_date),
                     end_date=_parse_date(end_date),
-                    days_per_shard=days_per_shard,
+                    days_per_shard=markets[keyword],
                 )
             )
         else:
@@ -631,7 +688,7 @@ class AsyncQuote:
         )
         if raw:
             return result_payload
-        return _kline_dataframe(rows, result_payload.get("fieldList"))
+        return _kline_dataframe(rows, result_payload.get("fieldList"), result_payload)
 
     async def day_kline(
         self,
@@ -643,10 +700,14 @@ class AsyncQuote:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询 A 股日 K 线（quote.day-kline）。
+        """查询历史日 K 线（quote.day-kline）：A股 / 港股 / 美股个股 + 交易所指数
+        （沪深京）、概念指数（.GT）、行业指数（中信 .CI / 申万 .SWI），可一次混传。
 
-        security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
-        （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
+        ⚠️ 服务端 2026-08-14 起**不再支持 "all"**，全市场改用 aShares / hkStocks /
+        usStocks，且关键词必须单独传（不能与代码或另一个关键词混填）——两种写法服务端
+        都回 120001「证券代码无效」，提示指向代码本身会把排查带偏，故本地先拦。
+        关键词+日期区间时自动按市场粒度分片并发拉取（aShares/usStocks 每片 1 天、
+        hkStocks 每片 2 天，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
         标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
         """
         return await self._day_kline(
@@ -670,6 +731,10 @@ class AsyncQuote:
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """查询港股日 K 线（quote.day-kline-hk）。
+
+        ⚠️ **已下线（deprecated）**：官方菜单已移除，请改用 day_kline()——它已覆盖港股
+        并支持与其他市场混传。接口本身仍可调用，且保留 "all" 全市场关键词；本方法暂不删除，
+        是因为它不校验代码而 day_kline 会校验，且 index_day_kline 另有 day_kline 做不到的能力。
 
         security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
         （每片 2 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
@@ -697,6 +762,10 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询美股日 K 线（quote.day-kline-us）。
 
+        ⚠️ **已下线（deprecated）**：官方菜单已移除，请改用 day_kline()——它已覆盖美股
+        并支持与其他市场混传。接口本身仍可调用，且保留 "all" 全市场关键词；本方法暂不删除，
+        是因为它不校验代码而 day_kline 会校验，且 index_day_kline 另有 day_kline 做不到的能力。
+
         security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
         （每片 1 个交易日，周末分片自动跳过），部分分片失败时结果带 partial/failedShards
         标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
@@ -723,8 +792,13 @@ class AsyncQuote:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股指数日 K 线（quote.index-day-kline）。
 
+        ⚠️ **已下线（deprecated）**：官方菜单已移除，请优先用 day_kline()。仍保留是因为
+        本接口有两处 day_kline 做不到的能力——"all" 一次取全部指数，以及返回 securityName
+        指数名称（day_kline 查指数只有代码没有名称）；反过来 day_kline 独有 adjustFactor。
+
         security 支持单值或列表，"all"=全市场；all+日期区间时自动按日分片并发拉取
-        （每片 30 个交易日），部分分片失败时结果带 partial/failedShards
+        （每片 **15 天**——约 531 行/交易日 × 30 天窗口约 11.7K 必然撞 10000 行上限并静默
+        截断，15 天窗口约 5.8K 安全），部分分片失败时结果带 partial/failedShards
         标记并发出 warning（raw=True 可见）。limit 默认 6000，最大 10000。
         """
         return await self._day_kline(
@@ -763,7 +837,6 @@ class AsyncQuote:
             limit=limit,
             field=field,
             raw=raw,
-            full_market_value="aShares",
             require_dates_for_full_market=True,
         )
 
@@ -777,11 +850,13 @@ class AsyncQuote:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        """查询 A 股分钟 K 线（quote.minute-kline）。
+        """查询分钟 K 线（quote.minute-kline）。
 
-        仅支持单只 A 股代码（不支持列表 / "all"）；start_time/end_time 格式
-        yyyy-MM-dd HH:mm:ss。limit 默认 6000、最大 10000；该接口无翻页，返回行数撞上
-        limit 时结果标 partial（raw 可见）并发 warning，提示缩小时间范围或分批取数。
+        一次一只，仅支持沪深（不含北交所）：A 股个股 .SH/.SZ、交易所指数 .SH/.SZ、
+        概念指数 .GT、行业指数（中信 .CI / 申万 .SWI）；**没有全市场关键词**。
+        start_time/end_time 格式 yyyy-MM-dd HH:mm:ss。limit 默认 6000、最大 10000；
+        该接口无翻页，返回行数撞上 limit 时结果标 partial（raw 可见）并发 warning，
+        提示缩小时间范围或分批取数。
         """
         _validate_limit(limit)
         if limit is None:
@@ -800,7 +875,7 @@ class AsyncQuote:
         _flag_single_truncation(result, rows, limit, "minute-kline")
         if raw:
             return result  # type: ignore[no-any-return]
-        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+        return to_dataframe(_normalize_quote_rows(rows, fields, result), schema=None)
 
     async def realtime(
         self,
@@ -812,8 +887,14 @@ class AsyncQuote:
         """查询实时行情快照（quote.realtime）。
 
         security 支持单值或列表，也可传市场关键词：
-        aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股。
+        aShares=全 A 股 / hkStocks=全港股 / usStocks=全美股——关键词**必须单独传**，
+        与代码或另一个关键词混填服务端回 120001（提示指向代码本身，会把排查带偏），
+        因此本地先拦。指数没有全市场关键词。
         """
+        # Realtime takes the same keywords as day-kline but never shards (one
+        # snapshot per security), so it only needs the alone-and-known check.
+        check_market_keywords(security, REALTIME_MARKETS, "quote realtime")
+        security = canonicalize_market_keywords(security, REALTIME_MARKETS)
         body = _request_body(
             {
                 "securityList": _as_list(security),
@@ -824,4 +905,4 @@ class AsyncQuote:
         if raw:
             return result  # type: ignore[no-any-return]
         rows, fields = _quote_rows_and_fields(result)
-        return to_dataframe(_normalize_quote_rows(rows, fields), schema=None)
+        return to_dataframe(_normalize_quote_rows(rows, fields, result), schema=None)

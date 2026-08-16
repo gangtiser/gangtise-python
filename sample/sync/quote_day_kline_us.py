@@ -1,5 +1,7 @@
 """quote.day_kline_us — 美股日 K 线（NYSE/NASDAQ/AMEX）, 返回 DataFrame。
 
+⚠️ 已下线（deprecated）: 官方菜单已移除本接口, 请优先用 quote.day_kline——它已覆盖港股/美股/指数并支持混传。接口本身仍可调用, 且仍认 "all" 全市场关键字。
+
 通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
 security="all" 时按日期窗口自动分片（每片 1 个交易日）并并发拉取后合并。
 异步用法相同, 路径为 gangtise.async_.quote.day_kline_us(...)。

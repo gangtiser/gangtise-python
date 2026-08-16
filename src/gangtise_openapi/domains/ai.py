@@ -12,6 +12,7 @@ from gangtise_openapi._async_content import poll_content, poll_content_async
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._errors import ApiError, ValidationError
+from gangtise_openapi._quote_sharding import NO_MARKET_KEYWORDS, check_market_keywords
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
@@ -115,16 +116,20 @@ class AI:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
 
-        security 必填, 传证券代码(如 600519.SH / 00700.HK)或市场关键词
-        aShares / hkStocks, 上限 6000; 支持单值或列表。省略会被后端当作全市场
-        (每行约 3 积分 × 数千行), 故此处强制要求非空。
+        security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 6000 个;
+        支持单值或列表。
+
+        ⚠️ 服务端 2026-08-14 起**移除了全市场批量能力**: aShares / hkStocks 等市场关键词
+        不再返回全市场。本接口按 **3 积分/条**计费, 所以关键词在发请求前就被本地拦下——
+        让失败落在请求之前而不是之后。省略 security 同样会被后端当作全市场, 故强制非空。
         """
         securities = _as_list(security)
         if not securities:
             raise ValidationError(
-                "security is required: pass security code(s) or a market keyword "
-                "(aShares / hkStocks)"
+                "security is required: pass explicit security code(s) — this endpoint no "
+                "longer supports whole-market keywords"
             )
+        check_market_keywords(securities, NO_MARKET_KEYWORDS, "ai stock_summary_list")
         body = {"securityList": securities}
         result = self._client._call("ai.stock-summary.list", body=body)
         if raw:
@@ -459,16 +464,20 @@ class AsyncAI:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
 
-        security 必填, 传证券代码(如 600519.SH / 00700.HK)或市场关键词
-        aShares / hkStocks, 上限 6000; 支持单值或列表。省略会被后端当作全市场
-        (每行约 3 积分 × 数千行), 故此处强制要求非空。
+        security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 6000 个;
+        支持单值或列表。
+
+        ⚠️ 服务端 2026-08-14 起**移除了全市场批量能力**: aShares / hkStocks 等市场关键词
+        不再返回全市场。本接口按 **3 积分/条**计费, 所以关键词在发请求前就被本地拦下——
+        让失败落在请求之前而不是之后。省略 security 同样会被后端当作全市场, 故强制非空。
         """
         securities = _as_list(security)
         if not securities:
             raise ValidationError(
-                "security is required: pass security code(s) or a market keyword "
-                "(aShares / hkStocks)"
+                "security is required: pass explicit security code(s) — this endpoint no "
+                "longer supports whole-market keywords"
             )
+        check_market_keywords(securities, NO_MARKET_KEYWORDS, "ai stock_summary_list")
         body = {"securityList": securities}
         result = await self._client._call("ai.stock-summary.list", body=body)
         if raw:

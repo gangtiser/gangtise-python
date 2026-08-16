@@ -1,6 +1,6 @@
 # API Parameter Reference
 
-本文档按当前 Python SDK wrapper 自动整理，覆盖 93 个公开 SDK 方法（对应 90 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
+本文档按当前 Python SDK wrapper 自动整理，覆盖 100 个公开 SDK 方法（对应 97 个上游 OpenAPI endpoint，外加 2 个本地 lookup 表与 `auth.status` 本地状态方法）。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<domain>.<method>(...)`。
 
 运行示例前请配置：
 
@@ -37,10 +37,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `quote` | `fund_flow` | [quote_fund_flow.py](sync/quote_fund_flow.py) | [quote_fund_flow.py](async/quote_fund_flow.py) |
 | `insight` | `opinion_list` | [insight_opinion_list.py](sync/insight_opinion_list.py) | [insight_opinion_list.py](async/insight_opinion_list.py) |
 | `insight` | `summary_list` | [insight_summary_list.py](sync/insight_summary_list.py) | [insight_summary_list.py](async/insight_summary_list.py) |
+| `insight` | `pamirs_summary_list` | [insight_pamirs_summary_list.py](sync/insight_pamirs_summary_list.py) | [insight_pamirs_summary_list.py](async/insight_pamirs_summary_list.py) |
+| `insight` | `pamirs_summary_download` | [insight_pamirs_summary_download.py](sync/insight_pamirs_summary_download.py) | [insight_pamirs_summary_download.py](async/insight_pamirs_summary_download.py) |
 | `insight` | `roadshow_list` | [insight_roadshow_list.py](sync/insight_roadshow_list.py) | [insight_roadshow_list.py](async/insight_roadshow_list.py) |
 | `insight` | `site_visit_list` | [insight_site_visit_list.py](sync/insight_site_visit_list.py) | [insight_site_visit_list.py](async/insight_site_visit_list.py) |
 | `insight` | `strategy_list` | [insight_strategy_list.py](sync/insight_strategy_list.py) | [insight_strategy_list.py](async/insight_strategy_list.py) |
 | `insight` | `forum_list` | [insight_forum_list.py](sync/insight_forum_list.py) | [insight_forum_list.py](async/insight_forum_list.py) |
+| `insight` | `performance_calendar_list` | [insight_performance_calendar_list.py](sync/insight_performance_calendar_list.py) | [insight_performance_calendar_list.py](async/insight_performance_calendar_list.py) |
+| `insight` | `performance_calendar_download` | [insight_performance_calendar_download.py](sync/insight_performance_calendar_download.py) | [insight_performance_calendar_download.py](async/insight_performance_calendar_download.py) |
 | `insight` | `research_list` | [insight_research_list.py](sync/insight_research_list.py) | [insight_research_list.py](async/insight_research_list.py) |
 | `insight` | `foreign_report_list` | [insight_foreign_report_list.py](sync/insight_foreign_report_list.py) | [insight_foreign_report_list.py](async/insight_foreign_report_list.py) |
 | `insight` | `announcement_list` | [insight_announcement_list.py](sync/insight_announcement_list.py) | [insight_announcement_list.py](async/insight_announcement_list.py) |
@@ -108,6 +112,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `indicator` | `search` | [indicator_search.py](sync/indicator_search.py) | [indicator_search.py](async/indicator_search.py) |
 | `indicator` | `cross_section` | [indicator_cross_section.py](sync/indicator_cross_section.py) | [indicator_cross_section.py](async/indicator_cross_section.py) |
 | `indicator` | `time_series` | [indicator_time_series.py](sync/indicator_time_series.py) | [indicator_time_series.py](async/indicator_time_series.py) |
+| `indicator` | `screener` | [indicator_screener.py](sync/indicator_screener.py) | [indicator_screener.py](async/indicator_screener.py) |
+| `tool` | `file_parse` | [tool_file_parse.py](sync/tool_file_parse.py) | [tool_file_parse.py](async/tool_file_parse.py) |
+| `tool` | `file_parse_check` | [tool_file_parse_check.py](sync/tool_file_parse_check.py) | [tool_file_parse_check.py](async/tool_file_parse_check.py) |
 
 ## Authentication (`gangtise.auth`)
 
@@ -1582,6 +1589,77 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `concept_id` | `str` | 是 | - | `"121000130"` | 题材（概念）指数 ID；见 reference.concept_search（机器人=121000130）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 默认返回扁平化 DataFrame（每行一只成分股，列含 groupName/securityCode/securityName/isKey/inclusionReason）；True 返回嵌套分组 dict。 |
 
+### `insight.pamirs_summary_list`
+
+- Endpoint: `insight.pamirs-summary.list` `POST /application/open-insight/pamirs-summary/getList` - List Pamirs expert summaries (requires the expert-summary database)
+- Sync sample: `sample/sync/insight_pamirs_summary_list.py`
+- Async sample: `sample/async/insight_pamirs_summary_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 起始偏移。 |
+| `size` | `int | None` | 否 | `None` | `5` | 返回条数；省略则自动翻页拉全量（单页上限 50）。 |
+| `start_time` | `str | None` | 否 | `None` | `"2026-01-01"` | 起始时间，YYYY-MM-DD[ HH:mm:ss] 或 10/13 位时间戳。 |
+| `end_time` | `str | None` | 否 | `None` | `"2026-08-01"` | 结束时间，同上。 |
+| `keyword` | `str | None` | 否 | `None` | `"PCB"` | 搜索词。 |
+| `search_type` | `int` | 否 | `1` | `2` | 1=标题（默认） 2=全文。**本地白名单**：范围外的值会让 keyword 一并失效、返回未过滤的结果集，故在本地拦下。 |
+| `rank_type` | `int` | 否 | `1` | `2` | 1=综合（默认） 2=时间倒序。同样本地白名单。 |
+| `research_area` | `Any` | 否 | `None` | `"100800119"` | 行业码：中信（1008001xx）与申万（104xx0000）都认；方向码 122000xxx 在本端点返 0。 |
+| `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或列表。 |
+| `category` | `Any` | 否 | `None` | `"companyAnalysis"` | companyAnalysis / industryAnalysis，本地白名单。 |
+| `market` | `Any` | 否 | `None` | `"aShares"` | aShares / hkStocks / usChinaConcept / usStocks，本地白名单。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data。 |
+
+**注意**：这是独立的专家纪要库，需单独购买（未开通报 `999004`），筛选项是 `summary_list` 的真子集（没有 source / institution / participant_role）。已知返回口径（实测 2026-08-08）：`conceptList` 在所有查法下都是空的；`categoryList` / `marketList` 只在用 category 或 market 过滤时回填。
+
+### `insight.pamirs_summary_download`
+
+- Endpoint: `insight.pamirs-summary.download` `GET /application/open-insight/pamirs-summary/download/file` - Download a Pamirs expert summary file
+- Sync sample: `sample/sync/insight_pamirs_summary_download.py`
+- Async sample: `sample/async/insight_pamirs_summary_download.py`
+- Return annotation: `Path`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `summary_id` | `str` | 是 | - | `"12345"` | 纪要唯一标识，取自列表的 summaryId。 |
+| `file_type` | `int | None` | 否 | `None` | `2` | 1=原文（默认） 2=HTML。本地白名单，其他值直接报错。 |
+| `output` | `str | Path | None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则按标题 / 服务端文件名命名。 |
+
+### `insight.performance_calendar_list`
+
+- Endpoint: `insight.performance-calendar.list` `POST /application/open-insight/schedule/performance-calendar/getList` - List earnings calendar events (forecast / express / announcement)
+- Sync sample: `sample/sync/insight_performance_calendar_list.py`
+- Async sample: `sample/async/insight_performance_calendar_list.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 起始偏移。 |
+| `size` | `int | None` | 否 | `None` | `5` | 返回条数；省略则自动翻页。 |
+| `start_date` | `str | None` | 否 | `None` | `"2026-07-01"` | 起始日 YYYY-MM-DD，过滤 publishDate。**这是唯一按 `*_date` 而非 `*_time` 筛选的 insight 列表。** |
+| `end_date` | `str | None` | 否 | `None` | `"2026-07-31"` | 结束日 YYYY-MM-DD。 |
+| `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或列表。 |
+| `market` | `Any` | 否 | `None` | `"aShares"` | aShares / hkStocks / usChinaConcept / usStocks，本地白名单。 |
+| `category` | `Any` | 否 | `None` | `"performanceForecast"` | performanceForecast / performanceExpress / performanceAnnouncement，本地白名单。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（含 partial 标记）。 |
+
+**必须给一个约束**：本接口数据量很大（含未来排期），省略 size 等于按分页上限拉满（1000 页 × 50 = 5 万条，按 0.1 积分/条约 5000 积分）。完整日期区间 / security / 显式 size 三者至少给一个，否则本地报 `ValidationError` 且不发请求。只给 security 时另加 1000 行隐式上限，撞上且仍有剩余会标 `partial` 并发 warning。
+
+### `insight.performance_calendar_download`
+
+- Endpoint: `insight.performance-calendar.download` `GET /application/open-insight/schedule/performance-calendar/download/file` - Download an earnings report file (A-share 10 credits, HK/US 20)
+- Sync sample: `sample/sync/insight_performance_calendar_download.py`
+- Async sample: `sample/async/insight_performance_calendar_download.py`
+- Return annotation: `Path`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `performance_report_id` | `str` | 是 | - | `"12345"` | 报告唯一标识，取自列表的 performanceReportId。 |
+| `output` | `str | Path | None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则用 title-cache 里的真实标题命名。 |
+
+**计费**：A股 10 积分 / 港美股 20 积分；仅 `hasAttachment: true` 的记录可下。
+
 ## Data indicator (`gangtise.indicator`)
 
 ### `indicator.search`
@@ -1606,12 +1684,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `date` | `str` | 是 | - | `"2025-06-30"` | 数据日期，格式 YYYY-MM-DD。 |
-| `indicator` | `Any` | 否 | `None` | `"qte_close"` | 指标码或列表，例如 qte_close；用 indicator.search 查询。 |
-| `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或代码列表，例如 600519.SH。 |
+| `date` | `str` | 是 | - | `"2025-06-30"` | 数据日期，格式 YYYY-MM-DD。作为**每个指标各自的 tradeDate** 下发（服务端 2026-08-01 起废弃根级 date）。 |
+| `indicator` | `Any` | 是 | - | `"qte_close"` | 指标码或列表，例如 qte_close；用 indicator.search 查询。缺失在本地报 ValidationError（服务端只会回 100001）。 |
+| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 10 位 sectorId，与代码混传取并集）。 |
 | `currency` | `str | None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
 | `scale` | `str | None` | 否 | `None` | `"8"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustmentType": "2"}}` | 单指标参数映射；如 adjustmentType=2 表示前复权。 |
+| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。复权参数名是 **adjustType**（2=前复权 3=后复权），不是 adjustmentType——服务端对错参数名静默忽略并退回不复权。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**——判据只看这一个键。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。第 ③ 种最容易误写成 ④ 而静默丢掉参数。别按 code 前缀推断。 |
+| `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的指标显示名；code=你传进去的 indicatorCode。服务端按自己的顺序返回列，位置索引不可靠；name 模式还需再查一次 search 才能把显示名映射回 code。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一证券、指标名作列的宽表 DataFrame。 |
 
 ### `indicator.time_series`
@@ -1625,10 +1704,60 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `start_date` | `str` | 是 | - | `"2025-01-01"` | 起始日期，格式 YYYY-MM-DD。 |
 | `end_date` | `str` | 是 | - | `"2025-06-30"` | 结束日期，格式 YYYY-MM-DD。 |
-| `indicator` | `Any` | 否 | `None` | `"qte_close"` | 指标码或列表；用 indicator.search 查询。 |
-| `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或代码列表。 |
+| `indicator` | `Any` | 是 | - | `"qte_close"` | 指标码或列表；用 indicator.search 查询。缺失在本地报 ValidationError。 |
+| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（单个 sectorId 会被服务端展开成 N 只，此时列头按证券出）。 |
 | `calendar_type` | `str | None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日（默认 TD）。 |
 | `currency` | `str | None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
 | `scale` | `str | None` | 否 | `None` | `"0"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustmentType": "2"}}` | 单指标参数映射；如 adjustmentType=2 表示前复权。 |
+| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。复权参数名是 **adjustType**（2=前复权 3=后复权），不是 adjustmentType——服务端对错参数名静默忽略并退回不复权。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**——判据只看这一个键。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。第 ③ 种最容易误写成 ④ 而静默丢掉参数。别按 code 前缀推断。 |
+| `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的显示名；code=你传进去的代码（多指标 × 单证券为 indicatorCode，单指标 × 多证券为 securityCode）。服务端按自己的顺序返回列，位置索引不可靠。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一日期的宽表 DataFrame。 |
+
+### `indicator.screener`
+
+- Endpoint: `indicator.screener` `POST /application/open-indicator/screener` - Screen securities by an expression over indicator values (条件选股)
+- Sync sample: `sample/sync/indicator_screener.py`
+- Async sample: `sample/async/indicator_screener.py`
+- Return annotation: `pd.DataFrame | dict[str, Any]`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `date` | `str` | 是 | - | `"2026-08-07"` | 数据日期 YYYY-MM-DD，作为每个变量的 tradeDate 下发。漏传会让吃日期的指标不被过滤并静默返回空结果，因此必填。 |
+| `expression` | `str` | 是 | - | `"F1 >= 500 && F2 <= 30"` | 筛选表达式，支持 `&&` / `\|\|` / 括号，以及 contains / notcontains 文本匹配（仅 dataType 为 string 的指标）。只能引用已绑定的变量，否则本地报 ValidationError。 |
+| `indicator` | `dict[str, str]` | 是 | - | `{"F1": "qte_mkt_cptl"}` | 变量 → 指标码绑定；变量名必须是 F + 正整数。同一指标可绑到两个变量取不同参数。 |
+| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 sectorId）。 |
+| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
+| `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=显示名（默认）；code=indicatorCode。同一 code 绑到两个变量时两列都会带上 (F1)/(F2) 后缀。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一只命中证券的宽表 DataFrame。 |
+
+**结果校验**：响应里每列携带的 `field` 是唯一能把该列追溯回筛选条件的东西，SDK 会校验它命名的是请求过的变量、带该变量对应的 code、且不重复——不符即抛 `ApiError`。某个变量整列缺失时按表达式的布尔结构判定：还有分支可求值就标 `partial` + 发 warning，没有任何分支可求值则抛 `ApiError`（这些行无法被证明满足它们声称的条件）。
+
+## File parsing (`gangtise.tool`)
+
+### `tool.file_parse`
+
+- Endpoint: `tool.file-parse.submit` `POST /application/open-tool/file-parse/submit` - Submit a PDF for parsing (multipart upload), returns taskId
+- Sync sample: `sample/sync/tool_file_parse.py`
+- Async sample: `sample/async/tool_file_parse.py`
+- Return annotation: `str`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `file` | `str | Path` | 是 | - | `"report.pdf"` | 本地 PDF 路径。上传前本地校验后缀 / 非空 / ≤100MB。 |
+
+**计费**：0.8 积分/页，**提交时一次性扣费**；取结果免费。该端点标 `no-replay`（不重放，避免重复扣费）且超时下限 300 秒（100MB 上传不会被默认 30 秒超时掐断）。返回 `task_id`，交给 `tool.file_parse_check` 取结果。
+
+### `tool.file_parse_check`
+
+- Endpoint: `tool.file-parse.result` `POST /application/open-tool/file-parse/result` - Fetch a file-parse result ZIP by taskId (140001 = still generating)
+- Sync sample: `sample/sync/tool_file_parse_check.py`
+- Async sample: `sample/async/tool_file_parse_check.py`
+- Return annotation: `Path`
+
+| Parameter | Type | Required | Default | Example | Description |
+| --- | --- | --- | --- | --- | --- |
+| `task_id` | `str` | 是 | - | `"1782345678901234567"` | `tool.file_parse` 返回的任务号。 |
+| `output` | `str | Path | None` | 否 | `None` | `"out.zip"` | 显式落盘路径；省略则按服务端文件名 / `file-parse-<taskId>` 命名。 |
+| `wait` | `bool` | 否 | `False` | `True` | True=按与 AI 异步接口相同的退避预算（约 316 秒）轮询到就绪；False 时未就绪直接抛 ApiError（码 140001 / 旧 410110）。 |
+
+**返回**：ZIP 路径，包内是 `file.md` 与 `images/`。取结果免费，所以未就绪时重复调用不产生费用；`140002` 是终态失败，不会消耗整个轮询预算。

@@ -36,12 +36,28 @@ async def test_async_single_page():
 @pytest.mark.anyio
 async def test_async_fans_out_concurrently():
     async def fetch(body):
+        # Honour `total`: a stub yielding rows for ANY `from` would trip the
+        # total-cap probe, which reads one row past the claimed end.
         f, s = body["from"], body["size"]
-        return {"total": 12, "list": [{"i": j} for j in range(f, f + s)]}
+        return {"total": 12, "list": [{"i": j} for j in range(f, min(f + s, 12))]}
 
     out = await collect_paginated_async(_ep(max_page_size=5), body={}, fetch=fetch, concurrency=4)
     assert [r["i"] for r in out["list"]] == list(range(12))
     assert "partial" not in out  # all pages succeeded
+
+
+@pytest.mark.anyio
+async def test_async_total_cap_probe_flags_a_capped_total():
+    async def fetch(body):
+        f, s = body["from"], body["size"]
+        return {"total": 10, "list": [{"i": j} for j in range(f, f + s)]}
+
+    with pytest.warns(UserWarning, match="server-side cap"):
+        out = await collect_paginated_async(
+            _ep(max_page_size=5), body={}, fetch=fetch, concurrency=3
+        )
+    assert out["partial"] is True
+    assert out["totalCapped"] is True
 
 
 @pytest.mark.anyio

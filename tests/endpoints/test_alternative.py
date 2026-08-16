@@ -1,5 +1,6 @@
 import httpx
 import pandas as pd
+import pytest
 import respx
 
 from gangtise_openapi._client import GangtiseClient
@@ -218,3 +219,28 @@ def test_concept_securities_empty_returns_empty_dataframe(tmp_path):
         "isKey",
         "inclusionReason",
     ]
+
+
+def test_edb_data_column_mismatch_message_carries_the_trace_id(seeded_config):
+    # This is the branch whose message tells the caller to file a bug report;
+    # doing that without a trace id is the least useful of the four call sites.
+
+    from gangtise_openapi._errors import ValidationError
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-alternative/EDB/getData").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "traceId": "830965044897325056",
+                    "data": {"fieldList": ["a", "b", "c"], "dataList": [[1]]},
+                },
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="trace 830965044897325056"):
+                Alternative(client).edb_data(
+                    indicator_id="x", start_date="2026-01-01", end_date="2026-01-31"
+                )

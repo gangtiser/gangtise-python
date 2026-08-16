@@ -1,5 +1,6 @@
 import pytest
 
+from gangtise_openapi._errors import ValidationError
 from gangtise_openapi._normalize import normalize_rows, to_dataframe
 
 
@@ -57,10 +58,25 @@ def test_normalize_rows_matrix_preserves_metadata():
     assert normalize_rows(payload) == {"indicator": "peTtm", "list": [{"x": 1}]}
 
 
-def test_normalize_rows_short_row_pads_with_none():
-    assert normalize_rows({"fieldList": ["a", "b", "c"], "list": [[1]]}) == [
-        {"a": 1, "b": None, "c": None}
-    ]
+@pytest.mark.parametrize(
+    "row",
+    [
+        [1],  # short — trailing fields would silently become None
+        [1, 2, 3, 4],  # long — the extra value would be silently dropped
+    ],
+)
+def test_normalize_rows_refuses_a_row_that_does_not_match_field_list(row):
+    # Positional zipping pastes values onto the wrong fields once the lengths
+    # disagree: quote.realtime returns values for the VALID fields only while
+    # echoing every requested name, so a turnover rate lands under `close` and
+    # reads as a plausible price. Silent mis-columning must be a hard failure
+    # (TS v0.28.3).
+    with pytest.raises(ValidationError, match="响应字段数与 fieldList 不匹配"):
+        normalize_rows({"fieldList": ["a", "b", "c"], "list": [row]})
+
+
+def test_normalize_rows_exact_length_row_is_zipped():
+    assert normalize_rows({"fieldList": ["a", "b"], "list": [[1, 2]]}) == [{"a": 1, "b": 2}]
 
 
 def test_normalize_rows_list_of_dicts_passthrough():
@@ -110,3 +126,28 @@ def test_normalize_rows_single_object_unchanged():
 def test_normalize_rows_non_dict_unchanged():
     assert normalize_rows("text") == "text"
     assert normalize_rows(None) is None
+
+
+def test_column_mismatch_message_carries_the_envelope_trace_id():
+    # A structural failure is exactly what support needs to trace, and
+    # ValidationError has no trace_id property — so the id goes in the message
+    # (mirrors the CLI's traceSuffix). This is the one place in the SDK that
+    # actively consumes the carried id besides ApiError.
+    from gangtise_openapi._transport import unwrap_envelope
+
+    payload = unwrap_envelope(
+        {
+            "code": "000000",
+            "status": True,
+            "traceId": "830965044897325056",
+            "data": {"fieldList": ["a", "b", "c"], "list": [[1]]},
+        }
+    )
+    with pytest.raises(ValidationError, match="trace 830965044897325056"):
+        normalize_rows(payload)
+
+
+def test_column_mismatch_without_a_trace_id_omits_the_suffix():
+    with pytest.raises(ValidationError) as excinfo:
+        normalize_rows({"fieldList": ["a", "b"], "list": [[1]]})
+    assert "trace" not in str(excinfo.value)

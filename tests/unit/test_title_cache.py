@@ -1,6 +1,8 @@
 import json
 import os
+import threading
 import time
+from pathlib import Path
 
 from gangtise_openapi._title_cache import (
     TITLE_CACHE_MAX_PER_ENDPOINT,
@@ -137,3 +139,74 @@ def test_flush_creates_file_0600_atomically(tmp_path, monkeypatch):
     cache.flush()
     assert opens == [0o600]
     assert (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_write_arriving_during_a_flush_is_not_lost(tmp_path, monkeypatch):
+    """A set_titles() racing an in-flight flush() must still reach disk.
+
+    The TS CLI had to retrofit this (v0.34.1): its flush snapshotted the data,
+    awaited the write, and any write landing during that await was attached to the
+    already-resolving promise and never persisted — both awaits returned normally,
+    so nothing looked wrong. Python's cache holds one lock across the whole
+    read-modify-write, so the racing write blocks until the flush finishes and then
+    marks the cache dirty again.
+
+    The writer is started from INSIDE the flush's critical section and observed to
+    be blocked there, so the test cannot pass by having the writer finish before the
+    flush began — the interleaving a start-then-release version would silently allow.
+    It is joined from the MAIN thread, after flush() has released the lock: joining
+    inside the critical section could only ever time out, and flushing before the
+    writer lands would read `_dirty == False` and skip the write.
+    """
+    path = tmp_path / "titles.json"
+    cache = TitleCache(path)
+    cache.set_titles("ep", {"a": "第一条"})
+
+    writers: list[threading.Thread] = []
+    observed: list[tuple[bool, bool]] = []
+    real_replace = Path.replace
+
+    def slow_replace(self, target):
+        writer = threading.Thread(target=cache.set_titles, args=("ep", {"b": "第二条"}))
+        writers.append(writer)
+        writer.start()
+        # Still inside flush()'s lock. Both facts are what the guarantee rests on:
+        # the lock is held across the write, and the racing writer is stuck on it.
+        writer.join(timeout=0.2)
+        observed.append((cache._lock.locked(), writer.is_alive()))
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", slow_replace)
+    cache.flush()
+    monkeypatch.undo()
+
+    assert observed == [(True, True)], f"the write was not blocked by the flush lock: {observed}"
+    writers[0].join(timeout=5)
+    assert not writers[0].is_alive()
+
+    cache.flush()
+    assert json.loads(path.read_text(encoding="utf8"))["ep"]["titles"] == {
+        "a": "第一条",
+        "b": "第二条",
+    }
+
+
+def test_concurrent_writers_all_survive(tmp_path):
+    """Every concurrent set_titles() has to end up in the same merged object.
+
+    The TS sibling bug (v0.34.1) was in loadInto: concurrent callers each built
+    their own object and the last one overwrote the rest. Python loads once, in
+    __init__, and merges under the lock — so N writers produce N entries.
+    """
+    cache = TitleCache(tmp_path / "titles.json")
+    threads = [
+        threading.Thread(target=cache.set_titles, args=("ep", {f"id{i}": f"标题{i}"}))
+        for i in range(32)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=5)
+    cache.flush()
+    titles = json.loads((tmp_path / "titles.json").read_text(encoding="utf8"))["ep"]["titles"]
+    assert titles == {f"id{i}": f"标题{i}" for i in range(32)}

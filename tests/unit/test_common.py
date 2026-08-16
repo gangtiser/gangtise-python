@@ -71,7 +71,6 @@ def test_columnar_dataframe_falls_back(result: Any):
         # duplicate field names — fast path must decline so both dedup identically
         {"fieldList": ["a", "a"], "list": [[1, 2], [3, 4]]},
         # fallback shapes
-        {"fieldList": ["a", "b"], "list": [[1]]},  # ragged
         {"fieldList": ["a"], "list": []},  # empty
         {"list": [{"x": 1}, {"x": 2}]},  # already dict rows
         {"constants": [{"c": 1}]},  # constant-list alias
@@ -83,6 +82,18 @@ def test_result_to_dataframe_matches_slow_path(result: Any):
     assert list(fast.columns) == list(slow.columns)
     assert list(fast.dtypes) == list(slow.dtypes)
     assert fast.equals(slow)
+
+
+def test_ragged_row_raises_on_both_paths():
+    # The fast path declines a ragged matrix and the slow path now refuses it
+    # outright, so the two stay equivalent — both raise rather than one silently
+    # padding (TS v0.28.3).
+    ragged: Any = {"fieldList": ["a", "b"], "list": [[1]]}
+    assert _columnar_dataframe(ragged) is None
+    with pytest.raises(ValidationError, match="响应字段数与 fieldList 不匹配"):
+        _result_to_dataframe(ragged)
+    with pytest.raises(ValidationError, match="响应字段数与 fieldList 不匹配"):
+        _slow(ragged)
 
 
 def test_duplicate_fields_produce_single_deduped_column():

@@ -7,6 +7,7 @@ from gangtise_openapi.domains.insight import AsyncInsight, Insight
 from gangtise_openapi.domains.lookup import AsyncLookup, Lookup
 from gangtise_openapi.domains.quote import AsyncQuote, Quote
 from gangtise_openapi.domains.reference import AsyncReference, Reference
+from gangtise_openapi.domains.tool import AsyncTool, Tool
 from gangtise_openapi.domains.vault import AsyncVault, Vault
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "AsyncLookup",
     "AsyncQuote",
     "AsyncReference",
+    "AsyncTool",
     "AsyncVault",
     "Auth",
     "Fundamental",
@@ -29,5 +31,6 @@ __all__ = [
     "Lookup",
     "Quote",
     "Reference",
+    "Tool",
     "Vault",
 ]

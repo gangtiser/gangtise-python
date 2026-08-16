@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import httpx
@@ -5,7 +6,12 @@ import pytest
 
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef, RetryPolicy
-from gangtise_openapi._errors import EDE_NO_DATA_HINT, NO_REPLAY_UNCERTAIN_HINT, ApiError
+from gangtise_openapi._errors import (
+    EDE_NO_DATA_HINT,
+    ERROR_HINTS,
+    NO_REPLAY_UNCERTAIN_HINT,
+    ApiError,
+)
 from gangtise_openapi._transport import (
     RETRY_AFTER_CEILING_MS,
     RETRYABLE_API_CODES,
@@ -26,9 +32,10 @@ def _endpoint(
     path: str = "/p",
     retry: RetryPolicy = "default",
     timeout_ms: int | None = None,
+    key: str = "x",
 ) -> EndpointDef:
     return EndpointDef(
-        key="x",
+        key=key,
         method="POST",
         path=path,
         kind="json",
@@ -201,10 +208,36 @@ def test_request_json_no_999999_fails_fast_with_ede_hint(respx_mock, config: Con
         )
     )
     with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
-        request_json(http, _endpoint("/p", retry="no-999999"), body={}, token="tok")
+        request_json(
+            http,
+            _endpoint("/p", retry="no-999999", key="indicator.cross-section"),
+            body={},
+            token="tok",
+        )
     assert route.call_count == 1
     assert exc.value.code == "999999"
     assert exc.value.hint == EDE_NO_DATA_HINT
+
+
+def test_request_json_no_999999_search_keeps_generic_hint(respx_mock, config: Config):
+    # indicator.search shares the no-999999 policy but takes only a keyword, so a
+    # 999999 keeps the generic hint — the fetch hint's date/scopeList/param
+    # guidance would be nonsense there (TS v0.28.2 scoping fix).
+    respx_mock.post("/p").mock(
+        return_value=httpx.Response(
+            500, json={"code": "999999", "status": False, "msg": "系统错误"}
+        )
+    )
+    with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
+        request_json(
+            http,
+            _endpoint("/p", retry="no-999999", key="indicator.search"),
+            body={},
+            token="tok",
+        )
+    assert exc.value.code == "999999"
+    # Exact: the generic 999999 hint, NOT the EDE data-fetch hint (and not None).
+    assert exc.value.hint == ERROR_HINTS["999999"]
 
 
 def test_request_json_no_replay_999999_gets_billing_caution_hint(respx_mock, config: Config):
@@ -335,3 +368,62 @@ def test_request_json_200_envelope_error_keeps_retry_after(respx_mock, config: C
     with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
         request_json(http, _endpoint("/p"), body={}, token="tok")
     assert exc.value.retry_after_ms == 2000.0
+
+
+# ── envelope traceId propagation (CLI v0.31.0) ──
+
+
+def test_unwrap_envelope_carries_the_trace_id_onto_the_payload():
+    # unwrap_envelope discards the envelope, and with it the one correlation id
+    # support can trace a failure by. A shape error raised downstream (an EDE
+    # matrix that no longer matches) would otherwise reach the user trace-less.
+    data = unwrap_envelope(
+        {"code": "000000", "status": True, "traceId": 830965044897325056, "data": {"a": 1}}
+    )
+    assert data == {"a": 1}
+    assert ApiError("shape mismatch", details=data).trace_id == "830965044897325056"
+
+
+def test_traced_payload_still_behaves_like_a_plain_dict():
+    data = unwrap_envelope({"code": "000000", "status": True, "traceId": "t-1", "data": {"a": 1}})
+    assert isinstance(data, dict)
+    assert data == {"a": 1}
+    assert json.dumps(data) == '{"a": 1}'
+    assert list(data) == ["a"]  # the id is an attribute, not a key
+
+
+def test_payload_without_a_trace_id_is_left_alone():
+    data = unwrap_envelope({"code": "000000", "status": True, "data": {"a": 1}})
+    assert type(data) is dict
+    assert ApiError("x", details=data).trace_id is None
+
+
+def test_a_payload_that_is_not_a_dict_is_left_alone():
+    assert unwrap_envelope(
+        {"code": "000000", "status": True, "traceId": "t-1", "data": [1, 2]}
+    ) == [1, 2]
+
+
+def test_an_explicit_trace_id_on_the_payload_wins_over_the_carried_one():
+    # The inner envelope of a double-wrapped EDE response carries no traceId, so
+    # the carried one is a FALLBACK — a payload with its own id keeps it.
+    data = unwrap_envelope(
+        {"code": "000000", "status": True, "traceId": "outer", "data": {"traceId": "inner"}}
+    )
+    assert ApiError("x", details=data).trace_id == "inner"
+
+
+def test_double_unwrap_keeps_the_outer_trace_id():
+    # The EDE endpoints have historically double-wrapped. Peeling the inner
+    # envelope must not drop the OUTER id — that is the one the server logged.
+    outer = unwrap_envelope(
+        {
+            "code": "000000",
+            "status": True,
+            "traceId": "outer",
+            "data": {"code": "000000", "status": True, "data": {"values": []}},
+        }
+    )
+    inner = unwrap_envelope(outer)
+    assert inner == {"values": []}
+    assert ApiError("shape mismatch", details=inner).trace_id == "outer"

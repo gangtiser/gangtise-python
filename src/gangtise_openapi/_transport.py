@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import time
+from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -56,6 +58,40 @@ _CONNECT_PHASE_EXC: tuple[type[BaseException], ...] = (
 RETRY_AFTER_CEILING_MS = 60_000.0
 
 
+@dataclass(frozen=True)
+class UploadFile:
+    """One multipart part for an ``upload``-kind endpoint.
+
+    Passed as the request ``body`` so the upload shares ``request_json``'s auth,
+    retry policy and envelope handling instead of forking a second request path.
+    """
+
+    filename: str
+    data: bytes
+    content_type: str = "application/octet-stream"
+
+
+def quote_big_int_fields(text: str, fields: tuple[str, ...]) -> str:
+    """Re-quote the BARE numeric value of each named field before parsing.
+
+    Unlike JS, Python parses arbitrarily large JSON integers exactly, so this is
+    not a precision fix here — it is a TYPE-stability guard. A snowflake ID that
+    arrives quoted on one call and bare on the next would otherwise reach the
+    caller as ``str`` then ``int``, and an id that changes type breaks dict keys,
+    equality checks and the string the SDK has to echo back. Pinning the declared
+    fields to ``str`` makes the shape independent of the server's serializer.
+
+    Values already in quotes are left alone: the pattern only matches a bare
+    number immediately after the key.
+    """
+    if not fields:
+        return text
+    out = text
+    for field in fields:
+        out = re.sub(rf'("{re.escape(field)}"\s*:\s*)(-?\d+)', r'\1"\2"', out)
+    return out
+
+
 def parse_retry_after_ms(value: str | None, now: float) -> float | None:
     """Parse a Retry-After header (delta-seconds or an HTTP-date) into a delay in
     ms. Returns None when absent or unparseable. ``now`` is epoch seconds."""
@@ -79,6 +115,40 @@ def build_sync_client(config: Config) -> httpx.Client:
 
 def _success_code(code: Any) -> bool:
     return str(code) in {"000000", "0"}
+
+
+class TracedDict(dict):  # type: ignore[type-arg]
+    """A payload that remembers the ``traceId`` of the envelope it came out of.
+
+    ``unwrap_envelope`` discards the envelope, and with it the ONE correlation id
+    Gangtise support can trace a failure by. That matters most for the failures
+    raised downstream of the transport — an EDE matrix whose shape no longer
+    matches is exactly the kind of thing worth reporting, and it would otherwise
+    reach the user trace-less.
+
+    A ``dict`` subclass rather than a wrapper object so nothing downstream has to
+    know about it: it serializes, compares, and tabulates exactly like the plain
+    dict it replaces, and the id rides on an attribute that no iteration sees.
+    Mirrors the CLI's non-enumerable ``ENVELOPE_TRACE_ID`` symbol (TS v0.31.0).
+    """
+
+    __slots__ = ("envelope_trace_id",)
+
+    def __init__(self, data: dict[str, Any], trace_id: str) -> None:
+        super().__init__(data)
+        self.envelope_trace_id = trace_id
+
+
+def _attach_envelope_trace_id(data: Any, trace_id: Any) -> Any:
+    """Carry an envelope's traceId onto the payload it wrapped. Only plain dicts
+    are wrapped — a list or scalar has nowhere to put it, and re-wrapping an
+    already-traced payload would drop the OUTER id, which is the one the server
+    logged (the EDE inner envelope carries none of its own)."""
+    if not isinstance(data, dict) or isinstance(data, TracedDict):
+        return data
+    if not isinstance(trace_id, (str, int)) or isinstance(trace_id, bool):
+        return data
+    return TracedDict(data, str(trace_id))
 
 
 def is_envelope(payload: Any) -> bool:
@@ -108,7 +178,14 @@ def unwrap_envelope(
             details=payload,
             retry_after_ms=retry_after_ms,
         )
-    return payload.get("data") if "data" in payload else payload
+    if "data" not in payload:
+        return payload
+    # An EDE response double-wraps and only the OUTER envelope carries a traceId,
+    # so peeling the inner one has to hand the carried id down rather than lose it.
+    trace_id = payload.get("traceId")
+    if trace_id is None:
+        trace_id = getattr(payload, "envelope_trace_id", None)
+    return _attach_envelope_trace_id(payload["data"], trace_id)
 
 
 def is_retryable_error(error: BaseException, policy: RetryPolicy = "default") -> bool:
@@ -173,6 +250,17 @@ def _effective_timeout(
     return httpx.Timeout(floor_s)
 
 
+def _parse_body(response: httpx.Response, endpoint: EndpointDef) -> Any:
+    """Decode the JSON body, applying the endpoint's big-int field guard first.
+
+    ``response.json()`` on the plain path so encoding detection stays httpx's job;
+    only endpoints that declare ``big_int_fields`` pay for the text rewrite.
+    """
+    if not endpoint.big_int_fields:
+        return response.json()
+    return json.loads(quote_big_int_fields(response.text, endpoint.big_int_fields))
+
+
 def _do_request(
     http: httpx.Client,
     endpoint: EndpointDef,
@@ -186,14 +274,27 @@ def _do_request(
         headers["Authorization"] = normalize_token(token)
     timeout = _effective_timeout(http, endpoint)
     started = time.monotonic()
-    response = http.request(
-        endpoint.method,
-        endpoint.path,
-        params=query,
-        headers=headers,
-        content=None if endpoint.method == "GET" else json.dumps(body or {}).encode("utf8"),
-        timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
-    )
+    if isinstance(body, UploadFile):
+        # httpx writes its own multipart content-type (with the boundary); leaving
+        # the JSON one in place would make the server reject the parts.
+        headers.pop("content-type", None)
+        response = http.request(
+            endpoint.method,
+            endpoint.path,
+            params=query,
+            headers=headers,
+            files={"file": (body.filename, body.data, body.content_type)},
+            timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+        )
+    else:
+        response = http.request(
+            endpoint.method,
+            endpoint.path,
+            params=query,
+            headers=headers,
+            content=None if endpoint.method == "GET" else json.dumps(body or {}).encode("utf8"),
+            timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+        )
     elapsed_ms = (time.monotonic() - started) * 1000.0
     logger.debug(
         "[gangtise] %5.0fms %s %s (status=%s, bytes=%s)",
@@ -208,7 +309,7 @@ def _do_request(
     # must still honor the server's rate window instead of default backoff.
     retry_after_ms = parse_retry_after_ms(response.headers.get("retry-after"), time.time())
     try:
-        parsed = response.json()
+        parsed = _parse_body(response, endpoint)
     except ValueError as err:
         if response.status_code >= 400:
             raise ApiError(
@@ -269,14 +370,23 @@ def request_json(
 def _apply_policy_hint(endpoint: EndpointDef, error: BaseException) -> None:
     """Replace the generic 999999 "retry later" hint where it would mislead.
 
-    EDE ("no-999999"): 999999 means "no data for this query" (probed 2026-07-11)
-    — retrying a query that will never have data is pure waste. Per-call billed
+    EDE fetch (cross-section/time-series): 999999 means "no data for this query"
+    (probed 2026-07-11) — retrying a query that will never have data is pure
+    waste; indicator.search (also no-999999) keeps the generic hint. Per-call billed
     endpoints ("no-replay"): the SDK deliberately did not retry because the
     request may already have executed and billed — "retry later" would invite a
     manual double-bill."""
     if not (isinstance(error, ApiError) and error.code == "999999"):
         return
-    if endpoint.retry == "no-999999":
+    # Only the EDE data-fetch endpoints (cross-section/time-series/screener) take
+    # a date/scope/params query, so only they get the fetch hint. indicator.search
+    # shares the no-999999 policy but has just a keyword, so the date/scopeList/
+    # param guidance would be nonsense — it keeps the generic hint (TS v0.28.2).
+    if endpoint.key in (
+        "indicator.cross-section",
+        "indicator.time-series",
+        "indicator.screener",
+    ):
         error.hint = EDE_NO_DATA_HINT
     elif endpoint.retry == "no-replay":
         error.hint = NO_REPLAY_UNCERTAIN_HINT

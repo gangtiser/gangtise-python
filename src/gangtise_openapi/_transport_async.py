@@ -14,8 +14,10 @@ from gangtise_openapi._errors import ApiError
 from gangtise_openapi._logging import get_logger
 from gangtise_openapi._transport import (
     USER_AGENT,
+    UploadFile,
     _apply_policy_hint,
     _effective_timeout,
+    _parse_body,
     _retry_delay,
     is_envelope,
     is_retryable_error,
@@ -45,14 +47,26 @@ async def _do_request(
         headers["Authorization"] = normalize_token(token)
     timeout = _effective_timeout(http, endpoint)
     started = time.monotonic()
-    response = await http.request(
-        endpoint.method,
-        endpoint.path,
-        params=query,
-        headers=headers,
-        content=None if endpoint.method == "GET" else json.dumps(body or {}).encode("utf8"),
-        timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
-    )
+    if isinstance(body, UploadFile):
+        # httpx writes its own multipart content-type (with the boundary).
+        headers.pop("content-type", None)
+        response = await http.request(
+            endpoint.method,
+            endpoint.path,
+            params=query,
+            headers=headers,
+            files={"file": (body.filename, body.data, body.content_type)},
+            timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+        )
+    else:
+        response = await http.request(
+            endpoint.method,
+            endpoint.path,
+            params=query,
+            headers=headers,
+            content=None if endpoint.method == "GET" else json.dumps(body or {}).encode("utf8"),
+            timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+        )
     elapsed_ms = (time.monotonic() - started) * 1000.0
     logger.debug(
         "[gangtise] %5.0fms %s %s (status=%s, bytes=%s)",
@@ -67,7 +81,7 @@ async def _do_request(
     # 429/503 must still honor the server's rate window instead of default backoff.
     retry_after_ms = parse_retry_after_ms(response.headers.get("retry-after"), time.time())
     try:
-        parsed = response.json()
+        parsed = _parse_body(response, endpoint)
     except ValueError as err:
         if response.status_code >= 400:
             raise ApiError(

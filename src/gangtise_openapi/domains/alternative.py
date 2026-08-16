@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
-from gangtise_openapi._normalize import to_dataframe
+from gangtise_openapi._normalize import to_dataframe, zip_field_row
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
@@ -110,8 +110,12 @@ class Alternative:
             and isinstance(result.get("dataList"), list)
         ):
             fields: list[str] = list(result["fieldList"])
+            # Same positional-zip hazard as the other columnar endpoints: a row
+            # whose length disagrees with fieldList would paste values onto the
+            # wrong columns. This endpoint has no `field` parameter, so a mismatch
+            # here can only mean the upstream response shape changed.
             rows = [
-                {field: row[i] for i, field in enumerate(fields)}
+                zip_field_row(fields, row, result)
                 for row in result["dataList"]
                 if isinstance(row, list)
             ]
@@ -197,8 +201,12 @@ class AsyncAlternative:
             and isinstance(result.get("dataList"), list)
         ):
             fields: list[str] = list(result["fieldList"])
+            # Same positional-zip hazard as the other columnar endpoints: a row
+            # whose length disagrees with fieldList would paste values onto the
+            # wrong columns. This endpoint has no `field` parameter, so a mismatch
+            # here can only mean the upstream response shape changed.
             rows = [
-                {field: row[i] for i, field in enumerate(fields)}
+                zip_field_row(fields, row, result)
                 for row in result["dataList"]
                 if isinstance(row, list)
             ]

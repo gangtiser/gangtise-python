@@ -2,23 +2,89 @@ import datetime as dt
 
 import pytest
 
-from gangtise_openapi._errors import ApiError
+from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._quote_sharding import (
-    SHARD_DAYS,
+    MARKET_SHARD_DAYS,
+    canonicalize_market_keywords,
+    check_market_keywords,
     drop_weekend_shards,
     fetch_shards,
     fetch_shards_async,
     is_full_market,
     plan_shards,
+    resolve_full_market,
 )
 
 
 def test_shard_days_table():
-    assert SHARD_DAYS["quote.day-kline"] == 1
-    assert SHARD_DAYS["quote.day-kline-hk"] == 2
-    assert SHARD_DAYS["quote.day-kline-us"] == 1
-    assert SHARD_DAYS["quote.index-day-kline"] == 30
-    assert SHARD_DAYS["quote.fund-flow"] == 1
+    # Translated 1:1 from gangtise-openapi-cli v0.34.0 cli.ts (KLINE_MARKETS /
+    # LEGACY_ALL_MARKET). The unified day-kline shards per market; the retired
+    # per-market endpoints keep `all`.
+    assert MARKET_SHARD_DAYS == {
+        "quote.day-kline": {"aShares": 1, "hkStocks": 2, "usStocks": 1},
+        "quote.day-kline-hk": {"all": 2},
+        "quote.day-kline-us": {"all": 1},
+        "quote.index-day-kline": {"all": 15},
+        "quote.fund-flow": {"aShares": 1},
+    }
+
+
+def test_index_day_kline_shard_is_15_not_30():
+    # 531 index rows/trading day x ~22 trading days in a 30-day window is ~11.7K,
+    # over the 10000-row cap — every shard maxed out and lost ~11% of the range.
+    assert MARKET_SHARD_DAYS["quote.index-day-kline"]["all"] == 15
+
+
+def test_day_kline_rejects_retired_all_keyword():
+    with pytest.raises(ValidationError, match="aShares"):
+        check_market_keywords("all", ("aShares", "hkStocks", "usStocks"), "quote day-kline")
+
+
+def test_market_keyword_must_be_passed_alone():
+    with pytest.raises(ValidationError, match="alone"):
+        check_market_keywords(
+            ["aShares", "600519.SH"], ("aShares", "hkStocks", "usStocks"), "quote day-kline"
+        )
+
+
+def test_fund_flow_rejects_keyword_mixed_with_codes():
+    # The server SILENTLY drops the keyword here and answers with just the explicit
+    # codes — "whole market plus this one" quietly becomes "only this one".
+    with pytest.raises(ValidationError, match="alone"):
+        check_market_keywords(["aShares", "600519.SH"], ("aShares",), "quote fund-flow")
+
+
+def test_fund_flow_rejects_foreign_keyword():
+    with pytest.raises(ValidationError, match="aShares"):
+        check_market_keywords("hkStocks", ("aShares",), "quote fund-flow")
+
+
+def test_no_keyword_endpoint_reports_codes_only():
+    with pytest.raises(ValidationError, match="explicit security codes only"):
+        check_market_keywords("aShares", (), "ai stock_summary_list")
+
+
+def test_explicit_codes_pass_the_keyword_check():
+    check_market_keywords(["600519.SH", "000858.SZ"], ("aShares",), "quote fund-flow")
+
+
+def test_keyword_case_is_folded_to_the_canonical_spelling():
+    # fund-flow is the one endpoint that does NOT fold case server-side: only the
+    # literal `aShares` works, so this normalization is what makes `ashares` usable.
+    assert canonicalize_market_keywords("ashares", ("aShares",)) == "aShares"
+    assert canonicalize_market_keywords(["ASHARES"], ("aShares",)) == ["aShares"]
+    check_market_keywords("ashares", ("aShares",), "quote fund-flow")
+
+
+def test_canonicalize_leaves_non_keywords_untouched():
+    assert canonicalize_market_keywords(["600519.SH"], ("aShares",)) == ["600519.SH"]
+
+
+def test_resolve_full_market_picks_the_requested_market():
+    markets = MARKET_SHARD_DAYS["quote.day-kline"]
+    assert resolve_full_market("hkStocks", markets) == "hkStocks"
+    assert resolve_full_market(["usStocks"], markets) == "usStocks"
+    assert resolve_full_market(["600519.SH"], markets) is None
 
 
 def test_plan_shards_single_day():

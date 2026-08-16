@@ -80,7 +80,7 @@ async def test_async_day_kline_all_weekend_range_makes_no_requests(tmp_path):
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             df = await AsyncQuote(client).day_kline(
-                security="all",
+                security="aShares",
                 start_date="2026-01-03",  # Sat
                 end_date="2026-01-04",  # Sun
             )
@@ -144,7 +144,7 @@ async def test_async_day_kline_partial_shard_failure_aborts_and_sets_flags(tmp_p
         async with AsyncGangtiseClient(_config=cfg) as client:
             with pytest.warns(UserWarning, match="2/3 day-kline shards failed"):
                 out = await AsyncQuote(client).day_kline(
-                    security="all",
+                    security="aShares",
                     start_date="2026-01-05",  # Mon
                     end_date="2026-01-07",  # Wed
                     raw=True,
@@ -188,7 +188,7 @@ async def test_async_day_kline_malformed_shard_response_sets_partial(tmp_path):
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             with pytest.warns(UserWarning, match="1/3 day-kline shards failed"):
                 out = await AsyncQuote(client).day_kline(
-                    security="all",
+                    security="aShares",
                     start_date="2026-01-05",  # Mon
                     end_date="2026-01-07",  # Wed
                     raw=True,
@@ -210,7 +210,7 @@ async def test_async_day_kline_all_shards_failed_raises_bare_api_error(tmp_path)
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             with pytest.raises(ApiError) as excinfo:
                 await AsyncQuote(client).day_kline(
-                    security="all",
+                    security="aShares",
                     start_date="2026-01-05",  # Mon
                     end_date="2026-01-06",  # Tue
                 )
@@ -241,7 +241,7 @@ async def test_async_day_kline_hk_shard_count_and_body(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_index_day_kline_30_day_shards_and_body(tmp_path):
+async def test_async_index_day_kline_15_day_shards_and_body(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         route = router.post("/application/open-quote/index/kline/daily").mock(
             return_value=httpx.Response(
@@ -255,8 +255,8 @@ async def test_async_index_day_kline_30_day_shards_and_body(tmp_path):
                 start_date="2026-01-01",
                 end_date="2026-03-31",
             )
-        # 90 days / 30 per shard = 3 shards
-        assert route.call_count == 3
+        # 90 days / 15 per shard = 6 shards (see the sync sibling).
+        assert route.call_count == 6
         # index-day-kline body uses `securityList` (camelCase, list form)
         sent = route.calls.last.request.read().replace(b" ", b"")
         assert b'"securityList":["all"]' in sent

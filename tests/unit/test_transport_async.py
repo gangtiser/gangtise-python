@@ -131,10 +131,37 @@ async def test_request_json_async_no_999999_fails_fast_with_ede_hint(respx_mock,
         return_value=httpx.Response(500, json={"code": "999999", "status": False, "msg": "err"})
     )
     endpoint = EndpointDef(
-        key="x", method="POST", path="/p", kind="json", description="d", retry="no-999999"
+        key="indicator.cross-section",
+        method="POST",
+        path="/p",
+        kind="json",
+        description="d",
+        retry="no-999999",
     )
     async with build_async_client(cfg) as http:
         with pytest.raises(ApiError) as exc:
             await request_json_async(http, endpoint, body={}, token="tok")
     assert route.call_count == 1
     assert exc.value.hint == EDE_NO_DATA_HINT
+
+
+@pytest.mark.anyio
+async def test_request_json_async_no_999999_search_keeps_generic_hint(respx_mock, cfg):
+    # search (also no-999999) keeps the generic hint — only the data-fetch
+    # endpoints get the date/scope/param guidance (TS v0.28.2).
+    respx_mock.post("/p").mock(
+        return_value=httpx.Response(500, json={"code": "999999", "status": False, "msg": "err"})
+    )
+    endpoint = EndpointDef(
+        key="indicator.search",
+        method="POST",
+        path="/p",
+        kind="json",
+        description="d",
+        retry="no-999999",
+    )
+    async with build_async_client(cfg) as http:
+        with pytest.raises(ApiError) as exc:
+            await request_json_async(http, endpoint, body={}, token="tok")
+    # Exact: the generic 999999 hint, NOT the EDE data-fetch hint (and not None).
+    assert exc.value.hint == ERROR_HINTS["999999"]

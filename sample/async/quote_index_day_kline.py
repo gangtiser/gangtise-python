@@ -1,7 +1,11 @@
 """quote.index_day_kline — 指数日 K 线（SH/SZ/BJ 指数）, 返回含 securityName 列的 DataFrame。
 
+⚠️ 已下线（deprecated）: 请优先用 quote.day_kline。仍保留是因为本接口有两处 day_kline
+做不到的能力——"all" 一次取全部指数, 以及返回 securityName 指数名称。
+全市场分片粒度为 15 天（30 天窗口约 11.7K 行必然撞 10000 上限并静默截断）。
+
 通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
-security="all" 时按日期窗口自动分片（每片 30 个交易日）并并发拉取后合并。
+security="all" 时按日期窗口自动分片（每片 15 天）并并发拉取后合并。
 异步路径为 gangtise.async_.quote.index_day_kline(...)。
 """
 

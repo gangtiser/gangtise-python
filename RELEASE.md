@@ -32,7 +32,30 @@
    domain/sample file would ship a tree that fails to import on a clean checkout.)
 6. Tag: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin main vX.Y.Z`. (不要用 `--follow-tags`：它不推 lightweight tag，v0.1.0/v0.1.4 都因此没触发发布 workflow。)
 7. CI workflow `.github/workflows/release.yml` runs build + publish + GitHub Release.
-8. Verify on PyPI: `pip install gangtise-openapi==X.Y.Z` in a clean venv.
+8. **Write the GitHub Release notes** — the workflow creates the release with
+   `--generate-notes`, which derives from PRs. This repo commits straight to `main`,
+   so that produces a body containing nothing but a "Full Changelog" link (v0.1.x
+   through v0.3.0 all shipped that way). Someone deciding *whether to upgrade* reads
+   that page, not `CHANGELOG.md`, so put the breaking changes and any "this was
+   already broken, upgrading is the fix" items at the top:
+   ```bash
+   gh release edit vX.Y.Z --notes-file <file>
+   ```
+   Same wording discipline as `README.md`: no absolute platform library sizes, and
+   describe server behaviour as observable result + what to do.
+9. Verify on PyPI: `pip install gangtise-openapi==X.Y.Z` in a clean venv
+   (uv caches metadata — use `uv pip install --refresh-package gangtise-openapi`).
+
+## Known publish failure
+
+`InvalidDistribution: '2.5' is not a valid metadata version` — the pinned
+`pypa/gh-action-pypi-publish` bundles a twine older than the metadata version
+hatchling emits. **Fix the action pin, do not cap hatchling**: metadata 2.5 is a
+standard version PyPI accepts, so capping would be pinning away from the standard
+to suit one stale tool. v1.14.2 is the first release whose twine (v7) accepts 2.5;
+the pin must stay at or above it. Hit on v0.3.0 — the publish failed, nothing
+reached PyPI, and the tag was moved onto the fix commit rather than burning the
+version number.
 
 ## Initial setup
 

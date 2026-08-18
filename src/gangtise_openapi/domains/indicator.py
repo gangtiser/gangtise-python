@@ -125,8 +125,11 @@ def _wants_injected_date(
 
     The server REJECTS a stray ``tradeDate`` on all of these with
     ``100003 不支持参数 tradeDate``, so injecting unconditionally makes them
-    unreachable on this endpoint — which is where the CLI and gangtise-mcp stand
-    today (both inject unconditionally; see bug/upstream-cli.md U2).
+    unreachable. All three clients carry this escape hatch now — the CLI took it in
+    v0.35.0 (``--indicator-param "<code>:"`` on cross-section) and v0.36.0
+    (``--indicator-param "<var>:"`` on the screener, keyed by the variable exactly as
+    here), gangtise-mcp spells it ``noQueryDate: true``. Same semantics, three
+    spellings — and on the screener all three key it by the VARIABLE, not the code.
 
     Opt-in on purpose: it only fires on an explicit marker, so no existing call
     changes behaviour. ``key`` is the indicator code for cross-section and the
@@ -193,13 +196,21 @@ def _with_query_date(
 def _screener_indicator_list(
     bindings: dict[str, str], params: dict[str, dict[str, Any]] | None, expression: str, date: str
 ) -> list[dict[str, Any]]:
-    """Screener bindings with the query date attached to every variable.
+    """Screener bindings with the query date attached to every variable that takes one.
 
-    Every indicator gets a date, including ones whose ``parameterList`` is empty:
-    harmless there (a parameterless indicator answers normally with a stray
-    ``tradeDate``), and it keeps one rule for the whole list rather than a
-    per-indicator exception. It used to be load-bearing too — through 2026-08-02
-    the screener DROPPED any indicator sent with ``parameters: []``.
+    Same rule as cross-section, including the same opt-out: a variable whose
+    indicator declares no ``tradeDate`` in its ``parameterList`` is excused by a
+    suppression marker — ``{"F1": {}}`` or ``{"F1": {"tradeDate": None}}``, keyed by
+    the VARIABLE rather than the indicator code. ``_wants_injected_date`` decides
+    here exactly as it does there; the marker itself never reaches the wire.
+
+    Worth spelling out because the opt-out was unreachable here until recently:
+    through 2026-08-16 the screener silently DROPPED any binding sent with
+    ``parameters: []``, so suppressing the date lost the variable instead of freeing
+    it. Fixed 2026-08-17 (probed: ``scr_exchg_sctr contains '创业板'`` now survives
+    and filters). Injecting unconditionally instead is not the safe default it looks
+    like — these indicators answer ``100003 不支持参数 tradeDate`` for the WHOLE
+    request, so it makes them unreachable from the other side.
     """
     _validate_date(date, "date")
     indicators = parse_screener_indicators(bindings, params, expression)

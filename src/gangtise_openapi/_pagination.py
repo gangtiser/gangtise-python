@@ -271,19 +271,27 @@ def _should_probe_total_cap(
     failure mode there is, because ``insight.opinion`` bills 30 credits per row.
 
     Only probed on a genuine fetch-all that otherwise looked complete: when
-    ``total`` is honest the probe comes back empty (and bills nothing, since these
-    endpoints charge per row returned).
+    ``total`` is honest the probe comes back empty, and an endpoint that prices per
+    item charges nothing for an empty answer — so the probe is free exactly when it
+    finds nothing wrong.
 
-    **Except on a per-call billed endpoint**, where "the probe returns empty so it
-    costs nothing" is simply false — ``ai.hot-topic`` is the one endpoint that is
-    both paginated and ``no-replay``, and there the probe is a real charge for a
-    diagnostic. Deliberate divergence from the CLI, whose probe condition has no
-    such exclusion (`client.ts`, v0.33.0); reported upstream rather than left to
-    drift silently. The capping this detects was only ever observed on the
-    ``insight.opinion*`` endpoints, which are not per-call billed.
+    ⚠️ **Do NOT gate this on ``retry == "no-replay"``.** An earlier version did,
+    reading that flag as a per-call-billing marker; it is not one. ``no-replay``
+    means "never resend a request the server may already have executed" — REPLAY
+    safety — and the probe is a new request, never a resend, so the flag has
+    nothing to say about it. Billing-wise the one endpoint that gate excluded,
+    ``ai.hot-topic``, is priced per returned item (50 per 篇, where a 篇 is one whole
+    report), and the platform does not charge a per-item endpoint for a query that
+    finds nothing — so the gate saved no credits while costing that endpoint its
+    only truncation check.
+
+    Do NOT generalize that into "every paginated endpoint is per-item billed": this
+    client cannot measure billing at all (no quota/usage API), at least one
+    paginated endpoint has no published unit price, and several are free. What the
+    probe relies on is narrower — on the endpoints where a capped ``total`` has been
+    observed, an empty answer is not billed.
+    Raised by gangtise-mcp; the CLI reverted the same exclusion on 2026-08-18.
     """
-    if endpoint.retry == "no-replay":
-        return False
     return (
         requested_size is None
         and total > 0

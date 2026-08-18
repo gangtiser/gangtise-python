@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-08-18
+
+Sync with `gangtise-openapi-cli` **v0.35.0 → v0.36.0**. **No new endpoints** — still
+**97 network / 99 registry**.
+
+**Patch, not minor:** nothing that worked on 0.3.0 changes. The date guard only
+widens — every layout it accepted before is still accepted and still normalizes to
+itself — and the probe fix restores behaviour 0.3.0 was supposed to have. The one
+thing that changes in the returned data: a full `ai.hot_topic` fetch that was
+silently truncated now says so (`totalCapped` / `partial` + a warning) instead of
+reporting complete. At the request level that fetch also sends one extra `from =
+total` probe, whether or not the total turns out to be capped.
+
+### Changed — date parameters accept three year-first layouts
+
+`start_date` / `end_date` / `date` / `report_date` now take `YYYY-MM-DD`,
+`YYYY/MM/DD` and `YYYYMMDD`, all normalized to `YYYY-MM-DD` before the request goes
+out. `start_time` / `end_time` follow the same rule on their date half only —
+`"2026/07/01 09:30:00"` → `"2026-07-01 09:30:00"`, with the time part (space or `T`
+separator, optional seconds) and 10/13-digit Unix timestamps passed through
+untouched. 0.2.0 through 0.3.0 accepted `YYYY-MM-DD` alone.
+
+Normalizing rather than forwarding as typed keeps one shape on the wire: the
+platform's lenient parsing is not guaranteed uniform across endpoint groups, and
+`YYYY-MM-DD` is the form every group is probed against.
+
+**Year-last layouts are still refused locally** (`01-07-2026`, `07/01/2026`). The
+platform parses them month-first, the US convention, and does so consistently. The
+parsing is not the problem; the problem is on the caller's side: the same
+three numbers mean 7 January to one reader and 1 July to another, so forwarding them
+hands half of callers data six months off with a successful response and a plausible
+row count. The SDK cannot know which reading was meant, so it refuses before the
+request is sent (no round trip, no charge) and names a working layout in the error.
+See the README section 「关于日期格式」.
+
+### Fixed — the `total`-cap probe covers `ai.hot_topic` again
+
+0.3.0 excluded that endpoint from the end-of-fetch `from = total` probe on the
+premise that it is billed per call, making the probe an unnecessary charge. The
+premise was wrong on both halves: per the platform's billing rules the endpoint is
+priced per item (50 per 篇, where a 篇 is one whole report), and per-item endpoints
+are not charged for a query that returns nothing — which is exactly what the probe
+returns when `total` is honest. (An SDK cannot measure billing itself; that pair of
+statements is the platform's, not something this client verified.)
+
+The exclusion therefore saved nothing and cost `ai.hot_topic` its only truncation
+check: a full fetch capped by the server looked complete, with `collected == total`
+and every consistency check passing. The probe now runs there as it does on every
+other paginated endpoint, flagging `totalCapped` / `partial` with a warning when it
+finds rows past the reported `total`.
+
+The endpoint's `retry="no-replay"` policy is unchanged. That marker means *never
+resend a request the server may already have executed*; the probe is a new request,
+not a resend, so the two are unrelated — the internal comments that described the
+marker as "per-call billed" were the source of the mix-up and have been corrected.
+
+### Documentation
+
+- `indicator.screener`'s opt-out for date-less indicators (`indicator_param={"F1": {}}`
+  or `{"F1": {"tradeDate": None}}`, keyed by the **variable**) has worked since 0.3.0,
+  but an internal docstring described it as not existing on that endpoint — the
+  wording is now aligned with the code. Indicators whose `parameterList` declares no
+  `tradeDate` (the `pty_*` / `scr_*` static-attribute families, `div_cash_paid_ratio`,
+  `div_cash_yr`, `pty_shr_reg`) are reachable from the screener as well as from
+  `cross_section`. The CLI added the same capability in v0.35.0 (`--indicator-param
+  "<code>:"` on cross-section) and v0.36.0 (`--indicator-param "<var>:"` on the
+  screener, keyed by the variable just as here); the two are now at parity.
+- Stale cross-references to upstream behaviour that changed in CLI v0.35.0 / v0.36.0
+  have been corrected in `_errors.py` and `domains/indicator.py`.
+
 ## [0.3.0] - 2026-08-15
 
 Sync with `gangtise-openapi-cli` **v0.28.3 → v0.34.1** (nine releases). New endpoints:

@@ -267,11 +267,14 @@ def test_first_page_shape_drift_warns_and_returns_as_is(config):
     assert drifted == {"total": "123", "list": []}  # caller's payload not mutated
 
 
-def test_total_cap_probe_is_skipped_on_a_per_call_billed_endpoint():
-    # `ai.hot-topic` is the one endpoint that is both paginated and no-replay.
-    # There "the probe returns empty so it costs nothing" is false — it is a real
-    # charge for a diagnostic, so the probe is skipped. Deliberate divergence from
-    # the CLI, whose probe condition has no such exclusion.
+def test_total_cap_probe_still_runs_on_a_no_replay_endpoint():
+    # `ai.hot-topic` is the one endpoint that is both paginated and no-replay, and it
+    # MUST still be probed. An earlier version skipped it, reading `no-replay` as a
+    # per-call-billing marker; it is not one — it means "never resend a request the
+    # server may already have executed", and the probe is a new request, not a resend.
+    # hot-topic is priced per returned item, and the platform does not charge a
+    # per-item endpoint for a query that finds nothing — so the gate saved no credits
+    # while costing this endpoint its only truncation check.
     from gangtise_openapi._endpoints import lookup
 
     endpoint = lookup("ai.hot-topic")
@@ -281,11 +284,29 @@ def test_total_cap_probe_is_skipped_on_a_per_call_billed_endpoint():
     def fetch(body):
         pages_seen.append((body["from"], body["size"]))
         f, s = body["from"], body["size"]
-        return {"total": 40, "list": [{"i": j} for j in range(f, f + s)]}
+        rows = [{"i": j} for j in range(f, min(f + s, 40))]
+        return {"total": 40, "list": rows}
 
     out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
-    assert "totalCapped" not in out
-    assert (40, 1) not in pages_seen
+    assert "totalCapped" not in out  # honest total: the probe comes back empty
+    assert (40, 1) in pages_seen  # ...but it WAS sent
+
+
+def test_total_cap_probe_flags_a_capped_total_on_a_no_replay_endpoint():
+    # The positive half: skipping the probe here used to make a truncated hot-topic
+    # export indistinguishable from a complete one.
+    from gangtise_openapi._endpoints import lookup
+
+    endpoint = lookup("ai.hot-topic")
+
+    def fetch(body):
+        f, s = body["from"], body["size"]
+        return {"total": 40, "list": [{"i": j} for j in range(f, f + s)]}
+
+    with pytest.warns(UserWarning, match="server-side cap"):
+        out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
+    assert out["totalCapped"] is True
+    assert out["partial"] is True
 
 
 def test_total_cap_probe_still_runs_on_a_normal_billed_endpoint():

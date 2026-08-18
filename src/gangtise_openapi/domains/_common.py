@@ -44,17 +44,50 @@ def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
 # happily parses them, so a date written in fullwidth digits (U+FF10..U+FF19) would
 # clear a bare ``\d`` check, convert to a plausible-looking year, and then be
 # forwarded verbatim to an API that cannot read it.
-_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
-# ``YYYY-MM-DD`` with an optional `` HH:mm[:ss]`` / ``THH:mm[:ss]`` tail.
+# The three year-FIRST layouts (``YYYY-MM-DD`` / ``YYYY/MM/DD`` / ``YYYYMMDD``),
+# all normalized to ``YYYY-MM-DD`` before the request goes out. The backreference
+# keeps the separator consistent, so ``2026-07/01`` is a typo, not a date.
+_YEAR_FIRST_DATE = re.compile(r"^(\d{4})([-/]?)(\d{2})\2(\d{2})$", re.ASCII)
+# Same, plus an optional `` HH:mm[:ss]`` / ``THH:mm[:ss]`` tail.
 _LOCAL_DATETIME = re.compile(
-    r"^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$", re.ASCII
+    r"^(\d{4})([-/]?)(\d{2})\2(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$", re.ASCII
 )
 _EPOCH_SECONDS = re.compile(r"^\d{10}$", re.ASCII)
 _EPOCH_MILLIS = re.compile(r"^\d{13}$", re.ASCII)
 # Same shape plus a mandatory UTC offset. Accepted only by ``_to_timestamp13``.
 _OFFSET_DATETIME = re.compile(
-    r"^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|z|[+-]\d{2}:?\d{2})$", re.ASCII
+    r"^(\d{4})([-/]?)(\d{2})\2(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|z|[+-]\d{2}:?\d{2})$",
+    re.ASCII,
 )
+
+# Shared by every message below: says what IS accepted, and why year-last is not.
+_DATE_LAYOUT_HINT = (
+    "YYYY-MM-DD (YYYY/MM/DD and YYYYMMDD also accepted) — year-last layouts are "
+    'refused because the API reads them month-first (US convention): "01-07-2026" '
+    "means 7 January, not 1 July"
+)
+
+
+def _normalize_year_first(value: str) -> str:
+    """``YYYY/MM/DD`` / ``YYYYMMDD`` -> ``YYYY-MM-DD``; leaves any time tail alone.
+
+    Only the leading date is rewritten, so ``"2026/07/01 09:30:00"`` becomes
+    ``"2026-07-01 09:30:00"`` with the time part untouched — the pass-through
+    endpoints echo it verbatim and accept both the space and ``T`` separators.
+
+    🔴 The tail slice is bounded by ``m.end()``, NOT by the end of the string, and
+    the two are not always the same: Python's ``$`` also matches just BEFORE a
+    trailing newline, so ``"2026-07-01\\n"`` matches with ``m.end() == 10 < len``.
+    ``re.sub`` only replaces ``m.start()..m.end()``, leaving that newline in place —
+    an unbounded slice would append it a second time and send ``"2026-07-01\\n\\n"``.
+    (The lax ``$`` is pre-existing and deliberately left alone here; tightening it to
+    ``\\Z`` rejects input 0.3.0 forwarded, which is a minor-version change — tracked
+    as bug/python-open.md P9.)
+    """
+    return _LOCAL_DATETIME.sub(
+        lambda m: f"{m[1]}-{m[3]}-{m[4]}{value[m.end(4) : m.end()]}", value, count=1
+    )
+
 
 # Wire fields carrying a bare calendar date, and those carrying a datetime. These
 # are the only ``*Date`` / ``*Time`` keys any request body uses (verified across
@@ -91,40 +124,49 @@ def _is_real_date(year: int, month: int, day: int) -> bool:
 
 
 def _validate_date(value: Any, field: str) -> Any:
-    """Strict ``YYYY-MM-DD``. Beyond the documented shape the server accepts two
-    year-last layouts whose day/month order is *opposite* to each other (probed by
-    the TS CLI 2026-07-20): ``07/01/2026`` reads as 2026-01-07 while ``07-01-2026``
-    reads as 2026-07-01 — six months apart, both HTTP 200, and the response never
-    echoes which date was used. The SDK cannot know which was meant, so it forwards
-    only the unambiguous form. Other unambiguous shapes (``20260701``,
-    ``2026/07/01``) are refused too: one accepted form beats an allowlist that has
-    to be re-probed per endpoint group."""
-    if not isinstance(value, str) or not _ISO_DATE.match(value):
+    """Any year-FIRST layout, normalized to ``YYYY-MM-DD`` on the way out.
+
+    The server parses year-last layouts too, and reads them month-first — the US
+    convention (re-probed 2026-08-17: ``01-07-2026`` and ``01/07/2026`` are both
+    7 January, ``07-01-2026`` and ``07/01/2026`` both 1 July). That is a platform
+    convention, not a defect; an earlier build disagreed between separators and
+    that half was fixed 2026-08-15.
+
+    The asymmetry is the point: ``2026/07/01`` reads as one day to everyone, while
+    ``01-07-2026`` is 7 January to an American and 1 July to a European. Forwarding
+    it would hand half of the callers data six months off with HTTP 200 and a
+    plausible row count. Refusing locally also skips a billed round trip, and the
+    message names a layout that works.
+
+    Normalizing rather than forwarding as typed keeps one shape on the wire: the
+    server's lenient parsing is not guaranteed uniform across endpoint groups, and
+    ``YYYY-MM-DD`` is the form every group is probed against."""
+    if not isinstance(value, str) or not _YEAR_FIRST_DATE.match(value):
         raise ValidationError(
-            f"invalid {_snake(field)}: expected YYYY-MM-DD, got {value!r} — only that "
-            "form is forwarded; the API silently misreads other layouts "
-            '(e.g. "07/01/2026") as a different day'
+            f"invalid {_snake(field)}: expected {_DATE_LAYOUT_HINT}, got {value!r}"
         )
-    year, month, day = (int(part) for part in value.split("-"))
+    normalized = _normalize_year_first(value)
+    year, month, day = (int(part) for part in normalized.split("-"))
     if not _is_real_date(year, month, day):
         raise ValidationError(f"invalid {_snake(field)}: {value!r} is not a real calendar date")
-    return value
+    return normalized
 
 
 def _datetime_fields_valid(value: str) -> bool:
     parts = _LOCAL_DATETIME.match(value)
     if not parts:
         return False
-    year, month, day, hh, mm, ss = parts.groups()
+    year, _sep, month, day, hh, mm, ss = parts.groups()
     if not _is_real_date(int(year), int(month), int(day)):
         return False
     return int(hh or 0) <= 23 and int(mm or 0) <= 59 and int(ss or 0) <= 59
 
 
 def _validate_datetime(value: Any, field: str) -> Any:
-    """A 10/13-digit epoch or ``YYYY-MM-DD`` with an optional `` HH:mm[:ss]`` /
-    ``THH:mm[:ss]`` tail — returned UNCHANGED, because these fields are echoed to
-    the server verbatim rather than converted.
+    """A 10/13-digit epoch or a year-first date with an optional `` HH:mm[:ss]`` /
+    ``THH:mm[:ss]`` tail. Not converted — these fields are echoed to the server
+    verbatim — but the DATE half is normalized to ``YYYY-MM-DD`` so only one layout
+    reaches the wire. Epochs and the time half pass through untouched.
 
     Epochs are judged by digit count, not magnitude: a ``> 1e12`` test sends the
     real 13-digit ``1000000000000`` (which equals 1e12) down the seconds branch, and
@@ -149,13 +191,14 @@ def _validate_datetime(value: Any, field: str) -> Any:
             f"invalid {_snake(field)}: expected a datetime string or epoch int, "
             f"got {type(value).__name__}"
         )
-    if _EPOCH_MILLIS.match(value) or _EPOCH_SECONDS.match(value) or _datetime_fields_valid(value):
+    if _EPOCH_MILLIS.match(value) or _EPOCH_SECONDS.match(value):
         return value
+    if _datetime_fields_valid(value):
+        return _normalize_year_first(value)
     raise ValidationError(
         f"invalid {_snake(field)}: expected a 10/13-digit Unix timestamp or "
-        f'"YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator), got {value!r} '
-        "— year-last forms are refused because the API reads their day/month order "
-        "differently per separator"
+        f'"YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator), '
+        f"got {value!r} — {_DATE_LAYOUT_HINT}"
     )
 
 
@@ -182,7 +225,7 @@ def _offset_datetime_to_millis(text: str) -> int | None:
     parts = _OFFSET_DATETIME.match(text)
     if not parts:
         return None
-    year, month, day, hh, mm, ss, raw_offset = parts.groups()
+    year, _sep, month, day, hh, mm, ss, raw_offset = parts.groups()
     offset = _offset_seconds(raw_offset)
     if offset is None or not _is_real_date(int(year), int(month), int(day)):
         return None
@@ -228,7 +271,7 @@ def _to_timestamp13(value: Any, name: str) -> int | None:
         if _datetime_fields_valid(text):
             parts = _LOCAL_DATETIME.match(text)
             assert parts is not None  # _datetime_fields_valid already matched
-            year, month, day, hh, mm, ss = parts.groups()
+            year, _sep, month, day, hh, mm, ss = parts.groups()
             moment = dt.datetime(
                 int(year), int(month), int(day), int(hh or 0), int(mm or 0), int(ss or 0)
             )
@@ -259,14 +302,18 @@ def _request_body(body: dict[str, Any]) -> dict[str, Any]:
     Every wrapper funnels its body through here, so the date guards land on all of
     them at once — including wrappers added later, which is the point. ``None``
     (unset) skips validation and is dropped as before.
+
+    The date guards RETURN a normalized value (``2026/07/01`` -> ``2026-07-01``),
+    so their result is written back rather than discarded — dropping it would
+    validate the input and then send the un-normalized original.
     """
-    for field, value in body.items():
+    for field, value in list(body.items()):
         if value is None:
             continue
         if field in _DATE_FIELDS:
-            _validate_date(value, field)
+            body[field] = _validate_date(value, field)
         elif field in _DATETIME_FIELDS:
-            _validate_datetime(value, field)
+            body[field] = _validate_datetime(value, field)
         elif field in _ENUM_FIELDS:
             _validate_enum(value, name=_snake(field), allowed=_ENUM_FIELDS[field])
     return _strip_none(body)

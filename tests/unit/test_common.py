@@ -127,27 +127,34 @@ def test_validate_choices_passes_whitelist_and_rejects_unknown():
         _validate_choices(["a", "c"], name="category", allowed=("a", "b"))
 
 
-# ── TS v0.28.0: strict date / datetime validation before the request goes out ──
+# ── Date / datetime validation before the request goes out ──
 #
-# The server accepts two extra year-last layouts whose day/month order is OPPOSITE
-# to each other (probed by the TS CLI 2026-07-20): "07/01/2026" reads as 2026-01-07
-# while "07-01-2026" reads as 2026-07-01. Same three digits, six months apart, both
-# HTTP 200, and nothing in the response says which reading was used. The SDK cannot
-# know which was meant, so it forwards only the unambiguous form.
+# Year-FIRST layouts are all accepted and normalized to YYYY-MM-DD: "2026/07/01"
+# and "20260701" read as the same day to everyone, so refusing them buys nothing.
+#
+# Year-LAST stays refused, and the asymmetry is the whole point. The server does
+# parse it, month-first — the US convention (re-probed 2026-08-17: "01-07-2026"
+# and "01/07/2026" are both 7 January, "07-01-2026" and "07/01/2026" both 1 July).
+# That is a platform convention, not a defect. But "01-07-2026" means 7 January to
+# an American and 1 July to a European, so forwarding it hands half the callers
+# data six months off with HTTP 200 and a plausible row count.
 
 
 @pytest.mark.parametrize("field", ["startDate", "endDate", "date", "reportDate"])
 @pytest.mark.parametrize(
     "value",
     [
-        "07/01/2026",  # server reads DD/MM/YYYY
-        "07-01-2026",  # server reads MM-DD-YYYY — the opposite way round
-        "2026/07/01",  # unambiguous, but one accepted form beats an allowlist
-        "20260701",
+        "07/01/2026",  # year-last: 1 July to the server, 7 January to a European
+        "07-01-2026",
+        "01-07-2026",
+        "01/07/2026",
+        "2026-07/01",  # mixed separator — a typo, not a layout
+        "2026/07-01",
         "2026-7-1",
         "2026-07-01 09:30:00",  # a date field must not carry a time
         "2026-02-30",  # well-shaped but not a real calendar day
         "2026-13-01",
+        "20260230",  # same, in the compact layout
         "",
     ],
 )
@@ -160,6 +167,15 @@ def test_request_body_rejects_bad_date(field, value):
 @pytest.mark.parametrize("value", ["2026-07-01", "2024-02-29", "0050-06-15"])
 def test_request_body_accepts_iso_date(field, value):
     assert _request_body({field: value}) == {field: value}
+
+
+# Normalized on the way out, so only one layout ever reaches the wire: the
+# server's lenient parsing is not guaranteed uniform across endpoint groups, and
+# YYYY-MM-DD is the form every group is probed against.
+@pytest.mark.parametrize("field", ["startDate", "endDate", "date", "reportDate"])
+@pytest.mark.parametrize("value", ["2026/07/01", "20260701"])
+def test_request_body_normalizes_year_first_date(field, value):
+    assert _request_body({field: value}) == {field: "2026-07-01"}
 
 
 @pytest.mark.parametrize("field", ["startTime", "endTime"])
@@ -183,6 +199,41 @@ def test_request_body_accepts_iso_date(field, value):
 def test_request_body_accepts_datetime_passthrough(field, value):
     # Returned verbatim: these fields are echoed to the server as-is, never converted.
     assert _request_body({field: value}) == {field: value}
+
+
+# Only the DATE half is rewritten. The time half — its separator (space vs T) and
+# whether seconds are present — is echoed verbatim by these endpoints, so it stays.
+@pytest.mark.parametrize("field", ["startTime", "endTime"])
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026/07/01", "2026-07-01"),
+        ("20260701", "2026-07-01"),
+        ("2026/07/01 09:30:00", "2026-07-01 09:30:00"),
+        ("20260701T09:30", "2026-07-01T09:30"),
+    ],
+)
+def test_request_body_normalizes_year_first_datetime(field, value, expected):
+    assert _request_body({field: value}) == {field: expected}
+
+
+# Python's `$` also matches just BEFORE a trailing newline, so "2026-07-01\n" is a
+# match with `m.end() == 10 < len(value)`. `re.sub` leaves that newline in place, so
+# a tail slice that ran to the end of the string appended it a SECOND time and put
+# "2026-07-01\n\n" on the wire. Pinning 0.3.0 parity here: the trailing newline is
+# forwarded once, exactly as before. Rejecting it outright is the stricter option
+# and is tracked as bug/python-open.md P9 — it belongs in a minor, not a patch.
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("date", "2026-07-01\n", "2026-07-01\n"),
+        ("date", "20260701\n", "2026-07-01\n"),
+        ("startTime", "2026/07/01 09:30\n", "2026-07-01 09:30\n"),
+        ("startTime", "2026-07-01T09:30:00\n", "2026-07-01T09:30:00\n"),
+    ],
+)
+def test_request_body_does_not_duplicate_a_trailing_newline(field, value, expected):
+    assert _request_body({field: value}) == {field: expected}
 
 
 @pytest.mark.parametrize("field", ["startTime", "endTime"])
@@ -222,7 +273,10 @@ def test_request_body_still_drops_none():
 
 def test_request_body_leaves_unrelated_fields_alone():
     body = {"securityCode": "600519.SH", "period": ["annual"], "size": 0}
-    assert _request_body(body) == body
+    # `dict(body)`: _request_body writes normalized dates back into the dict it is
+    # given, so passing `body` itself would compare the object against itself and
+    # pass no matter what the guard did.
+    assert _request_body(dict(body)) == body
 
 
 # ── TS v0.28.0: the CONVERTING datetime guard (ai.knowledge_batch, A-share announcement) ──
@@ -440,7 +494,7 @@ def test_request_body_still_allows_dst_gap_on_passthrough_fields():
     # The pass-through fields forward the STRING; the server resolves it in its own
     # zone, so the client's timezone must not decide validity.
     body = {"startTime": "2026-03-08 02:30:00"}
-    assert _request_body(body) == body
+    assert _request_body(dict(body)) == body  # copy: the guard writes back in place
 
 
 # ── Review round 1: "digits" must mean ASCII digits ──

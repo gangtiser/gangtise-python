@@ -8,11 +8,18 @@ HttpMethod = Literal["GET", "POST"]
 # it shares requestJson's auth / retry / envelope handling but not its JSON body.
 EndpointKind = Literal["json", "download", "upload"]
 
-# "no-replay" (per-call billed endpoints — billing probed 2026-07-11: charged per
-# call with NO cache-hit exemption, so a replay double-bills): never resend a
-# request the server may have executed. Only connect-phase errors (request
-# provably never sent), 429 (rejected before processing) and the client-level
-# token self-heal retry; 5xx / response timeouts / 999999 fail fast.
+# "no-replay": never resend a request the server may already have executed, because
+# a replay can double-bill (probed 2026-07-11: the generation endpoints charge per
+# call with NO cache-hit exemption). Only connect-phase errors (request provably
+# never sent), 429 (rejected before processing) and the client-level token
+# self-heal retry; 5xx / response timeouts / 999999 fail fast.
+# ⚠️ This is a REPLAY-SAFETY marker, not a billing-model one — do not read it as
+# "per-call billed". Most endpoints carrying it are, but `ai.hot-topic` is not: it
+# prices per item (50 per 篇 = per whole report) and is marked because replaying a
+# page could re-bill rows the server already delivered. Using it as a billing proxy
+# is what made the total-cap probe skip that endpoint (see _pagination.py).
+# ⚠️ Nor does the converse hold: "paginated" does NOT imply "per-item billed" —
+# one paginated endpoint has no published unit price and several are free.
 # "no-999999" (EDE indicator endpoints): the server answers a no-data query with
 # HTTP 500 + code 999999 (probed 2026-07-11) — retrying that is pure waste;
 # everything else follows the default policy.

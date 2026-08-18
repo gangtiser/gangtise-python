@@ -46,6 +46,30 @@
 9. Verify on PyPI: `pip install gangtise-openapi==X.Y.Z` in a clean venv
    (uv caches metadata — use `uv pip install --refresh-package gangtise-openapi`).
 
+   > ⚠️ **No PyPI metadata endpoint is authoritative in the first minutes after a
+   > publish, and none of them is the "reliable" one.** Measured on v0.3.1:
+   > `/pypi/<pkg>/json` and `/pypi/<pkg>/<ver>/json` carry the *same*
+   > `cache-control: max-age=900`, `/simple/<pkg>/` carries `max-age=600`, and all
+   > three answered with a Fastly `x-cache: ... HIT`. Two failure modes were observed
+   > on the package-level URL within ~2 minutes of the publish: an **empty body**
+   > (with `curl -s` this surfaces only as a JSON parse error downstream) and a
+   > **complete but stale body** — 58KB, valid JSON, `info.version` still the previous
+   > release and the new version absent from `releases`. The version-specific URL was
+   > correct that day only because it was a cache key that had never been populated;
+   > request it *before* publishing and the 404 caches just as happily.
+   >
+   > So treat the three as three independent cache keys: **agreement between them is
+   > the signal, and a single negative answer from any one of them is not evidence of
+   > a failed publish.** This matters because the action a false negative invites is
+   > "the tag didn't publish, let me move/redo the tag" — on an already-pushed tag.
+   >
+   > Ask for the version you just published, never for `latest`. And note metadata
+   > only tells you *something* arrived; the criterion that tells you the *right*
+   > thing arrived is behavioural — install the published artifact into a throwaway
+   > environment, exercise the change this release is about, and assert
+   > `gangtise_openapi.__file__` is not the local worktree (otherwise the run is
+   > testing your own source tree, which passes no matter what was uploaded).
+
 ## Known publish failure
 
 `InvalidDistribution: '2.5' is not a valid metadata version` — the pinned

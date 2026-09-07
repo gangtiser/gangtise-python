@@ -19,10 +19,15 @@ pytestmark = pytest.mark.live
 
 
 def _last_weekday() -> dt.date:
-    """Most recent Mon-Fri on or before today. Not a trading calendar — holidays
-    still land empty — but it keeps a weekend run from probing a guaranteed-empty
-    day and reading it as a regression."""
-    day = dt.date.today()
+    """Most recent Mon-Fri STRICTLY BEFORE today. Not a trading calendar — holidays
+    still land empty — but it keeps a weekend run from probing a guaranteed-empty day
+    and reading it as a regression.
+
+    🔴 Excludes today on purpose. Daily bars for the current session are not published
+    until after the close, so a weekday run before then got zero rows from a perfectly
+    healthy endpoint — `hkStocks` returned 0 rows for the current day and 2811 for the
+    previous one. Yesterday is always settled; today is only sometimes."""
+    day = dt.date.today() - dt.timedelta(days=1)
     while day.weekday() >= 5:
         day -= dt.timedelta(days=1)
     return day

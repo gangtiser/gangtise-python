@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import httpx
 import pytest
+import respx
 
 from gangtise_openapi._config import Config
 from gangtise_openapi._endpoints import EndpointDef, RetryPolicy
@@ -427,3 +428,90 @@ def test_double_unwrap_keeps_the_outer_trace_id():
     inner = unwrap_envelope(outer)
     assert inner == {"values": []}
     assert ApiError("shape mismatch", details=inner).trace_id == "outer"
+
+
+# ─── v0.4.0: `expects="list"` shape guard (TS v0.38.0) ───
+
+
+def _quote_ep() -> EndpointDef:
+    return EndpointDef(
+        key="quote.realtime",
+        method="POST",
+        path="/q",
+        kind="json",
+        description="d",
+        expects="list",
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "described"),
+    [
+        (None, "null"),
+        ([{"a": 1}], "an array"),
+        ({"total": 0}, "an object with no list"),
+    ],
+)
+def test_expects_list_refuses_a_payload_without_a_list(data, described):
+    """Every legitimate answer from these endpoints is `{total, list}` — including an
+    empty date range and an unknown code (probed live on all seven, 2026-09-07). So a
+    `data: null` or bare object is a BROKEN response, not an empty one; without this
+    the normalizers hand it back as "no data"."""
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "traceId": "t-1", "data": data}
+            )
+        )
+        with httpx.Client(base_url="https://api.test") as http:  # noqa: SIM117
+            with pytest.raises(ApiError, match=f"got {described}") as excinfo:
+                request_json(http, _quote_ep(), body={}, token="tok")
+    assert excinfo.value.structural is True
+    # The envelope is carried as `details` so the failure stays traceable: `None`
+    # itself has nowhere to hold the id, which is why the check lives here.
+    assert excinfo.value.trace_id == "t-1"
+
+
+def test_expects_list_accepts_an_empty_range():
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"total": 0, "list": [], "fieldList": ["close"]},
+                },
+            )
+        )
+        with httpx.Client(base_url="https://api.test") as http:
+            out = request_json(http, _quote_ep(), body={}, token="tok")
+    assert out == {"total": 0, "list": [], "fieldList": ["close"]}
+
+
+def test_expects_list_is_not_retried():
+    """A 2xx with no code is not retryable, so the transport must not burn two more
+    requests on a response that will come back identical."""
+    calls = 0
+
+    def responder(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": None})
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(side_effect=responder)
+        with httpx.Client(base_url="https://api.test") as http:  # noqa: SIM117
+            with pytest.raises(ApiError):
+                request_json(http, _quote_ep(), body={}, token="tok")
+    assert calls == 1
+
+
+def test_endpoints_without_expects_are_untouched():
+    ep = EndpointDef(key="x", method="POST", path="/q", kind="json", description="d")
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": None})
+        )
+        with httpx.Client(base_url="https://api.test") as http:
+            assert request_json(http, ep, body={}, token="tok") is None

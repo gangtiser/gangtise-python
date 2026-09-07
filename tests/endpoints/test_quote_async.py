@@ -302,7 +302,10 @@ async def test_async_realtime(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"securityCode": "000001.SH", "price": 12.34}],
+                    "data": {
+                        "total": 1,
+                        "list": [{"securityCode": "000001.SH", "price": 12.34}],
+                    },
                 },
             )
         )
@@ -419,3 +422,171 @@ async def test_async_day_kline_rejects_non_int_limit(tmp_path):
                 with pytest.raises(ValidationError, match="integer between 1 and 10000"):
                     await AsyncQuote(client).day_kline(security="000001.SZ", limit=bad)
     assert route.call_count == 0
+
+
+# ─── v0.4.0 async mirrors (TS v0.37/v0.38) ───
+
+
+@pytest.mark.anyio
+async def test_async_quote_without_a_list_payload_is_refused_with_its_trace(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "traceId": "830965044897325056",
+                    "data": None,
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ApiError, match="returned no list payload") as excinfo:
+                await AsyncQuote(client).day_kline(security="000001.SH")
+    assert excinfo.value.structural is True
+    assert excinfo.value.trace_id == "830965044897325056"
+
+
+@pytest.mark.anyio
+async def test_async_realtime_flags_a_field_the_server_never_returned(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/quote/realtime").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "fieldList": ["securityCode", "latestPrice"],
+                        "list": [["600519.SH", 1297.41]],
+                    },
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="returned no column for turnoverRate"):
+                out = await AsyncQuote(client).realtime(
+                    security="600519.SH",
+                    field=["securityCode", "latestPrice", "turnoverRate"],
+                    raw=True,
+                )
+    assert out["partial"] is True
+    assert out["missingFields"] == ["turnoverRate"]
+
+
+@pytest.mark.anyio
+async def test_async_minute_kline_fans_out_over_several_securities(tmp_path):
+    def responder(request):
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "total": 1,
+                    "fieldList": ["securityCode", "close"],
+                    "list": [[body["securityCode"], 1.0]],
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/minute").mock(side_effect=responder)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncQuote(client).minute_kline(security=["600519.SH", "000001.SZ"])
+    assert df["securityCode"].tolist() == ["600519.SH", "000001.SZ"]
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_batches_per_security_when_the_range_would_not_fit(tmp_path):
+    sent = []
+
+    def responder(request):
+        body = json.loads(request.content)
+        sent.append(body["securityList"])
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "total": 1,
+                    "fieldList": ["securityCode", "close"],
+                    "list": [[body["securityList"][0], 1.0]],
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncQuote(client).day_kline(
+                security=["600519.SH", "000001.SZ", "00700.HK"], limit=100
+            )
+    assert sorted(sent) == [["000001.SZ"], ["00700.HK"], ["600519.SH"]]
+    assert df["securityCode"].tolist() == ["600519.SH", "000001.SZ", "00700.HK"]
+
+
+@pytest.mark.anyio
+async def test_async_minute_kline_requires_a_security(tmp_path):
+    async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+        with pytest.raises(ValidationError, match="security is required"):
+            await AsyncQuote(client).minute_kline(security=[])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("layout", ["2016-01-01", "2016/01/01", "20160101"])
+async def test_async_day_kline_split_decision_does_not_depend_on_date_layout(tmp_path, layout):
+    end = layout.replace("2016", "2026")
+
+    def responder(request):
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "total": 1,
+                    "fieldList": ["securityCode", "close"],
+                    "list": [[body["securityList"][0], 1.0]],
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncQuote(client).day_kline(
+                security=["600519.SH", "000001.SZ", "00700.HK"],
+                start_date=layout,
+                end_date=end,
+            )
+    assert route.call_count == 3
+    for call in route.calls:
+        body = json.loads(call.request.content)
+        assert body["startDate"] == "2016-01-01"
+        assert body["endDate"] == "2026-01-01"
+
+
+@pytest.mark.anyio
+async def test_async_minute_kline_warns_when_a_part_reports_itself_partial(tmp_path):
+    def responder(request):
+        body = json.loads(request.content)
+        payload = {
+            "total": 1,
+            "fieldList": ["securityCode", "close"],
+            "list": [[body["securityCode"], 1.0]],
+        }
+        if body["securityCode"] == "600519.SH":
+            payload["partial"] = True
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": payload})
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/minute").mock(side_effect=responder)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="600519.SH reported itself partial"):
+                await AsyncQuote(client).minute_kline(security=["600519.SH", "000001.SZ"])

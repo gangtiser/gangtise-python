@@ -35,14 +35,15 @@ async def main():
         result = await gangtise.async_.insight.summary_download(
             summary_id=item_id,  # 纪要 ID（必填）, 取自 insight.summary_list 的 summaryId 列
             # file_type 省略 → 服务端默认 1（原文）; 详见下方注释
-            # output=None,       # 显式落盘路径; 省略则按标题/响应头自动命名
+            # output=None,       # 显式落盘路径; 省略则按标题缓存/响应头自动命名
+            # resolve_title=True,  # 标题缓存未命中时回查 list 接口取文件名; 多发 4 次请求, 这些 list 多数按条计费
         )
     finally:
         os.chdir(previous_cwd)
     show_result(result, __file__)
     # 其余可选参数（用注释覆盖, 不另起执行调用以免重复落盘）:
     #   file_type=1  文件类型: 1=原文（默认） 2=HTML; 仅对会议平台纪要生效
-    #   output="<本地路径>"  指定保存路径; 省略时优先用标题缓存 → 响应头 → 兜底名
+    #   output="<本地路径>"  指定保存路径; 省略时按标题缓存 → 响应头 → 兜底名（回查 list 需显式开 resolve_title）
 
 
 if __name__ == "__main__":

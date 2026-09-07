@@ -228,10 +228,30 @@ class GangtiseClient:
         id_field: str,
         id_value: str,
         title_field: str = "title",
+        *,
+        allow_lookup: bool = False,
     ) -> str | None:
+        """Friendly filename for a download: title cache first, list endpoint only on request.
+
+        The cache (populated by any prior list call on the same endpoint) is free.
+        The LIST FALLBACK is not: ``TITLE_LOOKUP_SIZE`` rows across 4 requests, and 9
+        of the 12 endpoints wired up for title lookup are metered at 0.1 credits/row —
+        roughly 20 credits spent on nothing but a nicer filename, on a download that
+        itself costs 10-50. Batch N downloads on a cold cache and that was 4N requests.
+        So the fallback is opt-in (``resolve_title=True``) and off by default; without
+        it the caller keeps the server's own Content-Disposition name, or
+        ``<prefix>-<id>``. The normal `list()` → `download()` workflow is unaffected —
+        the cache hits and nothing extra is sent (TS v0.37.0).
+
+        Rows fetched by the fallback are written back to the cache whole, not just the
+        row asked for: they are already paid for, so the rest of a batch gets its names
+        free.
+        """
         cached = self._title_cache.lookup(list_endpoint_key, id_value)
         if cached:
             return cached
+        if not allow_lookup:
+            return None
         try:
             result = self._call(
                 list_endpoint_key,
@@ -440,10 +460,15 @@ class AsyncGangtiseClient:
         id_field: str,
         id_value: str,
         title_field: str = "title",
+        *,
+        allow_lookup: bool = False,
     ) -> str | None:
+        """Async mirror of :meth:`GangtiseClient._resolve_title` — same opt-in rule."""
         cached = self._title_cache.lookup(list_endpoint_key, id_value)
         if cached:
             return cached
+        if not allow_lookup:
+            return None
         try:
             result = await self._call(
                 list_endpoint_key, body={"from": 0, "size": TITLE_LOOKUP_SIZE}

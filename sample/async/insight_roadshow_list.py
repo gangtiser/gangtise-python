@@ -26,7 +26,6 @@ async def main():
             end_time="2026-05-28",  # 结束时间
             keyword="新能源",  # 关键词
             security="000001.SZ",  # 证券代码, 支持单值或列表
-            object_="company",  # 对象类型: company=公司 / industry=行业（映射为 object）
         ),
         __file__,
     )
@@ -35,7 +34,7 @@ async def main():
     show_result(
         await gangtise.async_.insight.roadshow_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            market=["SH", "SZ"],  # 市场, 支持单值或列表; 例如 SH/SZ/HK/US
+            market=["aShares", "hkStocks"],  # 市场, 支持单值或列表; aShares / hkStocks / usStocks
             permission=[1],  # 权限/可见性, 数字列表, 支持单值或列表
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),

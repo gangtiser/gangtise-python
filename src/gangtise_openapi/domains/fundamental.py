@@ -484,6 +484,10 @@ class Fundamental:
 
         indicator 取值 peTtm/pbMrq/peg/psTtm/pcfTtm/em；
         skip_null=True 时过滤 value/percentileRank 为空的行。
+
+        ⚠️ **`field` 里不要写 `tradeDate`**：接口总会自动把它放在第一列，再显式传一次
+        会让返回的值多一个而列名不多——长度不等，会被列宽护栏拒绝。只点名你要的数据列
+        （如 `field=["value", "percentileRank"]`）即可。
         """
         body = _request_body(
             {
@@ -558,6 +562,8 @@ class Fundamental:
 
         start_date/end_date 缺省时自动取最近一年；latest=True（默认）仅保留最新一次更新。
         consensus 取值 netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps，支持单值或列表。
+
+        ⚠️ **roe 的单位是百分比**（35.6 就是 35.6%），做过 ×100 换算的脚本要撤掉。
         """
         # TS HEAD parity: default the window to the year before endDate.
         start_date, end_date = _earning_forecast_dates(start_date, end_date)
@@ -977,6 +983,10 @@ class AsyncFundamental:
 
         indicator 取值 peTtm/pbMrq/peg/psTtm/pcfTtm/em；
         skip_null=True 时过滤 value/percentileRank 为空的行。
+
+        ⚠️ **`field` 里不要写 `tradeDate`**：接口总会自动把它放在第一列，再显式传一次
+        会让返回的值多一个而列名不多——长度不等，会被列宽护栏拒绝。只点名你要的数据列
+        （如 `field=["value", "percentileRank"]`）即可。
         """
         body = _request_body(
             {
@@ -1047,6 +1057,8 @@ class AsyncFundamental:
 
         start_date/end_date 缺省时自动取最近一年；latest=True（默认）仅保留最新一次更新。
         consensus 取值 netIncome/netIncomeYoy/eps/pe/bps/pb/peg/roe/ps，支持单值或列表。
+
+        ⚠️ **roe 的单位是百分比**（35.6 就是 35.6%），做过 ×100 换算的脚本要撤掉。
         """
         # TS HEAD parity: default the window to the year before endDate.
         start_date, end_date = _earning_forecast_dates(start_date, end_date)

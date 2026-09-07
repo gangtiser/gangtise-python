@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
-from gangtise_openapi._normalize import to_dataframe, zip_field_row
+from gangtise_openapi._normalize import assert_columnar_header, to_dataframe, zip_field_row
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
@@ -110,6 +110,12 @@ class Alternative:
             and isinstance(result.get("dataList"), list)
         ):
             fields: list[str] = list(result["fieldList"])
+            # This endpoint flattens `dataList` itself and never reaches
+            # `normalize_rows`, so the HEADER rules have to be applied here too — a
+            # duplicated indicator column would otherwise keep only its last value
+            # (TS v0.38.0 wired assertColumnarHeader into `alternative edb-data` for
+            # exactly this reason).
+            assert_columnar_header(fields, result)
             # Same positional-zip hazard as the other columnar endpoints: a row
             # whose length disagrees with fieldList would paste values onto the
             # wrong columns. This endpoint has no `field` parameter, so a mismatch
@@ -201,6 +207,12 @@ class AsyncAlternative:
             and isinstance(result.get("dataList"), list)
         ):
             fields: list[str] = list(result["fieldList"])
+            # This endpoint flattens `dataList` itself and never reaches
+            # `normalize_rows`, so the HEADER rules have to be applied here too — a
+            # duplicated indicator column would otherwise keep only its last value
+            # (TS v0.38.0 wired assertColumnarHeader into `alternative edb-data` for
+            # exactly this reason).
+            assert_columnar_header(fields, result)
             # Same positional-zip hazard as the other columnar endpoints: a row
             # whose length disagrees with fieldList would paste values onto the
             # wrong columns. This endpoint has no `field` parameter, so a mismatch

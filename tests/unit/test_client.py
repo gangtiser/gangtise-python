@@ -45,7 +45,9 @@ def test_call_with_env_token_skips_login(client_config, monkeypatch):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         login_route = router.post("/application/auth/oauth/open/loginV2")
         router.post("/application/open-quote/quote/realtime").mock(
-            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+            )
         )
         with GangtiseClient(_config=cfg) as client:
             client._call("quote.realtime", body={"securityList": ["000001.SH"]})
@@ -72,7 +74,9 @@ def test_call_login_happens_when_no_token(client_config):
             )
         )
         ep = router.post("/application/open-quote/quote/realtime").mock(
-            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+            )
         )
         with GangtiseClient(_config=client_config) as client:
             client._call("quote.realtime", body={"securityList": ["x"]})
@@ -116,12 +120,14 @@ def test_call_auth_code_8000014_triggers_one_refresh(client_config, tmp_path):
                     200,
                     json={"code": "8000014", "status": False, "msg": "bad access key"},
                 ),
-                httpx.Response(200, json={"code": "000000", "status": True, "data": []}),
+                httpx.Response(
+                    200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+                ),
             ]
         )
         with GangtiseClient(_config=client_config) as client:
             out = client._call("quote.realtime", body={"securityList": ["x"]})
-        assert out == []
+        assert out == {"total": 0, "list": []}
         assert ep_route.call_count == 2
 
 
@@ -163,12 +169,14 @@ def test_call_auth_code_0000001008_triggers_one_refresh(client_config, tmp_path)
                     200,
                     json={"code": "0000001008", "status": False, "msg": "token is invalid"},
                 ),
-                httpx.Response(200, json={"code": "000000", "status": True, "data": []}),
+                httpx.Response(
+                    200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+                ),
             ]
         )
         with GangtiseClient(_config=client_config) as client:
             out = client._call("quote.realtime", body={"securityList": ["x"]})
-        assert out == []
+        assert out == {"total": 0, "list": []}
         assert ep_route.call_count == 2
 
 
@@ -218,7 +226,9 @@ def test_concurrent_stale_token_refresh_logs_in_once(client_config):
         if request.headers["Authorization"] == "Bearer stale":
             barrier.wait()
             return httpx.Response(200, json={"code": "8000014", "status": False, "msg": "expired"})
-        return httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+        return httpx.Response(
+            200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+        )
 
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         login_route = router.post("/application/auth/oauth/open/loginV2").mock(
@@ -255,7 +265,7 @@ def test_concurrent_stale_token_refresh_logs_in_once(client_config):
             for t in threads:
                 t.join()
         assert errors == []
-        assert results == [[], [], [], [], []]
+        assert results == [{"total": 0, "list": []}] * 5
         assert login_route.call_count == 1
 
 
@@ -277,7 +287,9 @@ def test_rejected_env_token_not_reused_after_refresh(tmp_path):
     def data_side_effect(request):
         if request.headers["Authorization"] == "Bearer expired-env-token":
             return httpx.Response(200, json={"code": "8000014", "status": False, "msg": "expired"})
-        return httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+        return httpx.Response(
+            200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+        )
 
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         login_route = router.post("/application/auth/oauth/open/loginV2").mock(
@@ -295,7 +307,10 @@ def test_rejected_env_token_not_reused_after_refresh(tmp_path):
         )
         with GangtiseClient(_config=cfg) as client:
             for _ in range(3):
-                assert client._call("quote.realtime", body={"securityList": ["x"]}) == []
+                assert client._call("quote.realtime", body={"securityList": ["x"]}) == {
+                    "total": 0,
+                    "list": [],
+                }
         assert login_route.call_count == 1
         auths = [call.request.headers["Authorization"] for call in data_route.calls]
         assert auths == ["Bearer expired-env-token", "Bearer fresh", "Bearer fresh", "Bearer fresh"]
@@ -331,11 +346,14 @@ def test_call_succeeds_when_token_cache_dir_readonly(tmp_path):
             )
             router.post("/application/open-quote/quote/realtime").mock(
                 return_value=httpx.Response(
-                    200, json={"code": "000000", "status": True, "data": []}
+                    200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
                 )
             )
             with GangtiseClient(_config=cfg) as client:
-                assert client._call("quote.realtime", body={"securityList": ["x"]}) == []
+                assert client._call("quote.realtime", body={"securityList": ["x"]}) == {
+                    "total": 0,
+                    "list": [],
+                }
     finally:
         ro.chmod(0o700)
 

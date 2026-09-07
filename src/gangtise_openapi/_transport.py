@@ -188,6 +188,47 @@ def unwrap_envelope(
     return _attach_envelope_trace_id(payload["data"], trace_id)
 
 
+def check_expected_shape(endpoint: EndpointDef, payload: Any, status_code: int, parsed: Any) -> Any:
+    """Refuse a 2xx payload that lacks the ``list`` the endpoint always returns.
+
+    Applies only to endpoints declaring ``expects="list"`` (the seven quote ones):
+    every legitimate answer there — including an empty date range or an unknown
+    security code — is ``{"total": 0, "list": []}``, so a ``data: null`` or a bare
+    object is a broken response, not an empty one. Without this the normalizers
+    hand ``None`` back as a success and the caller sees "no data".
+
+    Checked HERE, not in a wrapper: ``None`` cannot carry the envelope's traceId
+    (``_attach_envelope_trace_id`` only wraps dicts), so a check further down would
+    report the failure trace-less — the envelope is passed as ``details`` so the id
+    survives on the error. Marked ``structural`` because it is a verdict about THIS
+    one response: a fan-out records the shard as failed and keeps sending the rest
+    (TS v0.38.0). ``ApiError`` with a 2xx status and no code is not retryable, so
+    the transport's own loop will not resend it.
+    """
+    if endpoint.expects != "list":
+        return payload
+    if isinstance(payload, dict) and isinstance(payload.get("list"), list):
+        return payload
+    if payload is None:
+        got = "null"
+    elif isinstance(payload, list):
+        got = "an array"
+    elif isinstance(payload, dict):
+        # Not ``type(payload).__name__``: a traced payload is a ``TracedDict``, and
+        # naming an internal subclass tells the reader nothing about the response.
+        got = "an object with no list"
+    else:
+        got = type(payload).__name__
+    error = ApiError(
+        f"{endpoint.key} returned no list payload (got {got}) — "
+        "the response layout may have changed",
+        status_code=status_code,
+        details=parsed,
+    )
+    error.structural = True
+    raise error
+
+
 def is_retryable_error(error: BaseException, policy: RetryPolicy = "default") -> bool:
     """Whether the retry loop may resend after ``error`` under ``policy``.
 
@@ -358,7 +399,10 @@ def request_json(
                     details=parsed,
                     retry_after_ms=retry_after_ms,
                 )
-            return unwrap_envelope(parsed, status_code=status_code, retry_after_ms=retry_after_ms)
+            payload = unwrap_envelope(
+                parsed, status_code=status_code, retry_after_ms=retry_after_ms
+            )
+            return check_expected_shape(endpoint, payload, status_code, parsed)
         except Exception as error:
             if attempt >= max_retries or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)

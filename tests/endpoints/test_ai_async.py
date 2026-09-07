@@ -459,3 +459,10 @@ async def test_async_stock_summary_list_requires_security(tmp_path):
     async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
         with pytest.raises(ValidationError):
             await AsyncAI(client).stock_summary_list(security=[])
+
+
+@pytest.mark.anyio
+async def test_async_stock_summary_refuses_an_oversized_batch(tmp_path):
+    async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+        with pytest.raises(ValidationError, match="Split the codes into batches"):
+            await AsyncAI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(5001)])

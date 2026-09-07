@@ -145,7 +145,7 @@ class Insight:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询纪要列表（insight.summary.list）。
 
-        market 例如 SH/SZ/HK/US。
+        market 取值 aShares / hkStocks / usStocks / usChinaConcept（交易所后缀如 SH/SZ 会被拒为 100005）。
         """
         body = _request_body(
             {
@@ -347,6 +347,8 @@ class Insight:
         cnBroker / otherBroker；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -395,6 +397,8 @@ class Insight:
         single（单场）/ series（系列）；market 取值 aShares / hkStocks /
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -434,6 +438,8 @@ class Insight:
 
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -467,6 +473,8 @@ class Insight:
 
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -770,6 +778,10 @@ class Insight:
         """查询海外机构观点列表（insight.foreign-opinion.list）。
 
         rank_type 取值 1=综合 2=时间倒序。
+        region 本接口只收 cn/cnHk/cnTw/us/jp/uk；regionCategory 的另外 13 个取值
+        （sea/gl/fr/de/kr/in/ca/me/othAs/othEur/latAm/oce/af）在这里报 100005，
+        尽管它们在 foreign_report_list 上都可用。
+        industry 只收申万码（104xx0000）；中信码报 100005，即使 constant-category 里列了它。
         """
         body = _request_body(
             {
@@ -812,6 +824,7 @@ class Insight:
         """查询海外独立分析师观点列表（insight.independent-opinion.list）。
 
         rank_type 取值 1=综合 2=时间倒序。
+        industry 只收申万码（104xx0000）；中信码报 100005，即使 constant-category 里列了它。
         """
         body = _request_body(
             {
@@ -977,10 +990,13 @@ class Insight:
         summary_id: str,
         file_type: int | None = None,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载纪要原文/HTML（insight.summary.download）。
 
         file_type 取值 1=原文（默认） 2=HTML，仅对会议平台纪要生效。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         query: dict[str, str | int] = {"summaryId": summary_id}
         if file_type is not None:
@@ -991,7 +1007,7 @@ class Insight:
             query=query,
             output=output,
             fallback_name=f"summary-{summary_id}",
-            title_lookup=("insight.summary.list", "summaryId", summary_id),
+            title_lookup=("insight.summary.list", "summaryId", summary_id, resolve_title),
         )
 
     def pamirs_summary_download(
@@ -1000,10 +1016,13 @@ class Insight:
         summary_id: str,
         file_type: int | None = None,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载帕米尔专家纪要原文/HTML（insight.pamirs-summary.download）。
 
         file_type 取值 1=原文（默认） 2=HTML。需已开通专家纪要数据库。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         query: dict[str, str | int] = {"summaryId": summary_id}
         if file_type is not None:
@@ -1014,7 +1033,7 @@ class Insight:
             query=query,
             output=output,
             fallback_name=f"pamirs-summary-{summary_id}",
-            title_lookup=("insight.pamirs-summary.list", "summaryId", summary_id),
+            title_lookup=("insight.pamirs-summary.list", "summaryId", summary_id, resolve_title),
         )
 
     def performance_calendar_download(
@@ -1022,11 +1041,14 @@ class Insight:
         *,
         performance_report_id: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载业绩报告原文 PDF（insight.performance-calendar.download）。
 
         A股 10 积分 / 港美股 20 积分; 仅 hasAttachment=True 的记录可下。
         省略 output 时用 title-cache 里的真实标题命名。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1038,6 +1060,7 @@ class Insight:
                 "insight.performance-calendar.list",
                 "performanceReportId",
                 performance_report_id,
+                resolve_title,
             ),
         )
 
@@ -1047,10 +1070,13 @@ class Insight:
         report_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载国内券商研报（insight.research.download）。
 
         file_type 取值 1=PDF（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1058,7 +1084,7 @@ class Insight:
             query={"reportId": report_id, "fileType": file_type},
             output=output,
             fallback_name=f"research-{report_id}",
-            title_lookup=("insight.research.list", "reportId", report_id),
+            title_lookup=("insight.research.list", "reportId", report_id, resolve_title),
         )
 
     def foreign_report_download(
@@ -1067,10 +1093,13 @@ class Insight:
         report_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载海外研报（insight.foreign-report.download）。
 
         file_type 取值 1=PDF（默认） 2=Markdown 3=中译PDF 4=中译Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1078,7 +1107,7 @@ class Insight:
             query={"reportId": report_id, "fileType": file_type},
             output=output,
             fallback_name=f"foreign-report-{report_id}",
-            title_lookup=("insight.foreign-report.list", "reportId", report_id),
+            title_lookup=("insight.foreign-report.list", "reportId", report_id, resolve_title),
         )
 
     def announcement_download(
@@ -1087,10 +1116,13 @@ class Insight:
         announcement_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载 A 股公告（insight.announcement.download）。
 
         file_type 取值 1=PDF（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1098,7 +1130,12 @@ class Insight:
             query={"announcementId": announcement_id, "fileType": file_type},
             output=output,
             fallback_name=f"announcement-{announcement_id}",
-            title_lookup=("insight.announcement.list", "announcementId", announcement_id),
+            title_lookup=(
+                "insight.announcement.list",
+                "announcementId",
+                announcement_id,
+                resolve_title,
+            ),
         )
 
     def announcement_hk_download(
@@ -1107,10 +1144,13 @@ class Insight:
         announcement_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载港股公告（insight.announcement-hk.download）。
 
         file_type 取值 1=原文（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1118,7 +1158,12 @@ class Insight:
             query={"announcementId": announcement_id, "fileType": file_type},
             output=output,
             fallback_name=f"announcement-hk-{announcement_id}",
-            title_lookup=("insight.announcement-hk.list", "announcementId", announcement_id),
+            title_lookup=(
+                "insight.announcement-hk.list",
+                "announcementId",
+                announcement_id,
+                resolve_title,
+            ),
         )
 
     def announcement_us_download(
@@ -1127,10 +1172,13 @@ class Insight:
         announcement_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载美股公告（insight.announcement-us.download）。
 
         file_type 取值 1=原文 PDF（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1138,7 +1186,12 @@ class Insight:
             query={"announcementId": announcement_id, "fileType": file_type},
             output=output,
             fallback_name=f"announcement-us-{announcement_id}",
-            title_lookup=("insight.announcement-us.list", "announcementId", announcement_id),
+            title_lookup=(
+                "insight.announcement-us.list",
+                "announcementId",
+                announcement_id,
+                resolve_title,
+            ),
         )
 
     def independent_opinion_download(
@@ -1147,10 +1200,13 @@ class Insight:
         independent_opinion_id: str,
         file_type: int,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载海外独立分析师观点（insight.independent-opinion.download）。
 
         file_type 必填，取值 1=原文HTML 2=中译HTML。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1165,6 +1221,7 @@ class Insight:
                 "insight.independent-opinion.list",
                 "independentOpinionId",
                 independent_opinion_id,
+                resolve_title,
             ),
         )
 
@@ -1174,10 +1231,13 @@ class Insight:
         article_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载产业公众号文章（insight.official-account.download）。
 
         file_type 取值 1=txt（默认） 2=HTML。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -1185,7 +1245,7 @@ class Insight:
             query={"articleId": article_id, "fileType": file_type},
             output=output,
             fallback_name=f"official-account-{article_id}",
-            title_lookup=("insight.official-account.list", "articleId", article_id),
+            title_lookup=("insight.official-account.list", "articleId", article_id, resolve_title),
         )
 
     def report_image_download(
@@ -1279,7 +1339,7 @@ class AsyncInsight:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询纪要列表（insight.summary.list）。
 
-        market 例如 SH/SZ/HK/US。
+        market 取值 aShares / hkStocks / usStocks / usChinaConcept（交易所后缀如 SH/SZ 会被拒为 100005）。
         """
         body = _request_body(
             {
@@ -1475,6 +1535,8 @@ class AsyncInsight:
         cnBroker / otherBroker；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -1523,6 +1585,8 @@ class AsyncInsight:
         single（单场）/ series（系列）；market 取值 aShares / hkStocks /
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -1562,6 +1626,8 @@ class AsyncInsight:
 
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -1595,6 +1661,8 @@ class AsyncInsight:
 
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
+
+        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
         """
         body = _request_body(
             {
@@ -1886,6 +1954,10 @@ class AsyncInsight:
         """查询海外机构观点列表（insight.foreign-opinion.list）。
 
         rank_type 取值 1=综合 2=时间倒序。
+        region 本接口只收 cn/cnHk/cnTw/us/jp/uk；regionCategory 的另外 13 个取值
+        （sea/gl/fr/de/kr/in/ca/me/othAs/othEur/latAm/oce/af）在这里报 100005，
+        尽管它们在 foreign_report_list 上都可用。
+        industry 只收申万码（104xx0000）；中信码报 100005，即使 constant-category 里列了它。
         """
         body = _request_body(
             {
@@ -1926,6 +1998,7 @@ class AsyncInsight:
         """查询海外独立分析师观点列表（insight.independent-opinion.list）。
 
         rank_type 取值 1=综合 2=时间倒序。
+        industry 只收申万码（104xx0000）；中信码报 100005，即使 constant-category 里列了它。
         """
         body = _request_body(
             {
@@ -2089,10 +2162,13 @@ class AsyncInsight:
         summary_id: str,
         file_type: int | None = None,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载纪要原文/HTML（insight.summary.download）。
 
         file_type 取值 1=原文（默认） 2=HTML，仅对会议平台纪要生效。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         query: dict[str, str | int] = {"summaryId": summary_id}
         if file_type is not None:
@@ -2103,7 +2179,7 @@ class AsyncInsight:
             query=query,
             output=output,
             fallback_name=f"summary-{summary_id}",
-            title_lookup=("insight.summary.list", "summaryId", summary_id),
+            title_lookup=("insight.summary.list", "summaryId", summary_id, resolve_title),
         )
 
     async def pamirs_summary_download(
@@ -2112,10 +2188,13 @@ class AsyncInsight:
         summary_id: str,
         file_type: int | None = None,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载帕米尔专家纪要原文/HTML（insight.pamirs-summary.download）。
 
         file_type 取值 1=原文（默认） 2=HTML。需已开通专家纪要数据库。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         query: dict[str, str | int] = {"summaryId": summary_id}
         if file_type is not None:
@@ -2126,7 +2205,7 @@ class AsyncInsight:
             query=query,
             output=output,
             fallback_name=f"pamirs-summary-{summary_id}",
-            title_lookup=("insight.pamirs-summary.list", "summaryId", summary_id),
+            title_lookup=("insight.pamirs-summary.list", "summaryId", summary_id, resolve_title),
         )
 
     async def performance_calendar_download(
@@ -2134,11 +2213,14 @@ class AsyncInsight:
         *,
         performance_report_id: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载业绩报告原文 PDF（insight.performance-calendar.download）。
 
         A股 10 积分 / 港美股 20 积分; 仅 hasAttachment=True 的记录可下。
         省略 output 时用 title-cache 里的真实标题命名。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2150,6 +2232,7 @@ class AsyncInsight:
                 "insight.performance-calendar.list",
                 "performanceReportId",
                 performance_report_id,
+                resolve_title,
             ),
         )
 
@@ -2159,10 +2242,13 @@ class AsyncInsight:
         report_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载国内券商研报（insight.research.download）。
 
         file_type 取值 1=PDF（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2170,7 +2256,7 @@ class AsyncInsight:
             query={"reportId": report_id, "fileType": file_type},
             output=output,
             fallback_name=f"research-{report_id}",
-            title_lookup=("insight.research.list", "reportId", report_id),
+            title_lookup=("insight.research.list", "reportId", report_id, resolve_title),
         )
 
     async def foreign_report_download(
@@ -2179,10 +2265,13 @@ class AsyncInsight:
         report_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载海外研报（insight.foreign-report.download）。
 
         file_type 取值 1=PDF（默认） 2=Markdown 3=中译PDF 4=中译Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2190,7 +2279,7 @@ class AsyncInsight:
             query={"reportId": report_id, "fileType": file_type},
             output=output,
             fallback_name=f"foreign-report-{report_id}",
-            title_lookup=("insight.foreign-report.list", "reportId", report_id),
+            title_lookup=("insight.foreign-report.list", "reportId", report_id, resolve_title),
         )
 
     async def announcement_download(
@@ -2199,10 +2288,13 @@ class AsyncInsight:
         announcement_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载 A 股公告（insight.announcement.download）。
 
         file_type 取值 1=PDF（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2214,6 +2306,7 @@ class AsyncInsight:
                 "insight.announcement.list",
                 "announcementId",
                 announcement_id,
+                resolve_title,
             ),
         )
 
@@ -2223,10 +2316,13 @@ class AsyncInsight:
         announcement_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载港股公告（insight.announcement-hk.download）。
 
         file_type 取值 1=原文（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2238,6 +2334,7 @@ class AsyncInsight:
                 "insight.announcement-hk.list",
                 "announcementId",
                 announcement_id,
+                resolve_title,
             ),
         )
 
@@ -2247,10 +2344,13 @@ class AsyncInsight:
         announcement_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载美股公告（insight.announcement-us.download）。
 
         file_type 取值 1=原文 PDF（默认） 2=Markdown。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2262,6 +2362,7 @@ class AsyncInsight:
                 "insight.announcement-us.list",
                 "announcementId",
                 announcement_id,
+                resolve_title,
             ),
         )
 
@@ -2271,10 +2372,13 @@ class AsyncInsight:
         independent_opinion_id: str,
         file_type: int,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载海外独立分析师观点（insight.independent-opinion.download）。
 
         file_type 必填，取值 1=原文HTML 2=中译HTML。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2289,6 +2393,7 @@ class AsyncInsight:
                 "insight.independent-opinion.list",
                 "independentOpinionId",
                 independent_opinion_id,
+                resolve_title,
             ),
         )
 
@@ -2298,10 +2403,13 @@ class AsyncInsight:
         article_id: str,
         file_type: int = 1,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载产业公众号文章（insight.official-account.download）。
 
         file_type 取值 1=txt（默认） 2=HTML。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -2309,7 +2417,7 @@ class AsyncInsight:
             query={"articleId": article_id, "fileType": file_type},
             output=output,
             fallback_name=f"official-account-{article_id}",
-            title_lookup=("insight.official-account.list", "articleId", article_id),
+            title_lookup=("insight.official-account.list", "articleId", article_id, resolve_title),
         )
 
     async def report_image_download(

@@ -19,6 +19,7 @@ from gangtise_openapi._transport import (
     _effective_timeout,
     _parse_body,
     _retry_delay,
+    check_expected_shape,
     is_envelope,
     is_retryable_error,
     parse_retry_after_ms,
@@ -130,7 +131,10 @@ async def request_json_async(
                     details=parsed,
                     retry_after_ms=retry_after_ms,
                 )
-            return unwrap_envelope(parsed, status_code=status_code, retry_after_ms=retry_after_ms)
+            payload = unwrap_envelope(
+                parsed, status_code=status_code, retry_after_ms=retry_after_ms
+            )
+            return check_expected_shape(endpoint, payload, status_code, parsed)
         except Exception as error:
             if attempt >= max_retries or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)

@@ -1,7 +1,10 @@
-"""quote.minute_kline — A 股分钟 K 线（仅 SH/SZ/BJ）, 返回 DataFrame。
+"""quote.minute_kline — 分钟 K 线（仅沪深, 不含北交所）, 返回 DataFrame。
 
 通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
-注意: 本接口仅支持单只 A 股代码（不支持列表 / "all"）, 时间参数精确到秒。
+注意: 接口本身一次只收一只（不支持 "all"）; 传列表时 SDK 会逐只并发请求再按传入顺序合并。
+时间参数精确到秒。
+本接口只保留近期分钟数据（实测约五周），示例日期过旧会返回空表——
+跑不出数据时先把日期换成最近的交易日，其它示例共用的日期在这里不适用。
 异步路径为 gangtise.async_.quote.minute_kline(...)。
 """
 
@@ -18,10 +21,10 @@ async def main():
     # 示例 1 · 最简调用: 单只 A 股某交易日的分钟 K 线
     show_result(
         await gangtise.async_.quote.minute_kline(
-            security="000001.SZ",  # A 股代码, 后缀 .SH/.SZ/.BJ; 仅支持单只（非列表）
-            start_time="2026-05-28 09:30:00",  # 开始时间, 格式 yyyy-MM-dd HH:mm:ss
-            end_time="2026-05-28 15:00:00",  # 结束时间, 格式 yyyy-MM-dd HH:mm:ss
-            limit=10,  # 单次返回条数上限; 默认 5000, 最大 10000
+            security="000001.SZ",  # 沪深代码 .SH/.SZ, 也可传 ETF / 指数; 支持单值或列表
+            start_time="2026-08-28 09:30:00",  # 开始时间, 格式 yyyy-MM-dd HH:mm:ss
+            end_time="2026-08-28 15:00:00",  # 结束时间, 格式 yyyy-MM-dd HH:mm:ss
+            limit=10,  # 单次返回条数上限; 默认 6000, 最大 10000
         ),
         __file__,
     )
@@ -30,9 +33,17 @@ async def main():
     show_result(
         await gangtise.async_.quote.minute_kline(
             security="600519.SH",
-            start_time="2026-05-28 09:30:00",
-            end_time="2026-05-28 11:30:00",
-            field=["time", "open", "close", "high", "low", "volume"],  # 返回字段, 支持单值或列表
+            start_time="2026-08-28 09:30:00",
+            end_time="2026-08-28 11:30:00",
+            field=[
+                "securityCode",
+                "tradeTime",
+                "open",
+                "close",
+                "high",
+                "low",
+                "volume",
+            ],  # 返回字段; 身份列要自己写进来
         ),
         __file__,
     )
@@ -41,8 +52,8 @@ async def main():
     show_result(
         await gangtise.async_.quote.minute_kline(
             security="000001.SZ",
-            start_time="2026-05-28 13:00:00",
-            end_time="2026-05-28 15:00:00",
+            start_time="2026-08-28 13:00:00",
+            end_time="2026-08-28 15:00:00",
             raw=True,  # True=返回服务端原始 data（含 fieldList/list 矩阵）, 不转 DataFrame
         ),
         __file__,

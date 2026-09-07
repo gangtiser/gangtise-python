@@ -1,10 +1,21 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.36.0 功能对齐，覆盖 97 个上游接口，并提供本地鉴权状态辅助工具。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.38.0 功能对齐，覆盖 97 个上游接口，并提供本地鉴权状态辅助工具。
 
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.4.0 - 2026-09-07
+- 对齐 CLI **v0.38.0**。**无新增接口**，仍 97 个上游接口。**次版本号**：本版会拒掉上一版会转发的入参、会对上一版当成功渲染的响应报错，另有两处同样的调用行为有变。
+- **新拒收的入参**：① 日期 / 时间 / 时间戳参数**末尾带换行**（从文件或管道读入的值请先 `.strip()`）；② `indicator_param` 的键必须是 `indicator` 里列出的 code——拼错的 code 此前会作为一个未被查询的指标的参数组发出，参数（以及不要日期的标记 `{"<code>": {}}`）等于没设；③ `ai.stock_summary_list` 单次超过 5000 只——接口文档写 6000，更大的批次服务端返回空列表且不报错，读起来就是「所有证券都没有看点」，请自行分批。
+- **新拒收的响应形状**（此前都会给出一个看着合理的结果）：① `fieldList` 有重复列名——按位置拍平时后一列会覆盖前一列，两个 `close` 会塌成一个；② 数组行没有 `fieldList`——没有列名就无从按位置读；③ 行情端点返回的载荷里没有 `list`——七个行情端点在任何情况下都返 `{total, list}`（空区间、非法代码在内），所以 `null` 或裸对象是坏响应而不是空响应，现在报 `ApiError` 并带上响应的 `traceId`。
+- 🔴 **`ai.knowledge_batch` 与 A 股 `insight.announcement_list` 的 `start_time` / `end_time` 改按北京时间（UTC+8）锚定**。这两个接口收 13 位毫秒、由 SDK 代为换算，锚点现在是固定的，不再取运行机器的时区，`"2026-08-01"` 在哪台机器上都是同一时刻。要别的锚点就显式传偏移（`"2026-08-01T00:00:00-04:00"`）或时间戳。本地夏令时跳过的墙钟时刻现在也能转换（UTC+8 没有这个空档）。
+- 🔴 **下载默认不再为了文件名去查 list 接口**。标题缓存未命中时，取一个友好文件名要向 list 接口发 4 次请求，而这些接口多数按条计费，比下载本身还贵。现改为按次开关 `resolve_title=True`；不开就用服务端自己的 `Content-Disposition` 文件名，再退到 `<前缀>-<id>`。**先 `*_list()` 再 `*_download()` 的常规用法不受影响**：缓存命中，不会多发请求。
+- **新增：一次可传多只证券**。`quote.minute_kline` 现在收列表（接口本身一次只吃一只，SDK 并发发出后按传入顺序合并）；`quote.day_kline` 在「证券数 × 区间交易日数」超过 `limit` 时自动改为逐只请求——一次请求按顺序填满行数上限，尾部证券会整只从结果里消失。两者都要求各只的列布局一致，填满 `limit` 的证券记入 `truncatedSecurities` 并标 `partial`。
+- **新增：完整性信号**。① `missingFields`——传了接口不认的 `field=` 时，该列会被连名带值丢弃（HTTP 200、不报错），现在标 `partial` + `missingFields` 并告警；只判「请求了但没回」，不依赖字段白名单。② 全市场 K 线分片按列名对齐后再合并，行宽与自身 `fieldList` 不符、无法对齐、或 `total > 0` 却零行的分片记入 `failedShards`。③ 分片 / 后续页 / 逐只请求自带的 `partial` 会传导到合并结果并告警（默认返回的 DataFrame 带不走这些标记）。④ 从末页起步的全量拉取现在同样探测 `total` 是否被服务端封顶。⑤ 单个异常分片不再中断其余分片的取数。
+- **修复**：下载改用端点声明的超时下限，不再直接读客户端默认超时。
+- **文档**：ETF 与 20 个全球指数可直接传代码（`512800.SH` / `SPX.SPI` / `N225.NKI` / `HSI.HI`），**市场关键词只覆盖个股**，ETF 与指数需逐个列出；全球指数哪些列为 `null` 按接口而异（`realtime` 是 `volume` / `amount` / `amplitude`，`minute_kline` 是 `volume` / `amount`，`day_kline` 只有 `amount`），时间为交易所当地时间，ETF 带 `adjustFactor` 且 `volume` 单位是「份」。`quote.realtime` 的 `tradeStatus` 仅 A 股 / 港股个股有值，`turnoverRate` / `volumeRatio` **不返回**（换手率改用 EDE 指标 `qte_turn`），美股 `amount` 为 `null`。`fundamental.earning_forecast` 的 `roe` **单位是百分比**。`insight.foreign_opinion_list` 的 `region` 取值、海外观点两个接口的 `industry` 码系、以及 `vault.wechat_message_list` 的 `industry` 码系均按接口现行为写明。
 
 ### 0.3.1 - 2026-08-18
 - 对齐 CLI **v0.35.0–v0.36.0**。**无新增接口**，仍 97 个上游接口。**补丁号：0.3.0 能跑的调用一个都不受影响**——日期校验只放宽（原先收的写法照收、归一后仍是它自己），探针那条是把 0.3.0 本该有的行为修回来。返回数据上唯一的变化：`ai.hot_topic` 全量拉取此前被静默截断的情况，现在会明说（`totalCapped` / `partial` + 告警）；请求层面该次全量拉取会多发一个 `from = total` 探针（无论 `total` 是否真的被封顶）。
@@ -49,16 +60,6 @@
 - **`999011`/`140002` 任何 HTTP 状态都不重试**（优先于 429 与 5xx 规则）：凭证错不会自己好；异步 `*-check` 端点无 retry 声明，`140002@500` 此前会被默认策略白重试 2 次才轮到异步层判定终态。**token 自愈补 `999002`**（`0000001008` 的新码），服务端切换后不再静默失效。
 - **HTTP 200 包裹的错误信封保留 `Retry-After`**（Gangtise 也用这种形态）：此前该路径丢掉服务端的退避窗口、退化成盲目指数退避；主 JSON、异步、下载三条路径都已接线。
 - **修复毫秒转换的量级判断**：旧规则是 `> 1e12`，而 13 位的 `1000000000000` 恰好等于 1e12，会落进秒分支再乘 1000。改按位数判断后无边界可错。**转换端点拒绝 DST 缺口时刻**（美国春季 `02:30`、Lord Howe 的 30 分钟缺口 `02:15`）——这类墙钟时刻没有忠实的时间戳，`datetime.timestamp()` 会静默映到缺口另一侧、查到的是另一个小时。所有形状校验改用 `re.ASCII`（Python 的 `\d` 匹配全角数字且 `int()` 认全角，全角日期此前能过检查再原样发给读不懂它的服务端）；年份 `0000` 改为拒绝而非从转换路径漏出裸 `ValueError`。
-
-### 0.1.18 - 2026-07-12
-- **自动命名下载在不支持硬链接的文件系统上不再丢文件**：v0.1.17 的 `os.link` 仅对硬编码 errno 白名单回退 O_EXCL 占位，漏了 macOS exFAT/SMB 的 `ENOTSUP`（与白名单里的 `EOPNOTSUPP` 是不同值）和 Windows FAT 的 `EINVAL`——完成的 `.part` 被删、下载报成写失败（no-replay 计费端点手动重试还再扣费）。现任何 `os.link` 失败都回退占位（`ENOSPC`/`EROFS` 等真故障会在占位的 `os.open` 处照常抛出）。
-- **302 跳转目标回 200+JSON 不再被当文件写盘**：跳转目标返回 `application/json` 业务错误 envelope 时，此前把 JSON 字节存成 `report.pdf` 并报成功（计费 + 损坏文件）；现跟随后的拉取与直连下载路径同样做 envelope 校验——失败 envelope 抛 `ApiError`、`{url}` 元数据续接，对齐 TS `client.ts`。
-- **跳转那一跳的 CDN 瞬态 429/5xx 改为重试**：跟随 URL 此前只重试网络错误，一次性 `503`/`429`（签名仍有效）会立即失败；现可重试状态按默认策略重试（尊重 `Retry-After`），`403/404` 仍快速失败（签名过期重放无意义），计费上游永不重发。
-- **同源 302 保留 bearer**：手工跳转此前对任何 `Location` 都不带 `Authorization`，同源跳到另一鉴权路径的 302 会 401/403；现仅当 `Location` 停在 API 同源（scheme+host+port 精确匹配）时转发 bearer，跨源 CDN 永不可见。恢复 v0.1.16 / TS 一致。
-- **`_require_fetchable_url` 真正 fail-closed**：此前用 stdlib `urlsplit` 校验（比 httpx 宽松），含控制符、畸形点分 IPv4 或 IDNA 主机、超长、前导空格的 URL 能过闸，随后 `httpx.URL` 抛 `httpx.InvalidURL`（非 `httpx.HTTPError`）逃出 except 阶梯；现用 `httpx.URL` 本体 + 精确 strip 校验，畸形 URL 抛脱敏后的 `DownloadError`。
-- **`.part` 清理失败不再把成功下载报成失败**（独立 Codex 审查发现）：`os.link` 提交完整文件后，`finally` 的 `.part` unlink 是承重步骤，一旦失败（杀软锁、只读挂载）裸 `OSError` 会绕过 `except OSError` 报假失败（并诱发 no-replay 重扣）；现清理改为尽力而为。
-- **任何从跟随目标冒出的错误都不再重放计费上游，`{url}` 链加跳数上限**（对上述修复的第二、三轮复核）：把跟随目标的 JSON envelope 抛成 `ApiError` 后，从**已成功的上游之后**冒出的错误仍可能驱动 `download_to_path` 外层循环重发上游。现此类错误打标记、短路**每一条**外层重放：**鉴权** envelope（`0000001008`/`8000014`/`8000015`）的刷 token 路径，以及可重试 `999999` 的默认策略重试路径（正是让默认重试端点 `insight.report-image.download`（0.1 积分/张）被重扣三次的那条）。直连（非跟随）路径的鉴权自愈与 `999999` 重试不变。自引用/环形 `{url}` 链现以有上限的 `DownloadError`（最多 5 跳）失败，不再递归到 `RecursionError` + 请求风暴；同源 bearer 转发每跳重新判断（第二个同源跳不再丢 bearer）；`_redact_url` 改为复用 `httpx.URL` 的判定，非 ASCII/畸形 authority（坏 IDNA、非法点分 IPv4 如 `1.2.3.999`）折叠为 `redacted-url` 而非回显。
-- **跟随目标错误改用计费安全提示、占位回退扛住 close 故障、同源精确区分显式 `:0`**（第四轮复核）：(1) 打标记的跟随目标错误仍带通用 `.hint`——`999999` 的「请稍后重试」、鉴权码的「会自动重新登录重试」——都会诱导用户手动重发、重扣已执行的上游（且此处并不会真的自动重登），现改为专用提示，明确「计费上游已执行、勿盲目重试」。(2) 无硬链接占位提交里，对 `O_EXCL` 占位 fd 的 `os.close()` 未加保护：close 期 `OSError`（如本版重点覆盖的 SMB/exFAT 上的 `EIO`）会在改名前中断，完整 `.part` 被外层 `finally` 删除、只剩 0 字节文件；现 close 改为尽力而为（fd 仅用于占名，承重的改名照常落盘）。(3) `_same_origin` 用 `port or default` 把显式 `:0` 折成默认端口，令 `https://api.test:0` 与 `https://api.test` 判为同源；现改用 `port if not None else default`，scheme+host+port 真正精确匹配。无端点/API 表面变更，仍对齐 CLI v0.27.0、90 接口。
 
 ## 安装
 
@@ -120,6 +121,10 @@ asyncio.run(main())
 | `"20260701"` | `2026-07-01` |
 
 `start_time` / `end_time` 同理，只归一日期部分：`"2026/07/01 09:30:00"` → `"2026-07-01 09:30:00"`（秒可省，空格或 `T` 分隔）；10/13 位 Unix 时间戳原样透传。
+
+⚠️ **末尾带换行的写法会被拒绝**（`"2026-07-01\n"`）——从文件或管道读进来的值先 `.strip()`。
+
+⚠️ **`ai.knowledge_batch` 与 A 股 `insight.announcement_list` 例外**：这两个接口收 13 位毫秒，由 SDK 代为换算，**锚点固定为北京时间（UTC+8）**，与运行机器的时区无关。要别的锚点就显式传偏移（`"2026-08-01T00:00:00-04:00"`）或直接传时间戳。
 
 **「年在后」的写法会在发请求前拒绝**，因为它对不同人意思不同：
 

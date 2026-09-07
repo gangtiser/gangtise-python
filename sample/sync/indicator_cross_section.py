@@ -32,7 +32,7 @@ def main():
     show_result(
         gangtise.indicator.cross_section(
             date="2025-06-30",
-            indicator=["qte_close", "qte_open"],  # 多指标
+            indicator=["qte_close", "qte_pre_close"],  # 多指标
             security="600519.SH",
             currency="CNY",  # 币种: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）
             scale="8",  # 数量级: 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）
@@ -80,6 +80,11 @@ def main():
             date="2025-06-30",
             indicator=["cf_finc_exp", "cf_finc_exp_qtr"],
             security="600519.SH",
+            # cf_* 是报告期指标: 拒收注入的 tradeDate, 要按 code 各自传 reportDate
+            indicator_param={
+                "cf_finc_exp": {"reportDate": "2025-06-30"},
+                "cf_finc_exp_qtr": {"reportDate": "2025-06-30"},
+            },
             key_by="code",  # 列头来源: name=服务端显示名（默认） code=indicatorCode
         ),
         __file__,

@@ -18,7 +18,7 @@ def main():
         gangtise.indicator.time_series(
             start_date="2025-01-01",  # 起始日期 YYYY-MM-DD（必填）
             end_date="2025-06-30",  # 结束日期 YYYY-MM-DD（必填）
-            indicator=["qte_close", "qte_open"],  # 指标码, 支持单值或列表
+            indicator=["qte_close", "qte_pre_close"],  # 指标码, 支持单值或列表
             security="600519.SH",  # 单证券 -> 列为各指标
         ),
         __file__,

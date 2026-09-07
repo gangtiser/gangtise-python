@@ -36,6 +36,7 @@ def main():
         result = gangtise.insight.performance_calendar_download(
             performance_report_id=item_id,  # 报告唯一标识（必填）
             # output=None,                  # 显式落盘路径; 省略则自动命名
+            # resolve_title=True,  # 标题缓存未命中时回查 list 接口取文件名; 多发 4 次请求, 这些 list 多数按条计费
         )
     finally:
         os.chdir(previous_cwd)

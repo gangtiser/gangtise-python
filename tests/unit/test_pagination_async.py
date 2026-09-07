@@ -185,3 +185,35 @@ async def test_async_fanout_malformed_page_is_partial():
     assert out["partial"] is True
     assert out["failedPages"]
     assert [r["i"] for r in out["list"]] == list(range(5))  # only the valid first page
+
+
+# ─── v0.4.0 async mirrors (TS v0.38.0) ───
+
+
+@pytest.mark.anyio
+async def test_async_later_page_partial_keeps_the_merged_result_partial():
+    async def fetch(body):
+        page = {"total": 100, "list": [{"i": body["from"]}] * min(50, 100 - body["from"])}
+        if body["from"] == 50:
+            page["partial"] = True
+        return page
+
+    with pytest.warns(UserWarning, match="a later page reported itself partial"):
+        out = await collect_paginated_async(_ep(), body={}, fetch=fetch, concurrency=2)
+    assert out["partial"] is True
+
+
+@pytest.mark.anyio
+async def test_async_fetch_all_inside_the_last_page_probes_for_a_capped_total():
+    seen: list[tuple[int, int]] = []
+
+    async def fetch(body):
+        seen.append((body["from"], body["size"]))
+        if body["from"] == 100:
+            return {"total": 100, "list": [{"i": "past-the-end"}]}
+        return {"total": 100, "list": [{"i": 1}] * 50}
+
+    with pytest.warns(UserWarning, match="'total' is a server-side cap"):
+        out = await collect_paginated_async(_ep(), body={"from": 60}, fetch=fetch, concurrency=2)
+    assert (100, 1) in seen
+    assert out["totalCapped"] is True

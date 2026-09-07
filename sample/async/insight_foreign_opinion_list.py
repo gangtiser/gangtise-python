@@ -27,7 +27,7 @@ async def main():
             keyword="AI",  # 关键词
             rank_type=2,  # 排序: 1=综合 2=时间倒序
             security="UBER.N",  # 证券代码（美股如 UBER.N）, 支持单值或列表
-            region="US",  # 区域代码, 支持单值或列表
+            region="us",  # 区域代码（小写）: cn/cnHk/cnTw/us/jp/uk, 支持单值或列表
         ),
         __file__,
     )
@@ -36,7 +36,7 @@ async def main():
     show_result(
         await gangtise.async_.insight.foreign_opinion_list(
             security=["UBER.N"],  # 证券代码, 支持单值或列表
-            industry=[1],  # 申万行业 ID（见 reference.constant_list(category="swIndustry")）
+            industry=[104110000],  # 申万行业 ID（104xx0000 形态; 中信码在此报 100005）
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

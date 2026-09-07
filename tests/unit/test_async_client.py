@@ -48,12 +48,12 @@ async def test_async_call_uses_env_token(async_cfg):
         route = router.post("/application/open-quote/quote/realtime").mock(
             return_value=httpx.Response(
                 200,
-                json={"code": "000000", "status": True, "data": []},
+                json={"code": "000000", "status": True, "data": {"total": 0, "list": []}},
             )
         )
         async with AsyncGangtiseClient(_config=async_cfg) as client:
             out = await client._call("quote.realtime", body={"securityList": ["x"]})
-    assert out == []
+    assert out == {"total": 0, "list": []}
     assert route.calls.last.request.headers["Authorization"] == "Bearer env-tok"
 
 
@@ -120,12 +120,14 @@ async def test_async_call_auth_code_8000014_triggers_one_refresh(tmp_path):
         ep_route = router.post("/application/open-quote/quote/realtime").mock(
             side_effect=[
                 httpx.Response(200, json={"code": "8000014", "status": False, "msg": "expired"}),
-                httpx.Response(200, json={"code": "000000", "status": True, "data": []}),
+                httpx.Response(
+                    200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+                ),
             ]
         )
         async with AsyncGangtiseClient(_config=cfg) as client:
             out = await client._call("quote.realtime", body={"securityList": ["x"]})
-    assert out == []
+    assert out == {"total": 0, "list": []}
     assert ep_route.call_count == 2
     assert login_route.call_count == 1
     assert ep_route.calls.last.request.headers["Authorization"] == "Bearer refreshed"
@@ -145,12 +147,14 @@ async def test_async_call_auth_code_0000001008_triggers_one_refresh(tmp_path):
                 httpx.Response(
                     200, json={"code": "0000001008", "status": False, "msg": "token is invalid"}
                 ),
-                httpx.Response(200, json={"code": "000000", "status": True, "data": []}),
+                httpx.Response(
+                    200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+                ),
             ]
         )
         async with AsyncGangtiseClient(_config=cfg) as client:
             out = await client._call("quote.realtime", body={"securityList": ["x"]})
-    assert out == []
+    assert out == {"total": 0, "list": []}
     assert ep_route.call_count == 2
     assert login_route.call_count == 1
     assert ep_route.calls.last.request.headers["Authorization"] == "Bearer refreshed"
@@ -210,7 +214,9 @@ async def test_async_rejected_env_token_not_reused_after_refresh(tmp_path):
     def data_side_effect(request):
         if request.headers["Authorization"] == "Bearer expired-env-token":
             return httpx.Response(200, json={"code": "8000014", "status": False, "msg": "expired"})
-        return httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+        return httpx.Response(
+            200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+        )
 
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         login_route = router.post("/application/auth/oauth/open/loginV2").mock(
@@ -221,7 +227,10 @@ async def test_async_rejected_env_token_not_reused_after_refresh(tmp_path):
         )
         async with AsyncGangtiseClient(_config=cfg) as client:
             for _ in range(3):
-                assert await client._call("quote.realtime", body={"securityList": ["x"]}) == []
+                assert await client._call("quote.realtime", body={"securityList": ["x"]}) == {
+                    "total": 0,
+                    "list": [],
+                }
         assert login_route.call_count == 1
         auths = [call.request.headers["Authorization"] for call in data_route.calls]
         assert auths == [
@@ -249,7 +258,9 @@ async def test_async_concurrent_stale_token_refresh_logs_in_once(tmp_path):
                 gate.set()
             await gate.wait()
             return httpx.Response(200, json={"code": "8000014", "status": False, "msg": "expired"})
-        return httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+        return httpx.Response(
+            200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+        )
 
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
         login_route = router.post("/application/auth/oauth/open/loginV2").mock(
@@ -266,7 +277,7 @@ async def test_async_concurrent_stale_token_refresh_logs_in_once(tmp_path):
                 async with anyio.create_task_group() as tg:
                     for _ in range(5):
                         tg.start_soon(call)
-        assert results == [[], [], [], [], []]
+        assert results == [{"total": 0, "list": []}] * 5
         assert login_route.call_count == 1
 
 

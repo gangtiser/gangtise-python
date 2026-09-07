@@ -41,7 +41,7 @@ async def main():
         await gangtise.async_.fundamental.valuation_analysis(
             security_code="000001.SZ",
             indicator="psTtm",  # psTtm=市销率TTM（其余: peg/pcfTtm=市现率TTM、em=企业倍数）
-            field=["date", "value", "percentileRank"],  # 返回字段, 支持单值或列表; 省略则用默认字段
+            field=["value", "percentileRank"],  # 返回字段; tradeDate 由接口自动前置, 不要再传
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

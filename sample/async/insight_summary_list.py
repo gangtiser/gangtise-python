@@ -28,7 +28,7 @@ async def main():
             search_type=1,  # 搜索类型代码（默认 1; cli.ts 未列枚举, 取值见接口文档）
             rank_type=1,  # 排序方式代码（默认 1; cli.ts 未列枚举, 取值见接口文档）
             security="000001.SZ",  # 证券代码, 支持单值或列表
-            market="SH",  # 市场, 支持单值或列表; 例如 SH/SZ/HK/US
+            market="aShares",  # 市场, 支持单值或列表; aShares / hkStocks / usStocks / usChinaConcept
         ),
         __file__,
     )
@@ -37,7 +37,9 @@ async def main():
     show_result(
         await gangtise.async_.insight.summary_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            category=["stock"],  # 分类, 支持单值或列表; 取值 earningsCall/strategyMeeting 等
+            category=[
+                "companyAnalysis"
+            ],  # 分类, 支持单值或列表; companyAnalysis / industryAnalysis / earningsCall 等
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

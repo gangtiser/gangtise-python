@@ -298,6 +298,13 @@ class ApiError(GangtiseError):
         # endpoint for such an error — ANY code (auth 0000001008, retryable 999999,
         # or other), since the billed request already ran; replaying double-bills.
         self.from_followed_target = False
+        # Set when this error is about a RESPONSE SHAPE the endpoint cannot
+        # legitimately produce (a ``data: null`` where ``{list}`` is contractual),
+        # never about the request. A caller that fans a query out — the K-line
+        # sharder — must treat it as ONE bad shard, not as the systemic failure
+        # (rate limit, no permission, retries exhausted) that stops the remaining
+        # shards from being dispatched at all (TS v0.38.0 ``markStructural``).
+        self.structural = False
         # Precedence: message-specific > per-code. The message rule identifies a
         # narrower cause than the code alone (one code, many causes). A call site
         # with even more context still wins — it assigns ``.hint`` after construction.

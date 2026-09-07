@@ -49,16 +49,22 @@ NO_MARKET_KEYWORDS: tuple[str, ...] = ()
 # a code that is fine), while the menu-retired per-market endpoints answer with
 # `total: 0` — a silent empty result indistinguishable from "no data".
 #
-# Compared lower-cased, and that folding is LOAD-BEARING, not tidiness — the API's own
-# case handling differs BY ENDPOINT (probed 2026-08-15, all six):
+# Compared lower-cased. The API's own case handling USED to differ by endpoint;
+# re-probed by the CLI 2026-08-24 (curl direct, all six) it no longer does:
 #
-#   folds case:      day-kline (aShares/…), realtime, day-kline-hk/-us/index (all)
-#   case-SENSITIVE:  fund-flow — only the literal `aShares` works; `ashares` / `ASHARES`
-#                    come back as `120001 非有效A股`
+#   folds case:      ALL SIX, fund-flow included — `aShares` / `ashares` / `ASHARES` /
+#                    `AShares` / `aSHARES` all return the same rows.
 #
-# So on five endpoints canonicalising merely keeps the shard lookup in step with the
-# server (drop it and a case variant degrades to an unsharded 6000-row request), but on
-# `fund-flow` it is the ONLY reason `ashares` works at all.
+# Until 2026-08-21 `fund-flow` was the lone exception (only the literal `aShares`
+# worked; every other casing came back `120001 非有效A股`), which made this folding the
+# ONLY reason `ashares` worked there. That is fixed server-side, so canonicalising is no
+# longer load-bearing for correctness anywhere — on every endpoint it now merely keeps
+# the shard lookup in step with the server (drop it and a case variant degrades to an
+# unsharded 6000-row request).
+#
+# Keep it anyway: it normalises rather than rejects, so it can only ever be more
+# forgiving than the server, and it costs nothing. The fund-flow case test stays as a
+# regression pin — but it now pins OUR normalisation, not a server-side quirk.
 #
 # ⚠️ `all` collides with a real ticker root (`ALL` is Allstate on the NYSE), so a bare
 # `security="ALL"` fetches the whole US market instead of that stock. That resolution
@@ -195,6 +201,27 @@ def resolve_full_market(security: Any, markets: Mapping[str, int]) -> str | None
 ShardFetcher = Callable[[tuple[dt.date, dt.date]], Any]
 
 
+def column_remap(header: Sequence[Any], shard: Sequence[Any]) -> list[int] | None:
+    """Index map from ``header``'s columns into ``shard``'s own ``fieldList``.
+
+    The merged result carries ONE ``fieldList`` (the first data shard's) and columnar
+    rows are read against it by position, so a shard that orders its columns
+    differently would be read under the wrong names — ``close`` landing in
+    ``volume``, with nothing else in the payload to notice. Returns the mapping to
+    re-order such a shard's rows onto the header, or ``None`` when a header column is
+    absent from the shard and the rows cannot be aligned at all (TS v0.38.0
+    ``columnRemap``). Callers skip this entirely when the two lists already agree.
+    """
+    index = {str(field): position for position, field in enumerate(shard)}
+    mapping: list[int] = []
+    for field in header:
+        position = index.get(str(field))
+        if position is None:
+            return None
+        mapping.append(position)
+    return mapping
+
+
 def _shape_broken(result: Any) -> bool:
     """A shard that resolves without a ``list`` array is shape-broken (an error
     object, a truncated envelope) — its rows are missing. Treated exactly like a
@@ -232,7 +259,13 @@ def fetch_shards(
         try:
             result = fetch(window)
         except Exception as exc:
-            aborted.set()
+            # A structural error is the client's verdict about THIS response's shape
+            # (see ApiError.structural) — local to one shard. Only a SYSTEMIC failure
+            # (rate limit, no permission, retries exhausted) stops the rest from being
+            # dispatched; aborting on a malformed payload would throw away windows that
+            # would have answered fine (TS v0.38.0).
+            if not getattr(exc, "structural", False):
+                aborted.set()
             return None, exc
         if _shape_broken(result):
             return None, _SHAPE_BROKEN
@@ -288,7 +321,9 @@ async def fetch_shards_async(
             try:
                 result = await fetch(window)
             except Exception as exc:
-                aborted = True
+                # Structural errors do not abort the fan-out — see the sync mirror.
+                if not getattr(exc, "structural", False):
+                    aborted = True
                 errors[idx] = exc
                 return
             if _shape_broken(result):

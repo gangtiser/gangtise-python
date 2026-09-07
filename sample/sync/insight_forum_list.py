@@ -23,8 +23,7 @@ def main():
             start_time="2026-05-01",  # 起始时间
             end_time="2026-05-28",  # 结束时间
             keyword="AI",  # 关键词
-            security="000001.SZ",  # 证券代码, 支持单值或列表
-            object_="industry",  # 对象类型: company=公司 / industry=行业（映射为 object）
+            research_area=[1008001],  # 研究方向 ID, 支持单值或列表
         ),
         __file__,
     )
@@ -32,9 +31,8 @@ def main():
     # 示例 3 · 多值过滤（列表入参）+ 原始返回
     show_result(
         gangtise.insight.forum_list(
-            security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            market=["SH", "SZ"],  # 市场, 支持单值或列表; 例如 SH/SZ/HK/US
-            permission=[1],  # 权限/可见性, 数字列表, 支持单值或列表
+            research_area=[1008001, 1008002],  # 研究方向 ID, 支持单值或列表
+            keyword="AI",  # 关键词
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

@@ -1060,3 +1060,66 @@ def test_screener_empty_param_mapping_suppresses_the_date_injection(tmp_path):
             )
         body = json.loads(route.calls.last.request.read())
     assert body["indicatorList"][0]["parameters"] == []
+
+
+# ─── v0.4.0: indicator_param must reference a bound indicator (TS v0.37.0) ───
+
+
+@pytest.mark.parametrize("method", ["cross_section", "time_series"])
+def test_indicator_param_referencing_an_unbound_code_is_refused(tmp_path, method):
+    """A mistyped code used to travel as a parameter group for an indicator that was
+    never queried — silent on time_series end to end (nothing there injects a date,
+    so no conflict ever exposes it) and the query then ran on the server defaults."""
+    kwargs = (
+        {"start_date": "2026-01-01", "end_date": "2026-01-31"}
+        if method == "time_series"
+        else {"date": "2026-01-05"}
+    )
+    with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+        with pytest.raises(ValidationError, match="is not in indicator="):
+            getattr(Indicator(client), method)(
+                indicator="is_op_rev",
+                security="600519.SH",
+                indicator_param={"is_op_rve": {"reportDate": "2025-06-30"}},
+                **kwargs,
+            )
+
+
+def test_indicator_param_referencing_an_unbound_code_is_refused_before_any_request(tmp_path):
+    # A local error must not cost a billed round trip: the route is registered here
+    # precisely to prove it gets zero traffic.
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_CROSS)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError):
+                Indicator(client).cross_section(
+                    indicator="is_op_rev",
+                    security="600519.SH",
+                    date="2026-01-05",
+                    indicator_param={"typo": {}},
+                )
+    assert not route.called
+
+
+def test_a_correctly_spelled_indicator_param_still_travels(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_CROSS).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"fieldList": [], "list": []},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).cross_section(
+                indicator="is_op_rev",
+                security="600519.SH",
+                date="2026-01-05",
+                indicator_param={"is_op_rev": {"reportDate": "2025-06-30"}},
+                raw=True,
+            )
+    body = json.loads(route.calls[0].request.content)
+    assert body["indicatorParamList"][0]["indicatorCode"] == "is_op_rev"

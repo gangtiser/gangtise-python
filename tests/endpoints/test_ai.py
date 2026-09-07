@@ -408,3 +408,27 @@ def test_stock_summary_list_requires_security(tmp_path):
 def test_knowledge_batch_requires_query(tmp_path):
     with GangtiseClient(_config=_cfg(tmp_path)) as client, pytest.raises(ValidationError):
         AI(client).knowledge_batch(query=[])
+
+
+def test_stock_summary_refuses_a_batch_the_server_answers_with_an_empty_list(tmp_path):
+    """Above ~5042 codes the server returns `{total: 0, list: []}` with HTTP 200 and
+    no error — an export that reads as "no security has highlights". Refusing turns
+    that silent empty result into an explicit error carrying the fix (TS v0.38.0)."""
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-ai/stock-summary/getList")
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="Split the codes into batches"):
+                AI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(5001)])
+    # The refusal must land BEFORE the request: this endpoint bills 3 credits/row.
+    assert not route.called
+
+
+def test_stock_summary_allows_a_batch_at_the_cap(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-ai/stock-summary/getList").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            AI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(5000)], raw=True)

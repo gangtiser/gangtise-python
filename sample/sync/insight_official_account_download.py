@@ -34,7 +34,8 @@ def main():
         result = gangtise.insight.official_account_download(
             article_id=item_id,  # 文章 ID（必填）, 取自列表的 articleId 列
             file_type=1,  # 文件类型: 1=txt（默认） 2=HTML
-            # output=None,                   # 显式落盘路径; 省略则按标题/响应头自动命名
+            # output=None,                   # 显式落盘路径; 省略则按标题缓存/响应头自动命名
+            # resolve_title=True,  # 标题缓存未命中时回查 list 接口取文件名; 多发 4 次请求, 这些 list 多数按条计费
         )
     finally:
         os.chdir(previous_cwd)

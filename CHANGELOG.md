@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-07
+
+Feature parity with `gangtise-openapi-cli` **v0.38.0**. **No new endpoints** — still
+**97 network / 99 registry**.
+
+**Minor, not patch:** this release rejects arguments 0.3.1 forwarded, rejects response
+shapes 0.3.1 rendered, and changes what two paths send or produce for an otherwise
+unchanged call. All of them are listed under "Breaking" below.
+
+### Breaking — rejected arguments
+
+- **A trailing newline on a date / datetime / timestamp argument** is now a
+  `ValidationError` (`date="2026-07-01\n"`, `start_time="1785513600\n"`). Through 0.3.1
+  such a value was forwarded as typed. Call `.strip()` on values read from a file or a
+  shell pipeline.
+- **`indicator_param` may only name a code that `indicator` also lists.**
+  `cross_section` and `time_series` now raise `ValidationError` for an unbound code, as
+  `screener` already did for an unbound variable. A mistyped code previously travelled
+  as a parameter group for an indicator that was never queried, so the parameters — and
+  the no-date marker `{"<code>": {}}` — silently did not apply.
+- **`ai.stock_summary_list` takes at most 5000 securities per call.** The endpoint is
+  documented as 6000, but larger batches come back as an empty list with HTTP 200 and no
+  error, which reads as "no security has highlights". Split the codes and call per batch.
+
+### Breaking — rejected response shapes
+
+Each of these used to produce a plausible-looking result instead of an error:
+
+- **A `fieldList` with duplicate column names** is refused. Positional flattening kept
+  only the last value under a repeated name, so two `close` columns collapsed into one.
+- **Array rows without a `fieldList`** are refused — there are no column names to read
+  them by.
+- **A quote endpoint answering without a `list`** is refused with an `ApiError` carrying
+  the response's `traceId`. All seven always return `{total, list}`, an empty date range
+  and an unknown security code included, so a `null` or bare-object payload is a broken
+  response rather than an empty one.
+
+### Breaking — changed behaviour for an unchanged call
+
+- **`start_time` / `end_time` on `ai.knowledge_batch` and the A-share
+  `insight.announcement_list` are anchored to Beijing time (UTC+8).** These two
+  endpoints take epoch milliseconds and the SDK converts for you; the anchor is now
+  fixed rather than the running machine's timezone, so `"2026-08-01"` means the same
+  instant everywhere. Pass an explicit offset (`"2026-08-01T00:00:00-04:00"`) or an
+  epoch for a different anchor. A wall-clock time that a local daylight-saving change
+  skips is now accepted, since UTC+8 has no such gap.
+- **Downloads no longer query the list endpoint for a filename by default.** On a
+  title-cache miss, resolving a friendly name costs four requests against a list
+  endpoint that is usually metered per row — more than most downloads themselves. It is
+  now opt-in per call, `resolve_title=True`; without it the file keeps the server's own
+  `Content-Disposition` name, falling back to `<prefix>-<id>`. **The usual `*_list()`
+  then `*_download()` workflow is unaffected**: the cache hits and no extra request is
+  sent.
+
+### Added — several securities per call
+
+- **`quote.minute_kline` accepts a list of securities.** The endpoint itself takes one
+  per request, so the SDK issues them concurrently and merges in the order given.
+- **`quote.day_kline` (and the deprecated per-market variants) splits a batch that
+  cannot fit one request** — when securities × trading days in the range exceeds
+  `limit`, each security is fetched separately. A single request fills its row cap in
+  order, which drops the trailing securities from the result entirely.
+
+For both: column layouts must agree across securities, and a security that fills `limit`
+is listed in `truncatedSecurities` with `partial` set.
+
+### Added — completeness signals
+
+- **`missingFields`.** A `field=` name the endpoint does not recognise is dropped along
+  with its values — HTTP 200, no error, one column simply absent. Requesting a column
+  that does not come back now sets `partial` + `missingFields` and warns. Only
+  "requested but not returned" is judged, so no field whitelist is involved.
+- **Whole-market K-line shards are aligned by column name** before merging, and a shard
+  whose rows do not match its own `fieldList`, that cannot be aligned, or that reports
+  `total > 0` while returning nothing, is recorded in `failedShards` instead of merged.
+- **A shard, page or per-security part that reports itself `partial` keeps the merged
+  result `partial`, and warns.** The default return is a DataFrame, which carries none
+  of these markers, so every merge path now says so on the way past.
+- **A fetch-all starting inside the last page also checks whether `total` is a
+  server-side cap**, which it previously skipped.
+- **A malformed shard no longer stops the other shards** from being fetched; it is one
+  bad window, not a systemic failure.
+
+### Fixed
+
+- Downloads honour an endpoint's declared timeout floor instead of the client default.
+
+### Documentation
+
+- **ETFs and 20 global indices** work on `quote.realtime` / `day_kline` /
+  `minute_kline`: pass `512800.SH`, `SPX.SPI`, `N225.NKI`, `HSI.HI` and the like
+  directly. Market keywords (`aShares` / `hkStocks` / `usStocks`) cover **stocks only**,
+  so ETFs and indices must be listed by code. What a global index leaves `null` differs
+  by endpoint — `volume` / `amount` / `amplitude` on `realtime`, `volume` / `amount` on
+  `minute_kline`, `amount` alone on `day_kline` — and its `tradeDate` / `tradeTime` are
+  exchange local time. ETFs carry `adjustFactor`, and their `volume` counts units.
+- **`quote.realtime` fields**: `tradeStatus` is available for A-share and HK stocks;
+  `turnoverRate` and `volumeRatio` are not returned — use the EDE indicator `qte_turn`
+  for turnover. US `amount` is `null`.
+- **`fundamental.earning_forecast`: `roe` is a percentage** (`35.6` means 35.6%).
+- **`insight.foreign_opinion_list`**: `region` accepts `cn` / `cnHk` / `cnTw` / `us` /
+  `jp` / `uk` — the remaining `regionCategory` values are rejected with `100005` even
+  though they work on `foreign_report_list`. On both `foreign_opinion_list` and
+  `independent_opinion_list`, `industry` accepts swIndustry codes only.
+- **`vault.wechat_message_list`**: `industry` takes citicIndustry codes only; swIndustry
+  and unknown values are rejected with `100005`.
+
 ## [0.3.1] - 2026-08-18
 
 Sync with `gangtise-openapi-cli` **v0.35.0 → v0.36.0**. **No new endpoints** — still

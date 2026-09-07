@@ -27,6 +27,7 @@ from gangtise_openapi._errors import (
 from gangtise_openapi._transport import (
     RETRYABLE_HTTP_STATUS,
     _apply_policy_hint,
+    _effective_timeout,
     _retry_delay,
     is_envelope,
     is_retryable_error,
@@ -170,7 +171,11 @@ def _same_origin(url: str, base_url: str) -> bool:
     return origin(a) == origin(b)
 
 
-TitleLookup = tuple[str, str, str]  # (list_endpoint_key, id_field, id_value)
+# (list_endpoint_key, id_field, id_value, allow_lookup). ``allow_lookup`` is the
+# caller's `resolve_title=`: whether a title-cache MISS may fall back to querying the
+# list endpoint. Off by default because that fallback is not free — see
+# :func:`GangtiseClient._resolve_title`.
+TitleLookup = tuple[str, str, str, bool]
 
 
 _FORBIDDEN_FILENAME_CHARS = r'/\:*?"<>|'
@@ -295,8 +300,10 @@ def download_to_path(
     envelope whose data carries a presigned `url`, that URL is fetched instead.
 
     Resolution order for the output filename when `output` is None:
-      1. Title cache hit on `title_lookup` (if provided)
-      2. List-endpoint fallback fetch - calls the list endpoint with
+      1. Title cache hit on `title_lookup` (if provided) - free, populated by any
+         prior `*_list()` call on the same endpoint
+      2. List-endpoint fallback fetch - ONLY when the caller passed
+         `resolve_title=True`; calls the list endpoint with
          `from=0, size=TITLE_LOOKUP_SIZE` and scans for `id_field == id_value`
       3. `Content-Disposition` filename
       4. `<fallback_name><ext-from-mime>`
@@ -378,12 +385,19 @@ def _download_once(
         content = json.dumps(body or {}).encode("utf8")
 
     http = client._http_client()
+    # Same floor request_json applies. Reading the client default directly ignored an
+    # endpoint's declared `timeout_ms` — no download endpoint declares one today
+    # (`tool.file-parse.result` is the obvious candidate the day a 500-page result ZIP
+    # outgrows 30s), so this closes a landmine rather than a live bug, and it never
+    # lowers a higher user-configured timeout (TS v0.37.0).
+    timeout = _effective_timeout(http, endpoint)
     with http.stream(
         endpoint.method,
         endpoint.path,
         params=query,
         headers=headers,
         content=content,
+        timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
         # Do NOT auto-follow redirects here. A download endpoint may 3xx to a
         # presigned object-store URL, but if httpx followed inline, a failure on
         # the CDN hop would surface as a connect-phase error on THIS (billed,
@@ -780,8 +794,8 @@ def _decide_target(
         return Path(output).expanduser(), False
     ext_from_mime = _extension_for(content_type)
     if title_lookup is not None:
-        list_key, id_field, id_value = title_lookup
-        title = client._resolve_title(list_key, id_field, id_value)
+        list_key, id_field, id_value, allow_lookup = title_lookup
+        title = client._resolve_title(list_key, id_field, id_value, allow_lookup=allow_lookup)
         if title:
             sanitized = _sanitize_filename(title)
             if sanitized:
@@ -880,12 +894,15 @@ async def _download_once_async(
         content = json.dumps(body or {}).encode("utf8")
 
     http = client._http_client()
+    # Endpoint timeout floor — see the sync sibling.
+    timeout = _effective_timeout(http, endpoint)
     async with http.stream(
         endpoint.method,
         endpoint.path,
         params=query,
         headers=headers,
         content=content,
+        timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
         # See _download_once: upstream must not auto-follow, or a CDN-hop failure
         # would replay this (possibly no-replay, billed) request. Hand the Location
         # to the signed-URL fetcher instead.
@@ -1120,8 +1137,8 @@ async def _decide_target_async(
         return Path(output).expanduser(), False
     ext_from_mime = _extension_for(content_type)
     if title_lookup is not None:
-        list_key, id_field, id_value = title_lookup
-        title = await client._resolve_title(list_key, id_field, id_value)
+        list_key, id_field, id_value, allow_lookup = title_lookup
+        title = await client._resolve_title(list_key, id_field, id_value, allow_lookup=allow_lookup)
         if title:
             sanitized = _sanitize_filename(title)
             if sanitized:

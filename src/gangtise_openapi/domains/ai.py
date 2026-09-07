@@ -30,6 +30,16 @@ _HOT_TOPIC_DEFAULT_CATEGORIES = [
 ]
 
 
+# Local ceiling on codes per ``ai.stock_summary_list`` call. The API documents 6000,
+# but a request of about 5042 codes or more comes back as ``{total: 0, list: []}`` with
+# HTTP 200 and no error (CLI probed it 28 times on 2026-09-06: 5041 fine, 5042 empty;
+# bug/server-open.md S12, upstream P1-12) — an export that reads as "no security has
+# highlights". Refusing above 5000 turns that silent empty result into an explicit error
+# carrying the fix. Lift back to the documented limit once the server either errors on,
+# or serves, larger batches.
+STOCK_SUMMARY_MAX_SECURITIES = 5000
+
+
 class AI:
     """`gangtise.ai.*` — AI-generated insights and structured outputs."""
 
@@ -89,6 +99,9 @@ class AI:
         """查询 AI 证券线索列表（ai.security-clue.list）。
 
         query_mode 取值: bySecurity=按证券, byIndustry=按行业。
+
+        ⚠️ **gts_code 服务端要求非空**（缺省报 `410120 gtsCodeList不能为空`），签名上虽是
+        可选，实际每次调用都要给：bySecurity 传证券代码，byIndustry 传行业码。
         """
         body = _request_body(
             {
@@ -116,8 +129,9 @@ class AI:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
 
-        security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 6000 个;
-        支持单值或列表。
+        security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 5000 个;
+        支持单值或列表。接口文档写 6000, 但约 5042 个起服务端返回空列表且不报错
+        (HTTP 200), 所以本地卡在 5000, 超过请自行分批。
 
         ⚠️ 服务端 2026-08-14 起**移除了全市场批量能力**: aShares / hkStocks 等市场关键词
         不再返回全市场。本接口按 **3 积分/条**计费, 所以关键词在发请求前就被本地拦下——
@@ -128,6 +142,14 @@ class AI:
             raise ValidationError(
                 "security is required: pass explicit security code(s) — this endpoint no "
                 "longer supports whole-market keywords"
+            )
+        if len(securities) > STOCK_SUMMARY_MAX_SECURITIES:
+            raise ValidationError(
+                f"ai stock_summary_list: {len(securities)} securities in one call — the "
+                "server answers batches above about 5040 with an empty list (HTTP 200, no "
+                f"error), so the SDK stops at {STOCK_SUMMARY_MAX_SECURITIES}. Split the "
+                f"codes into batches of at most {STOCK_SUMMARY_MAX_SECURITIES} and make one "
+                "call per batch."
             )
         check_market_keywords(securities, NO_MARKET_KEYWORDS, "ai stock_summary_list")
         body = {"securityList": securities}
@@ -439,6 +461,9 @@ class AsyncAI:
         """查询 AI 证券线索列表（ai.security-clue.list）。
 
         query_mode 取值: bySecurity=按证券, byIndustry=按行业。
+
+        ⚠️ **gts_code 服务端要求非空**（缺省报 `410120 gtsCodeList不能为空`），签名上虽是
+        可选，实际每次调用都要给：bySecurity 传证券代码，byIndustry 传行业码。
         """
         body = _request_body(
             {
@@ -464,8 +489,9 @@ class AsyncAI:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询个股看点, 每只证券的精炼研究摘要（ai.stock-summary.list）。
 
-        security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 6000 个;
-        支持单值或列表。
+        security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 5000 个;
+        支持单值或列表。接口文档写 6000, 但约 5042 个起服务端返回空列表且不报错
+        (HTTP 200), 所以本地卡在 5000, 超过请自行分批。
 
         ⚠️ 服务端 2026-08-14 起**移除了全市场批量能力**: aShares / hkStocks 等市场关键词
         不再返回全市场。本接口按 **3 积分/条**计费, 所以关键词在发请求前就被本地拦下——
@@ -476,6 +502,14 @@ class AsyncAI:
             raise ValidationError(
                 "security is required: pass explicit security code(s) — this endpoint no "
                 "longer supports whole-market keywords"
+            )
+        if len(securities) > STOCK_SUMMARY_MAX_SECURITIES:
+            raise ValidationError(
+                f"ai stock_summary_list: {len(securities)} securities in one call — the "
+                "server answers batches above about 5040 with an empty list (HTTP 200, no "
+                f"error), so the SDK stops at {STOCK_SUMMARY_MAX_SECURITIES}. Split the "
+                f"codes into batches of at most {STOCK_SUMMARY_MAX_SECURITIES} and make one "
+                "call per batch."
             )
         check_market_keywords(securities, NO_MARKET_KEYWORDS, "ai stock_summary_list")
         body = {"securityList": securities}

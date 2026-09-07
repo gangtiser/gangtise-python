@@ -31,7 +31,7 @@ def main():
             date="2026-08-07",
             expression="F1 >= 500 && F2 <= 30",  # 支持 && || 与括号
             indicator={"F1": "qte_mkt_cptl", "F2": "finc_pe_ttm"},
-            security="1234567890",  # 板块 ID: 服务端展开成成分股
+            security="1000000316",  # 板块 ID（中信行业·银行）: 服务端展开成成分股; 用 reference.sector_search() 查
             indicator_param={"F1": {"scale": "8"}},  # 按变量索引（不是按 code）: 8=亿
             key_by="code",  # 列头来源: name=服务端显示名（默认） code=indicatorCode
         ),
@@ -44,7 +44,10 @@ def main():
             date="2026-08-07",
             expression="F1 contains '酒'",  # 也支持 notcontains
             indicator={"F1": "pty_op_scope"},
-            security="1234567890",
+            # pty_* 是静态属性指标, parameterList 里没有日期键, 注入的 tradeDate 会被
+            # 拒（100003）。空字典 = 按变量声明「这个指标不要查询日期」。
+            indicator_param={"F1": {}},
+            security="1000000316",
             raw=True,  # True=返回服务端原始 data, 不做矩阵摊平
         ),
         __file__,

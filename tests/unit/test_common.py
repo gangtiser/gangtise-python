@@ -68,8 +68,6 @@ def test_columnar_dataframe_falls_back(result: Any):
         {"fieldList": ["code"], "list": [[600519], [1913]]},
         {"fieldList": ["flag"], "list": [[True], [False]]},
         {"fieldList": ["s"], "list": [[""], [None]]},
-        # duplicate field names — fast path must decline so both dedup identically
-        {"fieldList": ["a", "a"], "list": [[1, 2], [3, 4]]},
         # fallback shapes
         {"fieldList": ["a"], "list": []},  # empty
         {"list": [{"x": 1}, {"x": 2}]},  # already dict rows
@@ -96,11 +94,31 @@ def test_ragged_row_raises_on_both_paths():
         _slow(ragged)
 
 
-def test_duplicate_fields_produce_single_deduped_column():
-    """Regression: duplicate fieldList must not leak two same-named columns."""
-    df = _result_to_dataframe({"fieldList": ["a", "a"], "list": [[1, 2], [3, 4]]})
-    assert list(df.columns) == ["a"]
-    assert df["a"].tolist() == [2, 4]  # dict last-wins semantics preserved
+def test_duplicate_fields_raise_on_both_paths():
+    """A repeated column name is refused, not silently collapsed (TS v0.38.0).
+
+    Both halves matter. The fast path must DECLINE (``pd.DataFrame(columns=fields)``
+    would happily emit two ``a`` columns), and the slow path must REFUSE — through
+    v0.3.1 it kept only the last value under the name (``[2, 4]``, the first column
+    gone), which is a wrong answer with no error attached.
+    """
+    dupes: Any = {"fieldList": ["a", "a"], "list": [[1, 2], [3, 4]]}
+    assert _columnar_dataframe(dupes) is None
+    with pytest.raises(ValidationError, match="重复列名"):
+        _result_to_dataframe(dupes)
+    with pytest.raises(ValidationError, match="重复列名"):
+        _slow(dupes)
+
+
+def test_array_rows_without_field_list_raise():
+    """Array rows have no column meaning without a fieldList; passing them through
+    rendered integer column names and read as a success (TS v0.38.0)."""
+    headerless: Any = {"list": [[1, 2], [3, 4]]}
+    assert _columnar_dataframe(headerless) is None
+    with pytest.raises(ValidationError, match="没有 fieldList"):
+        _result_to_dataframe(headerless)
+    with pytest.raises(ValidationError, match="没有 fieldList"):
+        _slow(headerless)
 
 
 def test_validate_top_accepts_range_and_rejects_out_of_range():
@@ -217,23 +235,32 @@ def test_request_body_normalizes_year_first_datetime(field, value, expected):
     assert _request_body({field: value}) == {field: expected}
 
 
-# Python's `$` also matches just BEFORE a trailing newline, so "2026-07-01\n" is a
-# match with `m.end() == 10 < len(value)`. `re.sub` leaves that newline in place, so
-# a tail slice that ran to the end of the string appended it a SECOND time and put
-# "2026-07-01\n\n" on the wire. Pinning 0.3.0 parity here: the trailing newline is
-# forwarded once, exactly as before. Rejecting it outright is the stricter option
-# and is tracked as bug/python-open.md P9 — it belongs in a minor, not a patch.
+# Python's `$` also matches just BEFORE a trailing newline, so "2026-07-01\n" cleared
+# validation and went to the server verbatim from 0.2.0 through 0.3.1. v0.4.0 anchors
+# every pattern with `\Z` and refuses it (bug/python-open.md P9 — a tightening, hence
+# the minor bump). The `_normalize_year_first` tail slice stays bounded by `m.end()`
+# regardless: that bound is what keeps the function correct for either anchor, and
+# without it the old `$` appended the newline a SECOND time ("2026-07-01\n\n").
 @pytest.mark.parametrize(
-    ("field", "value", "expected"),
+    ("field", "value"),
     [
-        ("date", "2026-07-01\n", "2026-07-01\n"),
-        ("date", "20260701\n", "2026-07-01\n"),
-        ("startTime", "2026/07/01 09:30\n", "2026-07-01 09:30\n"),
-        ("startTime", "2026-07-01T09:30:00\n", "2026-07-01T09:30:00\n"),
+        ("date", "2026-07-01\n"),
+        ("date", "20260701\n"),
+        ("startTime", "2026/07/01 09:30\n"),
+        ("startTime", "2026-07-01T09:30:00\n"),
     ],
 )
-def test_request_body_does_not_duplicate_a_trailing_newline(field, value, expected):
-    assert _request_body({field: value}) == {field: expected}
+def test_request_body_rejects_a_trailing_newline(field, value):
+    with pytest.raises(ValidationError):
+        _request_body({field: value})
+
+
+@pytest.mark.parametrize("value", ["1785513600\n", "1785513600000\n"])
+def test_to_timestamp13_rejects_a_trailing_newline_on_an_epoch(value):
+    # The two epoch patterns had the same lax `$`, so "1234567890\n" converted and
+    # was sent as a number built from a string the server never saw cleanly.
+    with pytest.raises(ValidationError):
+        _to_timestamp13(value, "start_time")
 
 
 @pytest.mark.parametrize("field", ["startTime", "endTime"])
@@ -452,42 +479,30 @@ def _under_tz(tz: str, snippet: str) -> str:
     return result.stdout.strip()
 
 
-@pytest.mark.parametrize(
-    ("tz", "value"),
-    [
-        ("America/New_York", "2026-03-08 02:30:00"),  # 1-hour spring-forward gap
-        ("Australia/Lord_Howe", "2026-10-04 02:15:00"),  # 30-minute gap
-    ],
-)
-def test_to_timestamp13_rejects_dst_gap(tz, value):
-    # Converting is not pass-through: this endpoint sends a NUMBER, so a wall clock
-    # the local zone skips has no faithful representation. datetime.timestamp()
-    # silently maps it to the far side of the gap (02:30 -> 03:30), which would
-    # query a different hour than the caller asked for. The 30-minute Lord Howe gap
-    # is why the check has to be minute-level, not hour-level.
+# The two converting endpoints define their windows in BEIJING time, so that is what
+# a wall-clock input anchors to — not the machine's zone (TS v0.38.0). Anchoring
+# locally made the same call query a different window depending on where it ran,
+# silently and with a plausible row count. These run in a subprocess because
+# `time.tzset` is unavailable in this CPython build.
+@pytest.mark.parametrize("tz", ["America/New_York", "Australia/Lord_Howe", "Asia/Shanghai", "UTC"])
+@pytest.mark.parametrize("value", ["2026-06-15 12:00:00", "2026-06-15", "2026-03-08 02:30:00"])
+def test_to_timestamp13_is_anchored_to_beijing_whatever_the_machine_zone(tz, value):
+    # The third value is 02:30 on a US spring-forward morning — a wall clock
+    # America/New_York SKIPS. Under the old local anchor it had no faithful epoch and
+    # was rejected; as a BEIJING instant it is an ordinary moment, and UTC+8 has no
+    # DST for it to fall into. Same for the 30-minute Lord Howe gap.
+    want = int(
+        dt.datetime.fromisoformat(value if " " in value else f"{value} 00:00:00")
+        .replace(tzinfo=dt.timezone(dt.timedelta(hours=8)))
+        .timestamp()
+        * 1000
+    )
     out = _under_tz(
         tz,
         "from gangtise_openapi.domains._common import _to_timestamp13\n"
-        "from gangtise_openapi._errors import ValidationError\n"
-        f"try:\n"
-        f"    print('GOT', _to_timestamp13({value!r}, 'start_time'))\n"
-        "except ValidationError:\n"
-        "    print('REJECTED')\n",
+        f"print(_to_timestamp13({value!r}, 'start_time'))\n",
     )
-    assert out == "REJECTED"
-
-
-@pytest.mark.parametrize("tz", ["America/New_York", "Australia/Lord_Howe", "Asia/Shanghai"])
-def test_to_timestamp13_keeps_working_outside_the_gap(tz):
-    out = _under_tz(
-        tz,
-        "import datetime as dt\n"
-        "from gangtise_openapi.domains._common import _to_timestamp13\n"
-        "want = int(dt.datetime(2026, 6, 15, 12, 0, 0).timestamp() * 1000)\n"
-        "got = _to_timestamp13('2026-06-15 12:00:00', 'start_time')\n"
-        "print('MATCH' if got == want else f'MISMATCH {got} != {want}')\n",
-    )
-    assert out == "MATCH"
+    assert out == str(want)
 
 
 def test_request_body_still_allows_dst_gap_on_passthrough_fields():

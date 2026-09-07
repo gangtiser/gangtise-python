@@ -405,3 +405,21 @@ async def test_async_cross_section_requires_both_axes(tmp_path):
             await AsyncIndicator(client).cross_section(
                 date="2025-01-02", indicator=[], security="600519.SH"
             )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["cross_section", "time_series"])
+async def test_async_indicator_param_referencing_an_unbound_code_is_refused(tmp_path, method):
+    kwargs = (
+        {"start_date": "2026-01-01", "end_date": "2026-01-31"}
+        if method == "time_series"
+        else {"date": "2026-01-05"}
+    )
+    async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+        with pytest.raises(ValidationError, match="is not in indicator="):
+            await getattr(AsyncIndicator(client), method)(
+                indicator="is_op_rev",
+                security="600519.SH",
+                indicator_param={"is_op_rve": {"reportDate": "2025-06-30"}},
+                **kwargs,
+            )

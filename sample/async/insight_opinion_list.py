@@ -35,7 +35,6 @@ async def main():
     show_result(
         await gangtise.async_.insight.opinion_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            source=["research"],  # 来源, 支持单值或列表（字符串）
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

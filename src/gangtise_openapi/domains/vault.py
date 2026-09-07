@@ -170,6 +170,8 @@ class Vault:
         category 消息类型: text/image/documents/url; tag 标签: roadShow=路演,
         research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
         industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
+        industry 只收中信码 (1008001xx); 申万码与未知值被接口以 100005 拒绝
+        (2026-09 起——此前是静默忽略并返回未过滤的全量, 那更危险)。
         """
         body = _request_body(
             {
@@ -255,10 +257,13 @@ class Vault:
         *,
         file_id: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载网盘文件（vault.drive.download）。
 
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -266,7 +271,7 @@ class Vault:
             query={"fileId": file_id},
             output=output,
             fallback_name=f"file-{file_id}",
-            title_lookup=("vault.drive.list", "fileId", file_id),
+            title_lookup=("vault.drive.list", "fileId", file_id, resolve_title),
         )
 
     def record_download(
@@ -275,11 +280,14 @@ class Vault:
         record_id: str,
         content_type: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载录音转写文件（vault.record.download）。
 
         content_type 取值: original=原始音频, asr=语音转写, summary=纪要。
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -287,7 +295,7 @@ class Vault:
             query={"recordId": record_id, "contentType": content_type},
             output=output,
             fallback_name=f"record-{record_id}-{content_type}",
-            title_lookup=("vault.record.list", "recordId", record_id),
+            title_lookup=("vault.record.list", "recordId", record_id, resolve_title),
         )
 
     def my_conference_download(
@@ -296,11 +304,14 @@ class Vault:
         conference_id: str,
         content_type: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载会议资源文件（vault.my-conference.download）。
 
         content_type 取值: asr=语音转写, summary=纪要。
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return download_to_path(
             client=self._client,
@@ -308,7 +319,7 @@ class Vault:
             query={"conferenceId": conference_id, "contentType": content_type},
             output=output,
             fallback_name=f"conference-{conference_id}-{content_type}",
-            title_lookup=("vault.my-conference.list", "conferenceId", conference_id),
+            title_lookup=("vault.my-conference.list", "conferenceId", conference_id, resolve_title),
         )
 
 
@@ -462,6 +473,8 @@ class AsyncVault:
         category 消息类型: text/image/documents/url; tag 标签: roadShow=路演,
         research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
         industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
+        industry 只收中信码 (1008001xx); 申万码与未知值被接口以 100005 拒绝
+        (2026-09 起——此前是静默忽略并返回未过滤的全量, 那更危险)。
         """
         body = _request_body(
             {
@@ -544,10 +557,13 @@ class AsyncVault:
         *,
         file_id: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载网盘文件（vault.drive.download）。
 
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -555,7 +571,7 @@ class AsyncVault:
             query={"fileId": file_id},
             output=output,
             fallback_name=f"file-{file_id}",
-            title_lookup=("vault.drive.list", "fileId", file_id),
+            title_lookup=("vault.drive.list", "fileId", file_id, resolve_title),
         )
 
     async def record_download(
@@ -564,11 +580,14 @@ class AsyncVault:
         record_id: str,
         content_type: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载录音转写文件（vault.record.download）。
 
         content_type 取值: original=原始音频, asr=语音转写, summary=纪要。
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -576,7 +595,7 @@ class AsyncVault:
             query={"recordId": record_id, "contentType": content_type},
             output=output,
             fallback_name=f"record-{record_id}-{content_type}",
-            title_lookup=("vault.record.list", "recordId", record_id),
+            title_lookup=("vault.record.list", "recordId", record_id, resolve_title),
         )
 
     async def my_conference_download(
@@ -585,11 +604,14 @@ class AsyncVault:
         conference_id: str,
         content_type: str,
         output: str | Path | None = None,
+        resolve_title: bool = False,
     ) -> Path:
         """下载会议资源文件（vault.my-conference.download）。
 
         content_type 取值: asr=语音转写, summary=纪要。
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
+
+        resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
         """
         return await download_to_path_async(
             client=self._client,
@@ -597,5 +619,5 @@ class AsyncVault:
             query={"conferenceId": conference_id, "contentType": content_type},
             output=output,
             fallback_name=f"conference-{conference_id}-{content_type}",
-            title_lookup=("vault.my-conference.list", "conferenceId", conference_id),
+            title_lookup=("vault.my-conference.list", "conferenceId", conference_id, resolve_title),
         )

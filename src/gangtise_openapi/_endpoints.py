@@ -59,6 +59,15 @@ class EndpointDef:
     # it ignores it — so a typo would silently fetch the default format
     # (TS v0.32.0 made this a required field of the download spec).
     file_types: tuple[int, ...] = ()
+    # "list": every successful answer is ``{..., "list": [...]}`` — an empty range
+    # comes back as ``{"total": 0, "list": []}`` (CLI probed all seven quote
+    # endpoints 2026-09-05) — so a payload without a ``list`` array (``data: null``,
+    # a bare object) is a BROKEN response, not an empty one. Checked in the
+    # transport, where the envelope's traceId is still in hand: ``None`` has nowhere
+    # to carry it, so a check further downstream would report the failure
+    # trace-less, and the normalizers would hand back ``None`` as a success
+    # (TS v0.38.0 ``expects``).
+    expects: Literal["list"] | None = None
 
 
 def _ep(
@@ -73,6 +82,7 @@ def _ep(
     timeout_ms: int | None = None,
     big_int_fields: tuple[str, ...] = (),
     file_types: tuple[int, ...] = (),
+    expects: Literal["list"] | None = None,
 ) -> EndpointDef:
     return EndpointDef(
         key=key,
@@ -85,6 +95,7 @@ def _ep(
         timeout_ms=timeout_ms,
         big_int_fields=big_int_fields,
         file_types=file_types,
+        expects=expects,
     )
 
 
@@ -391,42 +402,49 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-quote/kline/daily",
         "Query A-share historical daily kline (SH/SZ/BJ)",
+        expects="list",
     ),
     "quote.day-kline-hk": _ep(
         "quote.day-kline-hk",
         "POST",
         "/application/open-quote/kline-hk/daily",
         "Query HK stock historical daily kline (HK)",
+        expects="list",
     ),
     "quote.day-kline-us": _ep(
         "quote.day-kline-us",
         "POST",
         "/application/open-quote/kline-us/daily",
         "Query US stock historical daily kline (NYSE/NASDAQ/AMEX)",
+        expects="list",
     ),
     "quote.index-day-kline": _ep(
         "quote.index-day-kline",
         "POST",
         "/application/open-quote/index/kline/daily",
         "Query SH/SZ/BJ index daily kline",
+        expects="list",
     ),
     "quote.minute-kline": _ep(
         "quote.minute-kline",
         "POST",
         "/application/open-quote/kline/minute",
         "Query A-share minute kline (SH/SZ/BJ)",
+        expects="list",
     ),
     "quote.realtime": _ep(
         "quote.realtime",
         "POST",
         "/application/open-quote/quote/realtime",
         "Query realtime quote snapshot (A-share / HK / US)",
+        expects="list",
     ),
     "quote.fund-flow": _ep(
         "quote.fund-flow",
         "POST",
         "/application/open-quote/fund-flow/daily",
         "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
+        expects="list",
     ),
     # ─── fundamental ───
     "fundamental.income-statement": _ep(

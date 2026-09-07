@@ -47,18 +47,30 @@ def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
 # The three year-FIRST layouts (``YYYY-MM-DD`` / ``YYYY/MM/DD`` / ``YYYYMMDD``),
 # all normalized to ``YYYY-MM-DD`` before the request goes out. The backreference
 # keeps the separator consistent, so ``2026-07/01`` is a typo, not a date.
-_YEAR_FIRST_DATE = re.compile(r"^(\d{4})([-/]?)(\d{2})\2(\d{2})$", re.ASCII)
+#
+# 🔴 Every pattern here ends with ``\Z``, never ``$``. Python's ``$`` also matches
+# just BEFORE a trailing newline, so ``"2026-07-01\n"`` and ``"1234567890\n"``
+# cleared validation and were forwarded verbatim from 0.2.0 through 0.3.1 (v0.4.0
+# rejects them — bug/closed.md P9). ``\Z`` is end-of-string, full stop.
+_YEAR_FIRST_DATE = re.compile(r"^(\d{4})([-/]?)(\d{2})\2(\d{2})\Z", re.ASCII)
 # Same, plus an optional `` HH:mm[:ss]`` / ``THH:mm[:ss]`` tail.
 _LOCAL_DATETIME = re.compile(
-    r"^(\d{4})([-/]?)(\d{2})\2(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$", re.ASCII
+    r"^(\d{4})([-/]?)(\d{2})\2(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?\Z", re.ASCII
 )
-_EPOCH_SECONDS = re.compile(r"^\d{10}$", re.ASCII)
-_EPOCH_MILLIS = re.compile(r"^\d{13}$", re.ASCII)
+_EPOCH_SECONDS = re.compile(r"^\d{10}\Z", re.ASCII)
+_EPOCH_MILLIS = re.compile(r"^\d{13}\Z", re.ASCII)
 # Same shape plus a mandatory UTC offset. Accepted only by ``_to_timestamp13``.
 _OFFSET_DATETIME = re.compile(
-    r"^(\d{4})([-/]?)(\d{2})\2(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|z|[+-]\d{2}:?\d{2})$",
+    r"^(\d{4})([-/]?)(\d{2})\2(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?(Z|z|[+-]\d{2}:?\d{2})\Z",
     re.ASCII,
 )
+
+# Beijing time (UTC+8). The two endpoints taking epoch millis (the A-share
+# ``insight.announcement_list`` and ``ai.knowledge_batch``) define their windows in
+# Beijing time, like every date this API reads — so a wall-clock input is anchored
+# there rather than to the machine's zone, and "2026-08-01" is the same instant on a
+# UTC CI runner and a CST laptop (TS v0.38.0).
+_BEIJING = dt.timezone(dt.timedelta(hours=8))
 
 # Shared by every message below: says what IS accepted, and why year-last is not.
 _DATE_LAYOUT_HINT = (
@@ -75,14 +87,12 @@ def _normalize_year_first(value: str) -> str:
     ``"2026-07-01 09:30:00"`` with the time part untouched — the pass-through
     endpoints echo it verbatim and accept both the space and ``T`` separators.
 
-    🔴 The tail slice is bounded by ``m.end()``, NOT by the end of the string, and
-    the two are not always the same: Python's ``$`` also matches just BEFORE a
-    trailing newline, so ``"2026-07-01\\n"`` matches with ``m.end() == 10 < len``.
-    ``re.sub`` only replaces ``m.start()..m.end()``, leaving that newline in place —
-    an unbounded slice would append it a second time and send ``"2026-07-01\\n\\n"``.
-    (The lax ``$`` is pre-existing and deliberately left alone here; tightening it to
-    ``\\Z`` rejects input 0.3.0 forwarded, which is a minor-version change — tracked
-    as bug/python-open.md P9.)
+    🔴 The tail slice is bounded by ``m.end()``, NOT by the end of the string. Since
+    v0.4.0 the patterns anchor with ``\\Z`` so the two coincide, but keep the bound:
+    under the old ``$`` a trailing newline matched with ``m.end() == 10 < len``, and
+    an unbounded slice appended it a second time (``"2026-07-01\\n\\n"``). The bound is
+    what makes this function correct for ANY anchor, and reverting the anchor without
+    it would silently re-open that. See bug/closed.md P9.
     """
     return _LOCAL_DATETIME.sub(
         lambda m: f"{m[1]}-{m[3]}-{m[4]}{value[m.end(4) : m.end()]}", value, count=1
@@ -249,10 +259,16 @@ def _to_timestamp13(value: Any, name: str) -> int | None:
     (``ai.knowledge_batch``, the A-share ``insight.announcement_list``) rather than
     a string the server parses itself.
 
-    A date-only string anchors to LOCAL midnight so ``"2026-01-01"`` and
-    ``"2026-01-01 00:00:00"`` mean the same wall-clock day (``datetime`` would read
-    the first as UTC and the second as local — 8 hours apart for CST users). An
-    explicit UTC offset is also accepted here and nowhere else — see
+    A wall-clock input anchors to **Beijing time (UTC+8)**, not to the machine's
+    zone: these windows are defined in Beijing time like every other date the API
+    reads, so ``"2026-08-01"`` has to mean the same instant on a UTC CI runner and on
+    a CST laptop. Anchoring locally made the same call query a different window
+    depending on where it ran — silently, with a plausible row count (TS v0.38.0).
+
+    A date-only string is midnight of that Beijing day, so ``"2026-01-01"`` and
+    ``"2026-01-01 00:00:00"`` mean the same moment. A fixed offset also removes the
+    DST-gap case the local anchor had to reject (UTC+8 has no DST). An explicit UTC
+    offset is still accepted here and nowhere else — see
     :func:`_offset_datetime_to_millis`.
     """
     if value is None:
@@ -272,24 +288,22 @@ def _to_timestamp13(value: Any, name: str) -> int | None:
             parts = _LOCAL_DATETIME.match(text)
             assert parts is not None  # _datetime_fields_valid already matched
             year, _sep, month, day, hh, mm, ss = parts.groups()
+            # ``_datetime_fields_valid`` already checked the calendar day and the
+            # clock time, and a FIXED offset has no gap to fall into, so nothing can
+            # roll over or resolve to a different hour. That is also why the
+            # local-zone DST round-trip this used to carry is gone: it existed only
+            # because the anchor was the machine's zone, where 02:30 on a US
+            # spring-forward morning is not a real instant. UTC+8 has no DST.
             moment = dt.datetime(
-                int(year), int(month), int(day), int(hh or 0), int(mm or 0), int(ss or 0)
+                int(year),
+                int(month),
+                int(day),
+                int(hh or 0),
+                int(mm or 0),
+                int(ss or 0),
+                tzinfo=_BEIJING,
             )
-            millis = int(moment.timestamp() * 1000)
-            # Round-trip every field: a wall clock the local zone SKIPS (02:30 on a
-            # US spring-forward morning, 02:15 in Lord Howe's 30-minute gap) has no
-            # faithful epoch, and ``timestamp()`` silently resolves it to the far
-            # side of the gap — querying a different hour than was asked for. The
-            # pass-through fields accept such a string on purpose (the server
-            # resolves it in its own zone); converting here does not have that out.
-            # Minute-level because Lord Howe's gap is half an hour.
-            if dt.datetime.fromtimestamp(millis / 1000) != moment:
-                raise ValidationError(
-                    f"invalid {name}: {value!r} does not exist in the local timezone "
-                    "(a daylight-saving gap) — it cannot be converted to a timestamp "
-                    "faithfully; pass an explicit UTC offset or an epoch instead"
-                )
-            return millis
+            return int(moment.timestamp() * 1000)
     raise ValidationError(
         f"invalid {name}: expected a 10/13-digit Unix timestamp or "
         f'"YYYY-MM-DD" optionally with " HH:mm[:ss]" (space or T separator), got {value!r}'
@@ -345,12 +359,14 @@ def _columnar_dataframe(result: Any) -> pd.DataFrame | None:
     K-line / financial-statement scale. Returns ``None`` for any other shape (dict
     rows, ragged rows, missing / non-string ``fieldList``, **duplicate** field names,
     empty ``list``) so the caller falls back to the normalize path, whose output is
-    identical for those cases.
+    identical for those cases — or, for the two broken ones, whose REFUSAL is the
+    output.
 
-    The duplicate-name guard matters: ``normalize_rows`` builds a dict per row, so a
-    repeated field collapses to its last value (one column); ``pd.DataFrame(rows,
-    columns=fields)`` would instead emit two same-named columns. Falling back keeps
-    the two paths equivalent. Mirrors the guard in quote's ``_kline_dataframe``.
+    The duplicate-name guard matters: ``pd.DataFrame(rows, columns=fields)`` would
+    emit two same-named columns for a repeated field, while ``normalize_rows`` now
+    refuses the payload outright (v0.4.0 — it used to collapse the pair to its last
+    value). Declining here is what routes such a response to that refusal instead of
+    quietly building a frame. Mirrors the guard in quote's ``_kline_dataframe``.
     """
     if not isinstance(result, dict):
         return None

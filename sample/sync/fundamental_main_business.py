@@ -36,7 +36,11 @@ def main():
             security_code="600519.SH",
             breakdown="region",  # region=按地区拆分
             period=["interim", "annual"],  # 支持单值或列表
-            field=["name", "revenue", "revenueRatio"],  # 返回字段, 支持单值或列表; 省略则用默认字段
+            field=[
+                "categoryName",
+                "opRevenue",
+                "opRevenueRatio",
+            ],  # 返回字段; 分类名是 categoryName
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

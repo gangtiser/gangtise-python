@@ -11,6 +11,11 @@ import pandas as pd
 from gangtise_openapi._errors import ValidationError
 
 
+def _trace_suffix(source: Any) -> str:
+    carried = getattr(source, "envelope_trace_id", None)
+    return f"（trace {carried}）" if isinstance(carried, str) else ""
+
+
 def zip_field_row(fields: Sequence[Any], row: Sequence[Any], source: Any = None) -> dict[str, Any]:
     """Zip one columnar row against ``fieldList``, refusing a length mismatch.
 
@@ -39,8 +44,6 @@ def zip_field_row(fields: Sequence[Any], row: Sequence[Any], source: Any = None)
     still use the helper.
     """
     if len(row) != len(fields):
-        carried = getattr(source, "envelope_trace_id", None)
-        trace = f"（trace {carried}）" if isinstance(carried, str) else ""
         raise ValidationError(
             f"响应字段数与 fieldList 不匹配（fieldList {len(fields)} 项、该行返回 "
             f"{len(row)} 个值）——按位置拍平会把值贴到错误的字段上，已拒绝输出。"
@@ -48,9 +51,58 @@ def zip_field_row(fields: Sequence[Any], row: Sequence[Any], source: Any = None)
             "字段名却按请求回显）：核对 field 取值（如 quote.realtime 没有 close，"
             "最新价是 latestPrice），不确定就别传 field（返回全量字段最稳）。"
             "没有 field 参数的方法（如 alternative.edb_data）出现此错，"
-            "是上游响应结构异常，请报障。" + trace
+            "是上游响应结构异常，请报障。" + _trace_suffix(source)
         )
     return {str(field): row[idx] for idx, field in enumerate(fields)}
+
+
+def columnar_schema_valid(fields: Sequence[Any] | None, rows: Sequence[Any]) -> bool:
+    """Whether ``rows`` can be read positionally: ``fields`` exists, its names are
+    unique, and every array row is exactly as wide as it. Object rows carry their
+    own keys and are not judged here.
+
+    The merge paths (shard fan-out, per-security fan-out) use this to decide that a
+    part is structurally broken instead of padding it, truncating it, or reading it
+    under another part's header (TS v0.38.0 ``columnarSchemaValid``).
+    """
+    if not fields:
+        return False
+    names = [str(field) for field in fields]
+    if len(set(names)) != len(names):
+        return False
+    return all(len(row) == len(names) for row in rows if isinstance(row, list))
+
+
+def assert_columnar_header(fields: Sequence[Any] | None, source: Any = None) -> None:
+    """Refuse array rows that have no usable header.
+
+    Two failures, both silent without this check (TS v0.38.0 ``assertColumnarHeader``):
+
+    * **No ``fieldList``** — array rows can only be read through one. Passing them
+      through as-is renders integer column names and reads as a success.
+    * **Duplicate names** — positional zipping keeps only the LAST value under a
+      repeated name, so ``close: 10`` and ``close: 999`` collapse to ``close: 999``
+      with no error. Refused for the same reason :func:`zip_field_row` refuses a
+      width mismatch, and so that the fan-out merges (which already apply this rule
+      per part) and the single-request path agree.
+    """
+    if not fields:
+        raise ValidationError(
+            "响应包含数组形式的行但没有 fieldList，无法确定各列的含义，已拒绝输出。"
+            "这是上游响应结构异常，请报障。" + _trace_suffix(source)
+        )
+    names = [str(field) for field in fields]
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for name in names:
+        if name in seen and name not in dupes:
+            dupes.append(name)
+        seen.add(name)
+    if dupes:
+        raise ValidationError(
+            f"响应 fieldList 有重复列名（{'、'.join(dupes)}）——按位置拍平时后一列会覆盖"
+            "前一列，已拒绝输出。这是上游响应结构异常，请报障。" + _trace_suffix(source)
+        )
 
 
 def normalize_rows(payload: Any) -> Any:
@@ -80,6 +132,8 @@ def normalize_rows(payload: Any) -> Any:
 
     # Case 1: columnar matrix — transpose each array row against ``fieldList``.
     if isinstance(field_list, list) and isinstance(list_val, list):
+        if any(isinstance(row, list) for row in list_val):
+            assert_columnar_header(field_list, payload)
         normalized: list[Any] = [
             zip_field_row(field_list, row, payload) if isinstance(row, list) else row
             for row in list_val
@@ -89,6 +143,8 @@ def normalize_rows(payload: Any) -> Any:
 
     # Case 2: already a list of objects.
     if isinstance(list_val, list):
+        if any(isinstance(row, list) for row in list_val):
+            assert_columnar_header(None, payload)
         meta = {k: v for k, v in payload.items() if k != "list"}
         return {**meta, "list": list_val} if meta else list_val
 

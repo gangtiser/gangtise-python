@@ -326,3 +326,81 @@ def test_total_cap_probe_still_runs_on_a_normal_billed_endpoint():
     with pytest.warns(UserWarning, match="server-side cap"):
         out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
     assert out["totalCapped"] is True
+
+
+# ─── v0.4.0 (TS v0.38.0): later-page partial + the late-`from` total-cap probe ───
+
+
+def test_a_later_page_reporting_itself_partial_keeps_the_merged_result_partial():
+    """Only the FIRST page's metadata is spread into the merged result, so a later
+    page's own `partial` marker would otherwise be dropped and the merge would read
+    as complete."""
+
+    def fetch(body):
+        page = {"total": 100, "list": [{"i": body["from"]}] * min(50, 100 - body["from"])}
+        if body["from"] == 50:
+            page["partial"] = True
+        return page
+
+    with pytest.warns(UserWarning, match="a later page reported itself partial"):
+        out = collect_paginated(_ep(), body={}, fetch=fetch, concurrency=2)
+    assert out["partial"] is True
+
+
+def test_fetch_all_starting_inside_the_last_page_still_probes_for_a_capped_total():
+    """A fetch-all that STARTS inside the last page (from=9950 against total=10000)
+    returns through the first-page-complete exit, and used to get there without ever
+    checking whether `total` was a server-side cap — the worst failure mode there is,
+    since the endpoints observed doing this bill 30 credits/row."""
+    seen: list[tuple[int, int]] = []
+
+    def fetch(body):
+        seen.append((body["from"], body["size"]))
+        if body["from"] == 100:  # the probe: one row past the claimed end
+            return {"total": 100, "list": [{"i": "past-the-end"}]}
+        # A FULL page. A SHORT one exits through the short-first-page branch instead,
+        # so the page has to fill `size` for this exit to be the one under test.
+        return {"total": 100, "list": [{"i": 1}] * 50}
+
+    with pytest.warns(UserWarning, match="'total' is a server-side cap"):
+        out = collect_paginated(_ep(), body={"from": 60}, fetch=fetch, concurrency=2)
+    assert (100, 1) in seen
+    assert out["partial"] is True
+    assert out["totalCapped"] is True
+
+
+def test_a_result_that_fits_one_page_from_offset_zero_spends_no_probe():
+    # `total > first_page_size` keeps the request count unchanged for the ordinary
+    # case: only a late `from` can land in that exit with a bigger total.
+    seen: list[tuple[int, int]] = []
+
+    def fetch(body):
+        seen.append((body["from"], body["size"]))
+        return {"total": 50, "list": [{"i": 1}] * 50}
+
+    collect_paginated(_ep(), body={}, fetch=fetch, concurrency=2)
+    assert seen == [(0, 50)]
+
+
+def test_a_failed_probe_never_fails_an_otherwise_complete_fetch():
+    def fetch(body):
+        if body["from"] == 100:
+            raise ApiError("903301 rate limited")
+        return {"total": 100, "list": [{"i": 1}] * 50}
+
+    out = collect_paginated(_ep(), body={"from": 60}, fetch=fetch, concurrency=2)
+    assert "partial" not in out
+    assert len(out["list"]) == 50
+
+
+def test_a_partial_marker_on_the_first_page_is_announced():
+    """The first page's own marker survives into the merged result but used to do so
+    silently — only LATER pages were checked."""
+    with pytest.warns(UserWarning, match="marked this response partial"):
+        out = collect_paginated(
+            _ep(),
+            body={},
+            fetch=lambda _b: {"total": 3, "list": [1, 2, 3], "partial": True},
+            concurrency=1,
+        )
+    assert out["partial"] is True

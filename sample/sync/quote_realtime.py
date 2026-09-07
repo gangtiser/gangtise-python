@@ -25,7 +25,12 @@ def main():
     show_result(
         gangtise.quote.realtime(
             security=["000001.SZ", "00700.HK", "AAPL.O"],  # A 股 / 港股 / 美股混合, 支持单值或列表
-            field=["securityCode", "securityName", "price", "changeRatio", "volume"],  # 返回字段
+            field=[
+                "securityCode",
+                "latestPrice",
+                "pctChange",
+                "volume",
+            ],  # 返回字段（最新价是 latestPrice, 涨跌幅是 pctChange）
         ),
         __file__,
     )

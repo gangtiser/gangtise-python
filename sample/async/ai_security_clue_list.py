@@ -20,6 +20,7 @@ async def main():
             start_time="2026-05-01",  # 起始时间(必填)
             end_time="2026-05-28",  # 结束时间(必填)
             query_mode="bySecurity",  # 查询模式: bySecurity=按证券, byIndustry=按行业
+            gts_code=["000001.SZ"],  # 服务端要求非空, 缺省会报 410120
             size=5,  # 分页大小; 省略则按最大页 500 自动翻页
         ),
         __file__,
@@ -45,6 +46,7 @@ async def main():
             start_time="2026-05-01",
             end_time="2026-05-28",
             query_mode="byIndustry",  # byIndustry=按行业聚合线索
+            gts_code=["104110000"],  # 按行业时传行业码; 该字段服务端要求非空
             size=5,
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),

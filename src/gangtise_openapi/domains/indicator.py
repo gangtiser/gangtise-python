@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -140,12 +141,13 @@ def _wants_injected_date(
     ``_request_body`` → ``_strip_none`` does for every optional kwarg. This is the
     same convention one level down, which is why it beats inventing a sentinel.
 
-    ⚠️ **Known blind spot**: a MISSPELLED key is silently inert —
+    ⚠️ **Known blind spot**: a misspelled PARAM KEY is silently inert —
     ``{"tradDate": None}`` neither suppresses nor errors, and the injection happens
     as usual. Param keys are per-indicator (whatever ``parameterList`` declares),
     so there is no local whitelist to check against; the server treats a
     misspelled param name the same way. Recorded rather than fixed — see
-    bug/python-open.md P6.
+    bug/python-open.md P6. (A misspelled INDICATOR CODE — the outer key — IS caught:
+    see :func:`_assert_param_codes_bound`.)
     """
     if any(p["paramKey"] in _DATE_PARAM_KEYS for p in group["parameters"]):
         return False
@@ -153,6 +155,36 @@ def _wants_injected_date(
     if marker is None:
         return True
     return marker != {} and "tradeDate" not in marker
+
+
+def _assert_param_codes_bound(spec: dict[str, dict[str, Any]] | None, codes: Sequence[str]) -> None:
+    """Every ``indicator_param`` key must name an indicator that ``indicator`` lists.
+
+    The screener has enforced the equivalent since it shipped
+    (:func:`check_screener_bindings` rejects a param for an unbound ``F<n>``);
+    ``cross_section`` and ``time_series`` did not, so a mistyped code went out as a
+    parameter group for an indicator that was never queried::
+
+        indicator="is_op_rev", indicator_param={"is_op_rve": {"reportDate": "..."}}
+        → indicatorCodeList: ["is_op_rev"],  indicatorParamList: [{"is_op_rve", …}]
+
+    On ``time_series`` that is silent end to end — nothing there injects a date, so
+    no conflict ever exposes it and the parameters the caller believes they set
+    simply never apply; the query runs on whatever the server defaults to. Mistyping
+    the SUPPRESSION marker (``{"<code>": {}}``) is worse still: the real indicator
+    keeps the injected ``tradeDate``, which is the exact thing the marker exists to
+    remove (TS v0.37.0 ``assertParamCodesBound``).
+    """
+    if not spec:
+        return
+    bound = set(codes)
+    for code in spec:
+        if code not in bound:
+            raise ValidationError(
+                f"indicator_param references {code!r}, which is not in indicator="
+                f"{list(codes)!r} — check the spelling; a parameter group for an "
+                "indicator that was never queried has no effect"
+            )
 
 
 def _with_query_date(
@@ -426,6 +458,7 @@ class Indicator:
         """
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
+        _assert_param_codes_bound(indicator_param, indicators)
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -468,6 +501,7 @@ class Indicator:
         """
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
+        _assert_param_codes_bound(indicator_param, indicators)
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -621,6 +655,7 @@ class AsyncIndicator:
         """
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
+        _assert_param_codes_bound(indicator_param, indicators)
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -663,6 +698,7 @@ class AsyncIndicator:
         """
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
+        _assert_param_codes_bound(indicator_param, indicators)
         body = _request_body(
             {
                 "indicatorCodeList": indicators,

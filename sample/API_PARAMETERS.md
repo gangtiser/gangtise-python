@@ -268,7 +268,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `keyword` | `str | None` | 否 | `None` | `"半导体"` | 搜索关键词，支持名称/拼音；可省略。结果的 sectorId 供 reference.sector_constituents 使用；同名板块可能出现在多个层级，用 hierarchy 字段区分。 |
+| `keyword` | `str \| None` | 否 | `None` | `"半导体"` | 搜索关键词，支持名称/拼音；可省略。结果的 sectorId 供 reference.sector_constituents 使用；同名板块可能出现在多个层级，用 hierarchy 字段区分。 |
 | `top` | `int` | 否 | `10` | `10` | 返回的最大候选数，上限 10。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -297,9 +297,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"AAPL.O"` | 美股证券代码或代码列表，例如 AAPL.O；部分行情接口也支持 all。 |
-| `start_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `limit` | `int | None` | 否 | `None` | `10` | 返回条数上限。 |
+| `start_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `limit` | `int \| None` | 否 | `None` | `10` | 返回条数上限。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -313,9 +313,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `start_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `limit` | `int | None` | 否 | `None` | `10` | 返回条数上限。 |
+| `start_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `limit` | `int \| None` | 否 | `None` | `10` | 返回条数上限。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -329,9 +329,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `start_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `limit` | `int | None` | 否 | `None` | `10` | 返回条数上限。 |
+| `start_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `limit` | `int \| None` | 否 | `None` | `10` | 返回条数上限。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -345,9 +345,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `start_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | dt.date | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `limit` | `int | None` | 否 | `None` | `10` | 返回条数上限。 |
+| `start_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| dt.date \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `limit` | `int \| None` | 否 | `None` | `10` | 返回条数上限。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -360,10 +360,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `security` | `str` | 是 | - | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `limit` | `int | None` | 否 | `None` | `10` | 返回条数上限。 |
+| `security` | `Any` | 是 | - | `"000001.SZ"` | 证券代码或代码列表。接口本身一次只收一只，传列表时 SDK 逐只并发请求再按传入顺序合并；某只填满 limit 会标 partial + truncatedSecurities。支持 ETF（512800.SH）与全球指数（SPX.SPI / N225.NKI / HSI.HI）；无全市场关键词。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `limit` | `int \| None` | 否 | `None` | `10` | 返回条数上限。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -409,19 +409,19 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `chief` | `Any` | 否 | `None` | `None` | 首席分析师过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
+| `industry` | `Any` | 否 | `None` | `104110000` | 申万行业 ID（104xx0000 形态），支持单值或列表。 |
 | `concept` | `Any` | 否 | `None` | `None` | 概念/主题过滤，支持单值或列表。 |
 | `llm_tag` | `Any` | 否 | `None` | `None` | LLM 标签过滤，支持单值或列表。 |
-| `source` | `Any` | 否 | `None` | `"research"` | 来源过滤，支持单值或列表；ai.security_clue_list 中请求字段为 source。 |
+| `source` | `Any` | 否 | `None` | `None` | 来源过滤；服务端未公开合法取值，实测常见字符串均报 100005，建议留空。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.summary_list`
@@ -434,18 +434,18 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `search_type` | `int` | 否 | `1` | `0` | 搜索类型代码。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `search_type` | `int` | 否 | `1` | `1` | 搜索类型代码。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `source` | `Any` | 否 | `None` | `"research"` | 来源过滤，支持单值或列表；ai.security_clue_list 中请求字段为 source。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall 业绩会 / strategyMeeting 策略会 / fundRoadshow 基金路演 / shareholdersMeeting 股东大会 / maMeeting 并购会议 / specialMeeting 特别会议 / companyAnalysis 公司分析 / industryAnalysis 行业分析 / other。 |
-| `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
+| `category` | `Any` | 否 | `None` | `"companyAnalysis"` | 纪要分类，例如 companyAnalysis / industryAnalysis / earningsCall；支持单值或列表。 |
+| `market` | `Any` | 否 | `None` | `"aShares"` | 市场过滤，取值 aShares / hkStocks / usStocks；交易所后缀（SH/SZ 等）会被拒为 100005。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -459,20 +459,19 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall / strategyMeeting / companyAnalysis / industryAnalysis / fundRoadshow。 |
-| `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
+| `category` | `Any` | 否 | `None` | `"earningsCall"` | 路演类型：earningsCall / strategyMeeting / fundRoadshow 等；支持单值或列表。 |
+| `market` | `Any` | 否 | `None` | `"aShares"` | 市场过滤，取值 aShares / hkStocks / usStocks；交易所后缀（SH/SZ 等）会被拒为 100005。 |
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
-| `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.site_visit_list`
@@ -485,20 +484,18 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 single 单场 / series 系列。 |
-| `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
-| `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
-| `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"single"` | 调研形式：single=单场 / series=系列；支持单值或列表。 |
+| `market` | `Any` | 否 | `None` | `"aShares"` | 市场过滤，取值 aShares / hkStocks / usStocks；交易所后缀（SH/SZ 等）会被拒为 100005。 |
 | `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.strategy_list`
@@ -511,20 +508,12 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表。 |
-| `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
-| `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
-| `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
-| `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
-| `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.forum_list`
@@ -537,20 +526,12 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
-| `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表。 |
-| `market` | `Any` | 否 | `None` | `"SH"` | 市场过滤，例如 SH、SZ、HK、US。 |
-| `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
-| `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
-| `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
-| `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 城市/省份 ID，支持单值或列表，映射为请求字段 locationList；用 reference.constant_list(category="domesticCity") 查询，如 156440000=广东省。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.research_list`
@@ -563,21 +544,21 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `search_type` | `int` | 否 | `1` | `0` | 搜索类型代码。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `search_type` | `int` | 否 | `1` | `1` | 搜索类型代码。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 macro / strategy / industry / company / bond / quant / morningNotes / fund / forex / futures / options / warrants / market / wealthManagement / other。 |
+| `industry` | `Any` | 否 | `None` | `104110000` | 申万行业 ID（104xx0000 形态），支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"strategy"` | 研报分类，例如 strategy / macro；支持单值或列表。 |
 | `llm_tag` | `Any` | 否 | `None` | `None` | LLM 标签过滤，支持单值或列表。 |
 | `rating` | `Any` | 否 | `None` | `None` | 评级过滤，支持单值或列表。 |
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
-| `min_pages` | `int | None` | 否 | `None` | `5` | 研报最小页数过滤。 |
-| `max_pages` | `int | None` | 否 | `None` | `50` | 研报最大页数过滤。 |
+| `min_pages` | `int \| None` | 否 | `None` | `5` | 研报最小页数过滤。 |
+| `max_pages` | `int \| None` | 否 | `None` | `50` | 研报最大页数过滤。 |
 | `source` | `Any` | 否 | `None` | `"research"` | 来源过滤，支持单值或列表；ai.security_clue_list 中请求字段为 source。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -591,22 +572,22 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `search_type` | `int` | 否 | `1` | `0` | 搜索类型代码。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `search_type` | `int` | 否 | `1` | `1` | 搜索类型代码。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `region` | `Any` | 否 | `None` | `"US"` | 区域过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 macro / strategy / industry / company / bond / quant / morningNotes / fund / forex / futures / options / warrants / market / wealthManagement / other。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
+| `region` | `Any` | 否 | `None` | `"us"` | 区域代码，本接口接受 regionCategory 的全部取值（含大写写法）；支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"strategy"` | 研报分类，例如 strategy / macro；支持单值或列表。 |
+| `industry` | `Any` | 否 | `None` | `104110000` | 申万行业 ID（104xx0000 形态），支持单值或列表。 |
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
 | `llm_tag` | `Any` | 否 | `None` | `None` | LLM 标签过滤，支持单值或列表。 |
 | `rating` | `Any` | 否 | `None` | `None` | 评级过滤，支持单值或列表。 |
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
-| `min_pages` | `int | None` | 否 | `None` | `5` | 研报最小页数过滤。 |
-| `max_pages` | `int | None` | 否 | `None` | `50` | 研报最大页数过滤。 |
+| `min_pages` | `int \| None` | 否 | `None` | `5` | 研报最小页数过滤。 |
+| `max_pages` | `int \| None` | 否 | `None` | `50` | 研报最大页数过滤。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.announcement_list`
@@ -619,15 +600,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `int | str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `int | str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `search_type` | `int` | 否 | `1` | `0` | 搜索类型代码。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `int \| str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `int \| str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `search_type` | `int` | 否 | `1` | `1` | 搜索类型代码。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `announcement_type` | `Any` | 否 | `None` | `None` | 公告类型过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 栏目 ID，支持单值或列表，常用 103910200 财务报告 / 103910201 业绩预告 / 103910700 股权股本。 |
+| `category` | `Any` | 否 | `None` | `"103910200"` | 公告分类 ID，用 reference.constant_list(category="aShareAnnouncementCategory") 查；支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.announcement_hk_list`
@@ -640,15 +620,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `search_type` | `int` | 否 | `1` | `0` | 搜索类型代码。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `search_type` | `int` | 否 | `1` | `1` | 搜索类型代码。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `announcement_type` | `Any` | 否 | `None` | `None` | 公告类型过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 港股公告类型 ID，支持单值或列表，见 reference.constant_list(category="hkShareAnnouncementCategory")。 |
+| `category` | `Any` | 否 | `None` | `"103910200"` | 公告分类 ID，用 reference.constant_list(category="hkShareAnnouncementCategory") 查；支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.announcement_us_list`
@@ -661,10 +640,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；省略则按 endpoint 最大页大小 50 自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"earnings"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；省略则按 endpoint 最大页大小 50 自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"earnings"` | 搜索关键词。 |
 | `search_type` | `int` | 否 | `1` | `2` | 搜索方式：1=标题（默认） 2=全文。 |
 | `rank_type` | `int` | 否 | `1` | `2` | 排序方式：1=综合（默认） 2=时间倒序。 |
 | `security` | `Any` | 否 | `None` | `"TSLA.O"` | 美股代码或代码列表，例如 TSLA.O。 |
@@ -681,14 +660,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `region` | `Any` | 否 | `None` | `"US"` | 区域过滤，支持单值或列表。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
+| `region` | `Any` | 否 | `None` | `"us"` | 区域代码，**小写**：cn / cnHk / cnTw / us / jp / uk；其余 regionCategory 取值在本接口报 100005。 |
+| `industry` | `Any` | 否 | `None` | `104110000` | 申万行业 ID（104xx0000 形态）；中信码在本接口报 100005。支持单值或列表。 |
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
 | `rating` | `Any` | 否 | `None` | `None` | 评级过滤，支持单值或列表。 |
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
@@ -704,13 +683,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `rank_type` | `int` | 否 | `1` | `0` | 排序方式代码。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `rank_type` | `int` | 否 | `1` | `1` | 排序方式代码。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
+| `industry` | `Any` | 否 | `None` | `104110000` | 申万行业 ID（104xx0000 形态）；中信码在本接口报 100005。支持单值或列表。 |
 | `rating` | `Any` | 否 | `None` | `None` | 评级过滤，支持单值或列表。 |
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -725,16 +704,16 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；省略则按 endpoint 最大页大小 50 自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"泡泡玛特"` | 搜索关键词；需用数据中的具体词，不能用整句白话。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；省略则按 endpoint 最大页大小 50 自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"泡泡玛特"` | 搜索关键词；需用数据中的具体词，不能用整句白话。 |
 | `search_type` | `int` | 否 | `1` | `2` | 搜索方式：1=标题（默认） 2=全文。 |
 | `rank_type` | `int` | 否 | `1` | `2` | 排序方式：1=综合（默认） 2=时间倒序。 |
 | `account_id` | `Any` | 否 | `None` | `None` | 公众号 ID 过滤，取自列表返回的 accountId 列，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，支持单值或列表。 |
 | `category` | `Any` | 否 | `None` | `"report"` | 文章类型，支持单值或列表，枚举：news/law/report/view/data/event/meeting/notice/recruit/investEdu/brand/notes/other。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID 过滤（中信/申万），支持单值或列表。 |
+| `industry` | `Any` | 否 | `None` | `104110000` | 行业 ID，申万码与中信码均可；支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.summary_download`
@@ -747,8 +726,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `summary_id` | `str` | 是 | - | `"<summaryId>"` | 纪要 ID，通常来自 insight.summary_list 返回结果。 |
-| `file_type` | `int | None` | 否 | `None` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `file_type` | `int \| None` | 否 | `None` | `1` | 文件类型代码；下载接口常用 1。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.research_download`
 
@@ -761,7 +741,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `report_id` | `str` | 是 | - | `"<reportId>"` | 研报 ID，通常来自 research/foreign_report 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.foreign_report_download`
 
@@ -774,7 +755,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `report_id` | `str` | 是 | - | `"<reportId>"` | 研报 ID，通常来自 research/foreign_report 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.announcement_download`
 
@@ -787,7 +769,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 公告 ID，通常来自 announcement 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.announcement_hk_download`
 
@@ -800,7 +783,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 公告 ID，通常来自 announcement 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=原文（默认） 2=Markdown。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.announcement_us_download`
 
@@ -813,7 +797,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 美股公告 ID，通常来自 insight.announcement_us_list 返回的 announcementId 列。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=原文 PDF（默认） 2=Markdown。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.independent_opinion_download`
 
@@ -826,7 +811,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `independent_opinion_id` | `str` | 是 | - | `"<independentOpinionId>"` | 独立观点 ID，通常来自 independent_opinion_list。 |
 | `file_type` | `int` | 是 | - | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.official_account_download`
 
@@ -839,7 +825,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `article_id` | `str` | 是 | - | `"<articleId>"` | 文章 ID，通常来自 official_account_list 返回的 articleId 列。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=txt（默认） 2=HTML。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.txt")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.txt")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 
 ### `insight.qa_list`
@@ -853,9 +840,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"601012.SH"` | 证券代码，按单只证券提取投资者问答。 |
 | `from_` | `int` | 否 | `0` | `0` | 起始偏移。 |
-| `size` | `int | None` | 否 | `None` | `20` | 返回条数；省略=拉全量（自动翻页，单页上限 500）。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-01-01"` | 开始时间，`yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm:ss`（字符串直传）。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-07-01"` | 结束时间，格式同上。 |
+| `size` | `int \| None` | 否 | `None` | `20` | 返回条数；省略=拉全量（自动翻页，单页上限 500）。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-01-01"` | 开始时间，`yyyy-MM-dd` 或 `yyyy-MM-dd HH:mm:ss`（字符串直传）。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-07-01"` | 结束时间，格式同上。 |
 | `source` | `Any` | 否 | `None` | `["conference", "interactive"]` | 问题来源，支持单值或列表；枚举：`conference` 电话会议 / `interactive` 互动平台 / `survey` 调研纪要。 |
 | `question_category` | `Any` | 否 | `None` | `["productAndBusiness"]` | 问题类型（11 类），支持单值或列表；拼错服务端报 100003：`productAndBusiness` / `capacityAndProjects` / `ordersAndCustomers` / `financialData` / `materialEvents` / `capitalOperations` / `shareholdersAndDividends` / `corporateGovernance` / `marketAndValuation` / `macroAndIndustry` / `risksAndOthers`。 |
 | `answer_important` | `Any` | 否 | `None` | `1` | 答案是否涉及重要信息：`1`=是 `0`=否；可多选，省略=不筛。 |
@@ -872,9 +859,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `keyword` | `str` | 是 | - | `"AI"` | 搜索关键词，如 `AI`、`新能源汽车`。 |
 | `top` | `int` | 否 | `10` | `20` | 最大返回数，默认 10，上限 20（超限本地报错；服务端会静默截断）。 |
-| `source_id` | `str | None` | 否 | `None` | `"<研报ID>"` | 限定到某篇研报（可从研报列表或知识库取）。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-01-01"` | 限定图片所属研报发布时间，`yyyy-MM-dd HH:mm:ss`（`yyyy-MM-dd` 自动补全）。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-07-01 23:59:59"` | 结束时间，格式同上。 |
+| `source_id` | `str \| None` | 否 | `None` | `"<研报ID>"` | 限定到某篇研报（可从研报列表或知识库取）。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-01-01"` | 限定图片所属研报发布时间，`yyyy-MM-dd HH:mm:ss`（`yyyy-MM-dd` 自动补全）。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-07-01 23:59:59"` | 结束时间，格式同上。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.report_image_download`
@@ -887,7 +874,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `chunk_id` | `str` | 是 | - | `"<chunkId>"` | 图片唯一标识，取自 report_image_list 返回的 chunkId 列。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/img.jpg")` | 下载保存路径；None 时按服务端文件名或 `report-image-<chunkId>` 自动命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/img.jpg")` | 下载保存路径；None 时按服务端文件名或 `report-image-<chunkId>` 自动命名。 |
 
 
 ## Fundamental data (`gangtise.fundamental`)
@@ -902,8 +889,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -920,8 +907,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -938,8 +925,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -956,8 +943,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -974,8 +961,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -992,8 +979,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -1010,8 +997,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -1028,8 +1015,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -1046,8 +1033,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
-| `start_date` | `str | None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -1064,8 +1051,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
-| `start_date` | `str | None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -1082,8 +1069,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
-| `start_date` | `str | None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报告类型过滤，支持单值或列表。 |
@@ -1100,8 +1087,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `breakdown` | `str` | 否 | `'product'` | `"product"` | 主营构成维度，例如 product 或 industry。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1117,10 +1104,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `indicator` | `str` | 是 | - | `"pe_ttm"` | 估值指标名，例如 pe_ttm。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `limit` | `int | None` | 否 | `None` | `10` | 返回条数上限。 |
+| `indicator` | `str` | 是 | - | `"peTtm"` | 估值指标：peTtm / pbMrq / peg / psTtm / pcfTtm / em。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `limit` | `int \| None` | 否 | `None` | `10` | 返回条数上限。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `skip_null` | `bool` | 否 | `False` | `True` | valuation_analysis 是否过滤 value/percentileRank 为空的行。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1136,8 +1123,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `holder_type` | `str` | 是 | - | `"top10"` | 股东类型，例如 top10 或 top10Float。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1152,9 +1139,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `consensus` | `Any` | 否 | `None` | `None` | 一致预期类型过滤，支持单值或列表。 |
+| `latest` | `bool` | 否 | `True` | `True` | 仅保留最近一次更新的预测；传 False 返回区间内每一次更新。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 
@@ -1173,8 +1161,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `top` | `int` | 否 | `10` | `3` | 每个查询返回的最大候选数。 |
 | `resource_type` | `Any` | 否 | `None` | `1` | 知识资源类型代码。 |
 | `knowledge_name` | `Any` | 否 | `None` | `None` | 知识库名称过滤，支持单值或列表。 |
-| `start_time` | `int | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `int | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `start_time` | `int \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `int \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `ai.security_clue_list`
@@ -1190,8 +1178,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_time` | `str` | 是 | - | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
 | `query_mode` | `str` | 是 | - | `"bySecurity"` | 线索查询模式，例如 bySecurity。 |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `gts_code` | `Any` | 否 | `None` | `"000001.SZ"` | GTS 证券代码或代码列表。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `gts_code` | `Any` | 否 | `None` | `["000001.SZ"]` | GTS 证券代码（byIndustry 模式下传行业码）。**服务端要求非空**，缺省报 410120。支持单值或列表。 |
 | `source` | `Any` | 否 | `None` | `"research"` | 来源过滤，支持单值或列表；ai.security_clue_list 中请求字段为 source。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1204,7 +1192,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，或市场关键词 aShares / hkStocks（上限 6000）；留空抛 ValidationError 以防全市场积分误耗。 |
+| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，本接口 2026-08-14 起不再支持市场关键词；留空抛 ValidationError 以防全市场积分误耗。**单次最多 5000 只**——接口文档写 6000，但更大的批次服务端返回空列表且不报错，故本地拦下并提示分批。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `ai.one_pager`
@@ -1279,10 +1267,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
-| `end_date` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 morningBriefing / noonBriefing / afternoonFlash / eveningBriefing。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
+| `category` | `Any` | 否 | `None` | `"morningBriefing"` | 热点类别：morningBriefing=早报 / noonBriefing=午报 等；支持单值或列表。 |
 | `with_related_securities` | `bool` | 否 | `True` | `True` | 热点主题是否返回关联证券。 |
 | `with_close_reading` | `bool` | 否 | `True` | `True` | 热点主题是否返回精读内容。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1377,7 +1365,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `resource_type` | `int` | 是 | - | `1` | 知识资源类型代码。 |
 | `source_id` | `str` | 是 | - | `"<sourceId>"` | 知识资源源 ID。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
 
 
 ## User vault (`gangtise.vault`)
@@ -1392,10 +1380,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `file_type` | `Any` | 否 | `None` | `1` | 文件类型代码；下载接口常用 1。 |
 | `space_type` | `Any` | 否 | `None` | `None` | 空间类型过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1410,11 +1398,11 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 upload / link / mobile / gtNote / pc / share。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `category` | `Any` | 否 | `None` | `"upload"` | 录音来源：upload / link / mobile / gtNote / pc / share；支持单值或列表。 |
 | `space_type` | `Any` | 否 | `None` | `None` | 空间类型过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1428,14 +1416,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 earningsCall / strategyMeeting / fundRoadshow / shareholdersMeeting / maMeeting / specialMeeting / companyAnalysis / industryAnalysis / other。 |
+| `category` | `Any` | 否 | `None` | `"earningsCall"` | 会议分类，例如 earningsCall / strategyMeeting；支持单值或列表。 |
 | `source` | `Any` | 否 | `None` | `[1, 2]` | 录制来源（数字，支持单值或列表）：1=企微会议助理 2=会议服务微信群。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1449,14 +1437,14 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
-| `size` | `int | None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `keyword` | `str | None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `wechat_group_id` | `Any` | 否 | `None` | `None` | 微信群 ID，支持单值或列表。 |
-| `industry` | `Any` | 否 | `None` | `1` | 行业 ID/代码过滤，支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 text / image / documents / url。 |
+| `industry` | `Any` | 否 | `None` | `100800101` | 中信行业 ID（1008001xx 形态）；申万码与未知值在本接口报 100005。支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"text"` | 消息类型：text / image / documents / url；支持单值或列表。 |
 | `tag` | `Any` | 否 | `None` | `None` | 标签过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1507,7 +1495,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `file_id` | `str` | 是 | - | `"<fileId>"` | 网盘文件 ID，通常来自 vault.drive_list。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `vault.record_download`
 
@@ -1520,7 +1509,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `record_id` | `str` | 是 | - | `"<recordId>"` | 录音记录 ID，通常来自 vault.record_list。 |
 | `content_type` | `str` | 是 | - | `"summary"` | 下载内容类型，例如 original 或 summary。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `vault.my_conference_download`
 
@@ -1533,7 +1523,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `conference_id` | `str` | 是 | - | `"<conferenceId>"` | 会议 ID，通常来自 vault.my_conference_list。 |
 | `content_type` | `str` | 是 | - | `"summary"` | 下载内容类型，例如 original 或 summary。 |
-| `output` | `str | Path | None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 
 ## Alternative data (`gangtise.alternative`)
@@ -1599,10 +1590,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 起始偏移。 |
-| `size` | `int | None` | 否 | `None` | `5` | 返回条数；省略则自动翻页拉全量（单页上限 50）。 |
-| `start_time` | `str | None` | 否 | `None` | `"2026-01-01"` | 起始时间，YYYY-MM-DD[ HH:mm:ss] 或 10/13 位时间戳。 |
-| `end_time` | `str | None` | 否 | `None` | `"2026-08-01"` | 结束时间，同上。 |
-| `keyword` | `str | None` | 否 | `None` | `"PCB"` | 搜索词。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；省略则自动翻页拉全量（单页上限 50）。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-01-01"` | 起始时间，YYYY-MM-DD[ HH:mm:ss] 或 10/13 位时间戳。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-08-01"` | 结束时间，同上。 |
+| `keyword` | `str \| None` | 否 | `None` | `"PCB"` | 搜索词。 |
 | `search_type` | `int` | 否 | `1` | `2` | 1=标题（默认） 2=全文。**本地白名单**：范围外的值会让 keyword 一并失效、返回未过滤的结果集，故在本地拦下。 |
 | `rank_type` | `int` | 否 | `1` | `2` | 1=综合（默认） 2=时间倒序。同样本地白名单。 |
 | `research_area` | `Any` | 否 | `None` | `"100800119"` | 行业码：中信（1008001xx）与申万（104xx0000）都认；方向码 122000xxx 在本端点返 0。 |
@@ -1623,8 +1614,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `summary_id` | `str` | 是 | - | `"12345"` | 纪要唯一标识，取自列表的 summaryId。 |
-| `file_type` | `int | None` | 否 | `None` | `2` | 1=原文（默认） 2=HTML。本地白名单，其他值直接报错。 |
-| `output` | `str | Path | None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则按标题 / 服务端文件名命名。 |
+| `file_type` | `int \| None` | 否 | `None` | `2` | 1=原文（默认） 2=HTML。本地白名单，其他值直接报错。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则按标题 / 服务端文件名命名。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.performance_calendar_list`
 
@@ -1636,9 +1628,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `from_` | `int` | 否 | `0` | `0` | 起始偏移。 |
-| `size` | `int | None` | 否 | `None` | `5` | 返回条数；省略则自动翻页。 |
-| `start_date` | `str | None` | 否 | `None` | `"2026-07-01"` | 起始日 YYYY-MM-DD，过滤 publishDate。**这是唯一按 `*_date` 而非 `*_time` 筛选的 insight 列表。** |
-| `end_date` | `str | None` | 否 | `None` | `"2026-07-31"` | 结束日 YYYY-MM-DD。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；省略则自动翻页。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-07-01"` | 起始日 YYYY-MM-DD，过滤 publishDate。**这是唯一按 `*_date` 而非 `*_time` 筛选的 insight 列表。** |
+| `end_date` | `str \| None` | 否 | `None` | `"2026-07-31"` | 结束日 YYYY-MM-DD。 |
 | `security` | `Any` | 否 | `None` | `"600519.SH"` | 证券代码或列表。 |
 | `market` | `Any` | 否 | `None` | `"aShares"` | aShares / hkStocks / usChinaConcept / usStocks，本地白名单。 |
 | `category` | `Any` | 否 | `None` | `"performanceForecast"` | performanceForecast / performanceExpress / performanceAnnouncement，本地白名单。 |
@@ -1656,7 +1648,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `performance_report_id` | `str` | 是 | - | `"12345"` | 报告唯一标识，取自列表的 performanceReportId。 |
-| `output` | `str | Path | None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则用 title-cache 里的真实标题命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则用 title-cache 里的真实标题命名。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 **计费**：A股 10 积分 / 港美股 20 积分；仅 `hasAttachment: true` 的记录可下。
 
@@ -1687,9 +1680,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `date` | `str` | 是 | - | `"2025-06-30"` | 数据日期，格式 YYYY-MM-DD。作为**每个指标各自的 tradeDate** 下发（服务端 2026-08-01 起废弃根级 date）。 |
 | `indicator` | `Any` | 是 | - | `"qte_close"` | 指标码或列表，例如 qte_close；用 indicator.search 查询。缺失在本地报 ValidationError（服务端只会回 100001）。 |
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 10 位 sectorId，与代码混传取并集）。 |
-| `currency` | `str | None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
-| `scale` | `str | None` | 否 | `None` | `"8"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。复权参数名是 **adjustType**（2=前复权 3=后复权），不是 adjustmentType——服务端对错参数名静默忽略并退回不复权。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**——判据只看这一个键。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。第 ③ 种最容易误写成 ④ 而静默丢掉参数。别按 code 前缀推断。 |
+| `currency` | `str \| None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
+| `scale` | `str \| None` | 否 | `None` | `"8"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。复权参数名是 **adjustType**（2=前复权 3=后复权），不是 adjustmentType——服务端对错参数名静默忽略并退回不复权。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**——判据只看这一个键。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。第 ③ 种最容易误写成 ④ 而静默丢掉参数。别按 code 前缀推断。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的指标显示名；code=你传进去的 indicatorCode。服务端按自己的顺序返回列，位置索引不可靠；name 模式还需再查一次 search 才能把显示名映射回 code。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一证券、指标名作列的宽表 DataFrame。 |
 
@@ -1706,10 +1699,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str` | 是 | - | `"2025-06-30"` | 结束日期，格式 YYYY-MM-DD。 |
 | `indicator` | `Any` | 是 | - | `"qte_close"` | 指标码或列表；用 indicator.search 查询。缺失在本地报 ValidationError。 |
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（单个 sectorId 会被服务端展开成 N 只，此时列头按证券出）。 |
-| `calendar_type` | `str | None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日（默认 TD）。 |
-| `currency` | `str | None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
-| `scale` | `str | None` | 否 | `None` | `"0"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。复权参数名是 **adjustType**（2=前复权 3=后复权），不是 adjustmentType——服务端对错参数名静默忽略并退回不复权。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**——判据只看这一个键。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。第 ③ 种最容易误写成 ④ 而静默丢掉参数。别按 code 前缀推断。 |
+| `calendar_type` | `str \| None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日（默认 TD）。 |
+| `currency` | `str \| None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
+| `scale` | `str \| None` | 否 | `None` | `"0"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。复权参数名是 **adjustType**（2=前复权 3=后复权），不是 adjustmentType——服务端对错参数名静默忽略并退回不复权。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**——判据只看这一个键。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。第 ③ 种最容易误写成 ④ 而静默丢掉参数。别按 code 前缀推断。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的显示名；code=你传进去的代码（多指标 × 单证券为 indicatorCode，单指标 × 多证券为 securityCode）。服务端按自己的顺序返回列，位置索引不可靠。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一日期的宽表 DataFrame。 |
 
@@ -1724,9 +1717,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `date` | `str` | 是 | - | `"2026-08-07"` | 数据日期 YYYY-MM-DD，作为每个变量的 tradeDate 下发。漏传会让吃日期的指标不被过滤并静默返回空结果，因此必填。 |
 | `expression` | `str` | 是 | - | `"F1 >= 500 && F2 <= 30"` | 筛选表达式，支持 `&&` / `\|\|` / 括号，以及 contains / notcontains 文本匹配（仅 dataType 为 string 的指标）。只能引用已绑定的变量，否则本地报 ValidationError。 |
-| `indicator` | `dict[str, str]` | 是 | - | `{"F1": "qte_mkt_cptl"}` | 变量 → 指标码绑定；变量名必须是 F + 正整数。同一指标可绑到两个变量取不同参数。 |
+| `indicator` | `dict[str, str]` | 是 | - | `{"F1": "qte_mkt_cptl", "F2": "finc_pe_ttm"}` | 变量 → 指标码绑定；变量名必须是 F + 正整数。同一指标可绑到两个变量取不同参数。 |
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 sectorId）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] | None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=显示名（默认）；code=indicatorCode。同一 code 绑到两个变量时两列都会带上 (F1)/(F2) 后缀。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一只命中证券的宽表 DataFrame。 |
 
@@ -1743,7 +1736,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
-| `file` | `str | Path` | 是 | - | `"report.pdf"` | 本地 PDF 路径。上传前本地校验后缀 / 非空 / ≤100MB。 |
+| `file` | `str \| Path` | 是 | - | `"report.pdf"` | 本地 PDF 路径。上传前本地校验后缀 / 非空 / ≤100MB。 |
 
 **计费**：0.8 积分/页，**提交时一次性扣费**；取结果免费。该端点标 `no-replay`（不重放，避免重复扣费）且超时下限 300 秒（100MB 上传不会被默认 30 秒超时掐断）。返回 `task_id`，交给 `tool.file_parse_check` 取结果。
 
@@ -1757,7 +1750,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | Parameter | Type | Required | Default | Example | Description |
 | --- | --- | --- | --- | --- | --- |
 | `task_id` | `str` | 是 | - | `"1782345678901234567"` | `tool.file_parse` 返回的任务号。 |
-| `output` | `str | Path | None` | 否 | `None` | `"out.zip"` | 显式落盘路径；省略则按服务端文件名 / `file-parse-<taskId>` 命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `"out.zip"` | 显式落盘路径；省略则按服务端文件名 / `file-parse-<taskId>` 命名。 |
 | `wait` | `bool` | 否 | `False` | `True` | True=按与 AI 异步接口相同的退避预算（约 316 秒）轮询到就绪；False 时未就绪直接抛 ApiError（码 140001 / 旧 410110）。 |
 
 **返回**：ZIP 路径，包内是 `file.md` 与 `images/`。取结果免费，所以未就绪时重复调用不产生费用；`140002` 是终态失败，不会消耗整个轮询预算。

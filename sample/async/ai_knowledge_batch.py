@@ -39,7 +39,8 @@ async def main():
         await gangtise.async_.ai.knowledge_batch(
             query="半导体国产化",  # 检索问题
             top=10,  # 每个查询返回的最大候选数
-            resource_type=1,  # 知识资源类型代码, 支持单值或列表(具体取值见知识库资源类型)
+            # resource_type=<类型码>,  # 可选; 合法取值随账号开通的知识库而定,
+            #                          # 传未开通的类型会报 250001「不支持的数据源」
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

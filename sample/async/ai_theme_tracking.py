@@ -18,20 +18,20 @@ async def main():
     show_result(
         await gangtise.async_.ai.theme_tracking(
             theme_id="121000130",  # 主题/题材 ID(如 机器人=121000130; 见 reference.concept_search(keyword=...))
-            date="2026-05-28",  # 业务日期 YYYY-MM-dd
+            date="2026-08-28",  # 业务日期 YYYY-MM-dd
             type_="morning",  # 报告类型: morning=早报, night=晚报; 支持单值或列表
         ),
         __file__,
     )
     # 其它示例(注释展示, 不执行——dict 返回会覆盖同名输出):
     #   # 不指定 type_(返回该日全部报告类型):
-    #   await gangtise.async_.ai.theme_tracking(theme_id="121000130", date="2026-05-28")
+    #   await gangtise.async_.ai.theme_tracking(theme_id="121000130", date="2026-08-28")
     #   # 同时取早报与晚报(列表入参):
     #   await gangtise.async_.ai.theme_tracking(
-    #       theme_id="121000130", date="2026-05-28", type_=["morning", "night"]
+    #       theme_id="121000130", date="2026-08-28", type_=["morning", "night"]
     #   )
     #   # raw=True 返回服务端原始 data:
-    #   await gangtise.async_.ai.theme_tracking(theme_id="121000130", date="2026-05-28", raw=True)
+    #   await gangtise.async_.ai.theme_tracking(theme_id="121000130", date="2026-08-28", raw=True)
 
 
 if __name__ == "__main__":

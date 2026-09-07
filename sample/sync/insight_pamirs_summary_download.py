@@ -34,6 +34,7 @@ def main():
             summary_id=item_id,  # 纪要唯一标识（必填）, 取自列表的 summaryId 列
             file_type=1,  # 1=原文（默认） 2=HTML——本地白名单, 其他值直接报错
             # output=None,             # 显式落盘路径; 省略则自动命名
+            # resolve_title=True,  # 标题缓存未命中时回查 list 接口取文件名; 多发 4 次请求, 这些 list 多数按条计费
         )
     finally:
         os.chdir(previous_cwd)

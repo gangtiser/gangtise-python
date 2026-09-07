@@ -30,6 +30,7 @@ def main():
         result = gangtise.vault.drive_download(
             file_id=item_id,  # 网盘文件 ID（必填）, 取自 vault.drive_list
             # output=Path("sample_downloads/file.pdf"),  # 可选: 显式保存路径; 省略则自动命名
+            # resolve_title=True,  # 标题缓存未命中时回查 list 接口取文件名; 多发 4 次请求, 这些 list 多数按条计费
         )
     finally:
         os.chdir(previous_cwd)

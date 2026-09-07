@@ -41,6 +41,28 @@ def _is_paginated_response(value: Any) -> bool:
     )
 
 
+def warn_if_server_partial(payload: Any, label: str) -> bool:
+    """Announce a ``partial`` marker that arrived IN THE RESPONSE.
+
+    Every marker the SDK sets itself is announced where it is set. One the server
+    put there was the gap: it rode through into the result dict and then vanished on
+    the default return path, which is a DataFrame and carries none of these keys — so
+    a caller who never passes ``raw=True`` saw a frame that looked complete.
+
+    Call this BEFORE the SDK's own completeness checks, so a response that is both
+    server-flagged and (say) limit-truncated reports the cause it arrived with rather
+    than only the one we detected. Returns whether a marker was found.
+    """
+    if not (isinstance(payload, dict) and payload.get("partial") is True):
+        return False
+    warnings.warn(
+        f"{label}: the server marked this response partial — it is not the complete "
+        "result set. Pass raw=True to inspect the response's own markers.",
+        stacklevel=3,
+    )
+    return True
+
+
 def _first_page_shape_drift(endpoint: EndpointDef, first_page: Any) -> Any:
     """Shape drift silently degrades fetch-all to a single page.
 
@@ -149,6 +171,7 @@ def collect_paginated(
     if not _is_paginated_response(first_page):
         return _first_page_shape_drift(endpoint, first_page)
 
+    warn_if_server_partial(first_page, endpoint.key)
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])
 
@@ -163,7 +186,21 @@ def collect_paginated(
     if len(collected) >= target:
         if requested_size is not None:
             collected = collected[:requested_size]
-        return {**first_page, "total": total, "list": collected}
+        complete: dict[str, Any] = {**first_page, "total": total, "list": collected}
+        if _probe_first_page_complete(
+            endpoint,
+            requested_size=requested_size,
+            total=total,
+            first_page_size=first_page_size,
+        ):
+            try:
+                probe = fetch({**initial, "from": total, "size": 1})
+            except Exception:
+                probe = None
+            if _probe_total_capped(endpoint, total, len(collected), probe):
+                complete["partial"] = True
+                complete["totalCapped"] = True
+        return complete
 
     next_from = start_from + len(first_page["list"])
     end_from = start_from + target
@@ -206,9 +243,11 @@ def collect_paginated(
                 with lock:
                     failed_pages.append(req)
                 return []
-            if page["total"] != total:
-                with lock:
+            with lock:
+                if page["total"] != total:
                     state["total_drift"] = True
+                if page.get("partial") is True:
+                    state["later_partial"] = True
             return page["list"]  # type: ignore[no-any-return]  # may be [] (empty page)
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -248,6 +287,26 @@ def collect_paginated(
         dropped_pages=dropped_pages,
         total_capped=total_capped,
     )
+
+
+def _probe_first_page_complete(
+    endpoint: EndpointDef,
+    *,
+    requested_size: int | None,
+    total: int,
+    first_page_size: int,
+) -> bool:
+    """Whether the first-page-already-complete exit should run the total-cap probe.
+
+    A fetch-all that STARTS INSIDE THE LAST PAGE (``from=9950`` against
+    ``total=10000``) returns here rather than through the fan-out, and is just as
+    exposed to a capped ``total`` — it used to return without ever checking.
+    ``total > first_page_size`` keeps the request count unchanged for a result that
+    genuinely fits in one page from offset 0: only a late ``from`` can land here with
+    a total larger than a page. See :func:`_should_probe_total_cap` for why the probe
+    is free when it finds nothing (TS v0.38.0).
+    """
+    return requested_size is None and total > first_page_size
 
 
 def _should_probe_total_cap(
@@ -349,6 +408,16 @@ def _finalize_partial(
     if total_capped:
         result["partial"] = True
         result["totalCapped"] = True
+    if state.get("later_partial"):
+        # Only the FIRST page's metadata is spread into the merged result, so a
+        # later page that flagged itself partial would otherwise lose the marker
+        # and the merged result would read as complete (TS v0.38.0).
+        result["partial"] = True
+        warnings.warn(
+            f"a later page reported itself partial for {endpoint.key}; "
+            "the merged result is marked partial",
+            stacklevel=2,
+        )
     if state.get("total_drift"):
         # `total` changed between pages: data shifted under the fetch, so rows may
         # be duplicated or missing even when the counts happen to line up.
@@ -417,6 +486,7 @@ async def collect_paginated_async(
     first_page = await fetch(first_body)
     if not _is_paginated_response(first_page):
         return _first_page_shape_drift(endpoint, first_page)
+    warn_if_server_partial(first_page, endpoint.key)
     total = first_page["total"]
     collected: list[Any] = list(first_page["list"])
     available = max(total - start_from, 0)
@@ -428,7 +498,21 @@ async def collect_paginated_async(
     if len(collected) >= target:
         if requested_size is not None:
             collected = collected[:requested_size]
-        return {**first_page, "total": total, "list": collected}
+        complete: dict[str, Any] = {**first_page, "total": total, "list": collected}
+        if _probe_first_page_complete(
+            endpoint,
+            requested_size=requested_size,
+            total=total,
+            first_page_size=first_page_size,
+        ):
+            try:
+                probe = await fetch({**initial, "from": total, "size": 1})
+            except Exception:
+                probe = None
+            if _probe_total_capped(endpoint, total, len(collected), probe):
+                complete["partial"] = True
+                complete["totalCapped"] = True
+        return complete
     next_from = start_from + len(first_page["list"])
     end_from = start_from + target
     remaining_requests, dropped_pages = _build_remaining_requests(
@@ -476,6 +560,8 @@ async def collect_paginated_async(
             continue
         if page["total"] != total:
             state["total_drift"] = True
+        if page.get("partial") is True:
+            state["later_partial"] = True
         collected.extend(page["list"])  # may be [] — a legitimately empty page
     total_capped = False
     if _should_probe_total_cap(

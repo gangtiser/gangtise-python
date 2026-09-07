@@ -31,6 +31,7 @@ def main():
             record_id=item_id,  # 录音记录 ID（必填）, 取自 vault.record_list
             content_type="original",  # 内容类型（必填）: original=原始音频, asr=语音转写, summary=纪要
             # output=Path("sample_downloads/record.mp3"),  # 可选: 显式保存路径; 省略则自动命名
+            # resolve_title=True,  # 标题缓存未命中时回查 list 接口取文件名; 多发 4 次请求, 这些 list 多数按条计费
         )
     finally:
         os.chdir(previous_cwd)

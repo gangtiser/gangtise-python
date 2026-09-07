@@ -321,10 +321,12 @@ def test_day_kline_ragged_matrix_rows_are_refused(tmp_path):
                 Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
 
 
-def test_day_kline_duplicate_fields_fall_back_to_normalize(tmp_path):
-    # Duplicate fieldList must NOT take the fast path: pd.DataFrame(columns=fields)
-    # would emit two same-named columns, whereas the normalize dict-transpose
-    # collapses the repeat to a single column (last value wins). Fall back to stay equal.
+def test_day_kline_duplicate_fields_are_refused(tmp_path):
+    # Duplicate fieldList must NOT take the fast path (pd.DataFrame(columns=fields)
+    # would emit two same-named columns) AND must not be quietly collapsed on the
+    # normalize path either: through v0.3.1 the pair became one column holding the
+    # LAST value, so `close` read 2.0 with the real 1.0 gone, exit 0. Refused since
+    # v0.4.0 (TS v0.38.0 assertColumnarHeader).
     fields = ["securityCode", "close", "close"]
     rows = [["000001.SH", 1.0, 2.0], ["000002.SZ", 3.0, 4.0]]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
@@ -338,10 +340,9 @@ def test_day_kline_duplicate_fields_fall_back_to_normalize(tmp_path):
                 },
             )
         )
-        with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
-    assert list(df.columns) == ["securityCode", "close"]
-    assert df["close"].tolist() == [2.0, 4.0]
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="重复列名"):
+                Quote(client).day_kline(security=["000001.SH", "000002.SZ"])
 
 
 def test_day_kline_hk_shard_count(tmp_path):
@@ -499,7 +500,10 @@ def test_realtime(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"securityCode": "000001.SH", "price": 12.34}],
+                    "data": {
+                        "total": 1,
+                        "list": [{"securityCode": "000001.SH", "price": 12.34}],
+                    },
                 },
             )
         )
@@ -822,3 +826,420 @@ def test_sharded_kline_does_not_claim_a_single_trace(tmp_path):
         shards=None,
     )
     assert getattr(payload, "envelope_trace_id", None) is None
+
+
+# ─── v0.4.0: response-shape guards + per-security fan-out (TS v0.37/v0.38) ───
+
+
+def test_quote_endpoint_without_a_list_payload_is_refused_with_its_trace(tmp_path):
+    """`data: null` on a quote endpoint is a BROKEN response, not an empty one.
+
+    Every legitimate answer — an empty date range, an unknown code — is
+    `{total: 0, list: []}` (probed live on all seven, 2026-09-07). Without the
+    `expects="list"` guard the normalizers hand `None` back and the caller reads
+    "no data". Checked at the transport so the envelope's traceId is still in hand:
+    `None` has nowhere to carry it, so a check further down would report the
+    failure trace-less.
+    """
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "traceId": "830965044897325056",
+                    "data": None,
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ApiError, match="returned no list payload") as excinfo:
+                Quote(client).day_kline(security="000001.SH")
+    assert excinfo.value.structural is True
+    assert excinfo.value.trace_id == "830965044897325056"
+
+
+def test_day_kline_flags_a_field_the_server_never_returned(tmp_path):
+    """A `field=` name the server does not recognise is dropped NAME AND VALUE —
+    HTTP 200, no error, one column simply absent. The SDK knows what was asked for,
+    so the gap becomes `partial` + `missingFields` (TS v0.38.0)."""
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/quote/realtime").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "fieldList": ["securityCode", "latestPrice"],
+                        "list": [["600519.SH", 1297.41]],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="returned no column for turnoverRate"):
+                out = Quote(client).realtime(
+                    security="600519.SH",
+                    field=["securityCode", "latestPrice", "turnoverRate"],
+                    raw=True,
+                )
+    assert out["partial"] is True
+    assert out["missingFields"] == ["turnoverRate"]
+
+
+def test_realtime_does_not_flag_columns_the_server_volunteered(tmp_path):
+    # Only "asked for but not returned" is judged — extras are fine, so the guard
+    # needs no field whitelist and cannot go stale.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/quote/realtime").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "fieldList": ["securityCode", "latestPrice", "tradeStatus"],
+                        "list": [["600519.SH", 1297.41, "交易中"]],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = Quote(client).realtime(
+                security="600519.SH", field=["securityCode", "latestPrice"], raw=True
+            )
+    assert "partial" not in out
+    assert "missingFields" not in out
+
+
+def test_minute_kline_fans_out_over_several_securities(tmp_path):
+    """The API takes ONE securityCode per request; several go out concurrently and
+    merge in input order (TS v0.38.0 repeatable --security)."""
+    bodies = []
+
+    def responder(request):
+        body = json.loads(request.content)
+        bodies.append(body["securityCode"])
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "total": 1,
+                    "fieldList": ["securityCode", "close"],
+                    "list": [[body["securityCode"], 1.0]],
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/minute").mock(side_effect=responder)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).minute_kline(security=["600519.SH", "000001.SZ"])
+    assert sorted(bodies) == ["000001.SZ", "600519.SH"]
+    # Merged in INPUT order, not completion order.
+    assert df["securityCode"].tolist() == ["600519.SH", "000001.SZ"]
+
+
+def test_minute_kline_requires_a_security(tmp_path):
+    with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+        with pytest.raises(ValidationError, match="security is required"):
+            Quote(client).minute_kline(security=[])
+
+
+def test_day_kline_batches_per_security_when_the_range_would_not_fit(tmp_path):
+    """securities x trading days over the limit → one request each.
+
+    One request naming N securities comes back capped at `limit` with the TAIL
+    SECURITIES MISSING ENTIRELY (rows fill in order), so the truncation eats whole
+    securities rather than trimming each (TS v0.38.0).
+    """
+    sent = []
+
+    def responder(request):
+        body = json.loads(request.content)
+        sent.append(body["securityList"])
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "total": 1,
+                    "fieldList": ["securityCode", "close"],
+                    "list": [[body["securityList"][0], 1.0]],
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            # 3 securities x 262 default weekdays = 786 > limit 100.
+            df = Quote(client).day_kline(security=["600519.SH", "000001.SZ", "00700.HK"], limit=100)
+    assert sorted(sent) == [["000001.SZ"], ["00700.HK"], ["600519.SH"]]
+    assert df["securityCode"].tolist() == ["600519.SH", "000001.SZ", "00700.HK"]
+
+
+def test_day_kline_keeps_one_request_when_the_range_fits(tmp_path):
+    # The split must not fire on a short window: 3 securities x 5 weekdays = 15,
+    # well under the 6000 default, so one request is still correct and cheaper.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"total": 0, "fieldList": ["securityCode"], "list": []},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Quote(client).day_kline(
+                security=["600519.SH", "000001.SZ", "00700.HK"],
+                start_date="2026-09-07",
+                end_date="2026-09-11",
+            )
+    assert route.call_count == 1
+
+
+def _shard(rows, fields=None, **extra):
+    out = {"total": len(rows), "list": rows}
+    if fields is not None:
+        out["fieldList"] = fields
+    out.update(extra)
+    return out
+
+
+def _windows(n):
+    import datetime as dt
+
+    return [(dt.date(2026, 1, d), dt.date(2026, 1, d)) for d in range(1, n + 1)]
+
+
+def test_shard_merge_realigns_a_shard_whose_columns_are_reordered():
+    """The merged result carries ONE fieldList and rows are read against it by
+    position, so a shard ordering its columns differently would land `close` under
+    `volume` with nothing in the payload to notice (TS v0.38.0 columnRemap)."""
+    shards = _windows(2)
+    results = [
+        _shard([["a", 1, 10]], ["securityCode", "close", "volume"]),
+        _shard([["b", 20, 2]], ["securityCode", "volume", "close"]),
+    ]
+    failed = []
+    out, rows = _finalize_quote_result(
+        results,
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=failed,
+        shards=shards,
+    )
+    assert out["fieldList"] == ["securityCode", "close", "volume"]
+    assert rows == [["a", 1, 10], ["b", 2, 20]]  # second shard re-ordered, not mis-read
+    assert failed == []
+    assert "partial" not in out
+
+
+def test_shard_merge_drops_a_shard_missing_a_header_column():
+    shards = _windows(2)
+    results = [
+        _shard([["a", 1, 10]], ["securityCode", "close", "volume"]),
+        _shard([["b", 2]], ["securityCode", "close"]),
+    ]
+    failed = []
+    with pytest.warns(UserWarning) as record:
+        out, rows = _finalize_quote_result(
+            results,
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=2,
+            failed_shards=failed,
+            shards=shards,
+        )
+    assert any("cannot be aligned" in str(w.message) for w in record)
+    assert rows == [["a", 1, 10]]
+    assert out["partial"] is True
+    assert failed == [shards[1]]
+
+
+def test_shard_merge_treats_an_empty_shard_claiming_rows_as_failed():
+    # total > 0 with no rows is a contradiction, not a holiday.
+    shards = _windows(2)
+    results = [_shard([["a", 1]], ["securityCode", "close"]), _shard([], total_override=None)]
+    results[1]["total"] = 5
+    failed = []
+    with pytest.warns(UserWarning) as record:
+        out, rows = _finalize_quote_result(
+            results,
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=2,
+            failed_shards=failed,
+            shards=shards,
+        )
+    assert any("reported total=5 but delivered no rows" in str(w.message) for w in record)
+    assert rows == [["a", 1]]
+    assert out["partial"] is True
+    assert failed == [shards[1]]
+
+
+def test_shard_merge_accepts_a_genuinely_empty_window():
+    # A weekend / holiday shard is a real answer: not failed, and it must NOT supply
+    # the merged header (an empty fieldList would swallow every later column).
+    shards = _windows(2)
+    results = [_shard([], []), _shard([["a", 1]], ["securityCode", "close"])]
+    failed = []
+    out, rows = _finalize_quote_result(
+        results,
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=failed,
+        shards=shards,
+    )
+    assert out["fieldList"] == ["securityCode", "close"]
+    assert rows == [["a", 1]]
+    assert failed == []
+    assert "partial" not in out
+
+
+def test_shard_merge_drops_a_shard_whose_rows_do_not_match_its_own_field_list():
+    shards = _windows(2)
+    results = [
+        _shard([["a", 1]], ["securityCode", "close"]),
+        _shard([["b", 2, 3]], ["securityCode", "close"]),  # mis-sized row
+    ]
+    failed = []
+    with pytest.warns(UserWarning) as record:
+        out, rows = _finalize_quote_result(
+            results,
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=2,
+            failed_shards=failed,
+            shards=shards,
+        )
+    assert any("do not match its own fieldList" in str(w.message) for w in record)
+    assert rows == [["a", 1]]
+    assert failed == [shards[1]]
+    assert out["partial"] is True
+
+
+def test_shard_merge_carries_a_shards_own_partial_marker():
+    # Only the header shard's metadata survives the merge, so the marker has to be
+    # carried across or the merged result reads as complete.
+    shards = _windows(2)
+    results = [
+        _shard([["a", 1]], ["securityCode", "close"]),
+        _shard([["b", 2]], ["securityCode", "close"], partial=True),
+    ]
+    failed = []
+    with pytest.warns(UserWarning) as record:
+        out, _rows = _finalize_quote_result(
+            results,
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=2,
+            failed_shards=failed,
+            shards=shards,
+        )
+    assert any("reported themselves partial" in str(w.message) for w in record)
+    assert out["partial"] is True
+    assert failed == []
+
+
+@pytest.mark.parametrize("layout", ["2016-01-01", "2016/01/01", "20160101"])
+def test_day_kline_split_decision_does_not_depend_on_date_layout(tmp_path, layout):
+    """All three accepted year-first layouts are the same day, so they must produce
+    the same number of requests.
+
+    They did not: the per-security size estimate ran BEFORE `_request_body`
+    normalized the dates, and `date.fromisoformat` takes only `YYYY-MM-DD` (and
+    `20160101` only on Python 3.11+). The other layouts fell through to the
+    one-year default, so a legal ten-year, three-security request measured 786 rows
+    against the 6000 limit, skipped the split, and came back capped — with the tail
+    securities missing entirely and nothing in the payload saying so.
+    """
+    end = layout.replace("2016", "2026")
+
+    def responder(request):
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {
+                    "total": 1,
+                    "fieldList": ["securityCode", "close"],
+                    "list": [[body["securityList"][0], 1.0]],
+                },
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline(
+                security=["600519.SH", "000001.SZ", "00700.HK"],
+                start_date=layout,
+                end_date=end,
+            )
+    # 3 securities x ~2610 weekdays = ~7830 > the 6000 default -> one request each.
+    assert route.call_count == 3
+    assert df["securityCode"].tolist() == ["600519.SH", "000001.SZ", "00700.HK"]
+    # And the dates actually sent are normalized, whatever the caller typed.
+    for call in route.calls:
+        body = json.loads(call.request.content)
+        assert body["startDate"] == "2016-01-01"
+        assert body["endDate"] == "2026-01-01"
+
+
+@pytest.mark.parametrize(
+    ("path", "call"),
+    [
+        ("/application/open-quote/quote/realtime", lambda q: q.realtime(security="600519.SH")),
+        ("/application/open-quote/kline/minute", lambda q: q.minute_kline(security="600519.SH")),
+        ("/application/open-quote/kline/daily", lambda q: q.day_kline(security="600519.SH")),
+        ("/application/open-quote/fund-flow/daily", lambda q: q.fund_flow(security="600519.SH")),
+    ],
+)
+def test_a_server_set_partial_marker_is_announced_on_single_request_paths(tmp_path, path, call):
+    """Markers the SDK sets are announced where they are set; one the SERVER set was not.
+
+    It rode into the result dict and then vanished on the default return path — a
+    DataFrame, which carries none of these keys — so a caller who never passes
+    `raw=True` saw a frame that looked complete.
+    """
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(path).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "partial": True,
+                        "fieldList": ["securityCode", "close"],
+                        "list": [["600519.SH", 1.0]],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="marked this response partial"):
+                call(Quote(client))

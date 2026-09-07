@@ -33,7 +33,7 @@ def main():
     show_result(
         gangtise.insight.site_visit_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
-            market=["SH", "SZ"],  # 市场, 支持单值或列表; 例如 SH/SZ/HK/US
+            market=["aShares", "hkStocks"],  # 市场, 支持单值或列表; aShares / hkStocks / usStocks
             permission=[1],  # 权限/可见性, 数字列表, 支持单值或列表
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),

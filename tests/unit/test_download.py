@@ -1,6 +1,7 @@
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import quote
 
@@ -20,6 +21,7 @@ from gangtise_openapi._download import (
     download_to_path,
     download_to_path_async,
 )
+from gangtise_openapi._endpoints import lookup
 from gangtise_openapi._errors import ERROR_HINTS, ApiError, DownloadError
 
 
@@ -322,7 +324,7 @@ def test_download_appends_text_extension_to_title_cache_name(
                 query={"summaryId": "s1"},
                 output=None,
                 fallback_name="summary-s1",
-                title_lookup=("insight.summary.list", "summaryId", "s1"),
+                title_lookup=("insight.summary.list", "summaryId", "s1", False),
             )
     assert path.name == "Alpha Summary.txt"
     assert path.read_text() == "plain text"
@@ -353,7 +355,7 @@ def test_download_keeps_existing_title_extension_when_mime_disagrees(
                 query={"fileId": "f1"},
                 output=None,
                 fallback_name="file-f1",
-                title_lookup=("vault.drive.list", "fileId", "f1"),
+                title_lookup=("vault.drive.list", "fileId", "f1", False),
             )
     assert path.name == "Original Name.docx"
 
@@ -1157,7 +1159,7 @@ def test_download_resolves_title_via_list_fallback(tmp_path: Path, monkeypatch: 
                 query={"summaryId": "s1"},
                 output=None,
                 fallback_name="summary-s1",
-                title_lookup=("insight.summary.list", "summaryId", "s1"),
+                title_lookup=("insight.summary.list", "summaryId", "s1", True),
             )
     assert path.name == "Cold Cache Summary.txt"
     assert path.read_text() == "plain text"
@@ -1191,9 +1193,58 @@ def test_download_falls_back_to_disposition_when_list_fetch_fails(
                 query={"summaryId": "s1"},
                 output=None,
                 fallback_name="summary-s1",
-                title_lookup=("insight.summary.list", "summaryId", "s1"),
+                title_lookup=("insight.summary.list", "summaryId", "s1", True),
             )
     assert path.name == "degrade.txt"
+
+
+def test_download_does_not_query_the_list_endpoint_without_resolve_title(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """A title-cache MISS must not silently buy a nicer filename (TS v0.37.0).
+
+    The list fallback costs TITLE_LOOKUP_SIZE rows over 4 requests, and 9 of the 12
+    endpoints wired up for it bill per row — roughly 20 credits on a download that
+    costs 10-50, times N for a batch. The route is registered here precisely to
+    assert it gets ZERO traffic; the download degrades to the server's own
+    Content-Disposition name instead.
+    """
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        list_route = router.post("/application/open-insight/summary/v2/getList").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "total": 1,
+                        "list": [{"summaryId": "s1", "title": "Cold Cache Summary"}],
+                    },
+                },
+            )
+        )
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"plain text",
+                headers={
+                    "content-disposition": 'attachment; filename="server-name.txt"',
+                    "content-type": "text/plain; charset=utf-8",
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=None,
+                fallback_name="summary-s1",
+                title_lookup=("insight.summary.list", "summaryId", "s1", False),
+            )
+    assert not list_route.called
+    assert path.name == "server-name.txt"
 
 
 # ─── async siblings ───
@@ -1607,7 +1658,7 @@ async def test_async_download_resolves_title_via_list_fallback(
                 query={"summaryId": "s1"},
                 output=None,
                 fallback_name="summary-s1",
-                title_lookup=("insight.summary.list", "summaryId", "s1"),
+                title_lookup=("insight.summary.list", "summaryId", "s1", True),
             )
     assert path.name == "Cold Cache Summary.txt"
     assert path.read_text() == "plain text"
@@ -1642,7 +1693,7 @@ async def test_async_download_falls_back_to_disposition_when_list_fetch_fails(
                 query={"summaryId": "s1"},
                 output=None,
                 fallback_name="summary-s1",
-                title_lookup=("insight.summary.list", "summaryId", "s1"),
+                title_lookup=("insight.summary.list", "summaryId", "s1", True),
             )
     assert path.name == "degrade.txt"
 
@@ -2378,3 +2429,44 @@ def test_download_json_envelope_error_keeps_retry_after(tmp_path: Path) -> None:
             )
     assert exc.value.code == "999006"
     assert exc.value.retry_after_ms == 3000.0
+
+
+def test_download_honours_an_endpoints_declared_timeout_floor(
+    tmp_path: Path, monkeypatch: object
+) -> None:
+    """The download path read the CLIENT default directly, so an endpoint's declared
+    `timeout_ms` was silently ignored (TS v0.37.0).
+
+    No download endpoint declares one today — `tool.file-parse.result` is the obvious
+    candidate the day a 500-page result ZIP outgrows 30s — so this pins a landmine
+    rather than a live bug. The floor never LOWERS a higher user-configured timeout,
+    which is the half a naive `timeout=endpoint.timeout_ms` would get wrong.
+    """
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    slow = replace(lookup("insight.summary.download"), timeout_ms=120_000)
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        "gangtise_openapi._download.lookup", lambda _key: slow
+    )
+    seen: list[object] = []
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            return_value=httpx.Response(200, content=b"x", headers={"content-type": "text/plain"})
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            http = client._http_client()
+            real_stream = http.stream
+
+            def spy(*args, **kwargs):
+                seen.append(kwargs.get("timeout"))
+                return real_stream(*args, **kwargs)
+
+            monkeypatch.setattr(http, "stream", spy)  # type: ignore[attr-defined]
+            download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=str(tmp_path / "out.txt"),
+                fallback_name="summary-s1",
+            )
+    assert seen and isinstance(seen[0], httpx.Timeout)
+    assert seen[0].read == 120.0

@@ -31,6 +31,22 @@ def _slow(result: Any):
     return to_dataframe(_extract_rows(result), schema=None)
 
 
+def _beijing_millis(value: str) -> int:
+    """Expected epoch millis for a wall-clock string anchored to Beijing (UTC+8).
+
+    🔴 Computed, not a literal — but from a FIXED offset, not the current timezone.
+    The earlier `.timestamp()` version tracked the machine's zone, so it agreed with
+    the SDK on a CST laptop and disagreed on a UTC CI runner. Which is exactly the
+    bug the Beijing anchor exists to remove, so the test must not reintroduce it.
+    """
+    return int(
+        dt.datetime.fromisoformat(value)
+        .replace(tzinfo=dt.timezone(dt.timedelta(hours=8)))
+        .timestamp()
+        * 1000
+    )
+
+
 def test_columnar_dataframe_fires_on_matrix():
     df = _columnar_dataframe({"fieldList": ["a", "b"], "list": [[1, 2], [3, 4]]})
     assert df is not None
@@ -326,19 +342,14 @@ def test_to_timestamp13_13_digit_1e12_boundary_is_not_rescaled():
     assert _to_timestamp13(1000000000000, "start_time") == 1000000000000
 
 
-def test_to_timestamp13_converts_local_datetime():
-    import datetime as dt
-
-    expected = int(dt.datetime(2026, 6, 1, 9, 0, 0).timestamp() * 1000)
+def test_to_timestamp13_converts_a_wall_clock_against_beijing():
+    expected = _beijing_millis("2026-06-01 09:00:00")
     assert _to_timestamp13("2026-06-01 09:00:00", "start_time") == expected
     assert _to_timestamp13("2026-06-01T09:00:00", "start_time") == expected
 
 
-def test_to_timestamp13_date_only_anchors_to_local_midnight():
-    import datetime as dt
-
-    expected = int(dt.datetime(2026, 1, 1).timestamp() * 1000)
-    assert _to_timestamp13("2026-01-01", "start_time") == expected
+def test_to_timestamp13_date_only_anchors_to_beijing_midnight():
+    assert _to_timestamp13("2026-01-01", "start_time") == _beijing_millis("2026-01-01")
 
 
 @pytest.mark.parametrize(
@@ -357,7 +368,6 @@ def test_to_timestamp13_none_passes_through():
 def test_knowledge_batch_accepts_datetime_string_and_converts():
     # TS v0.28.0 routed knowledge-batch through parseTimestamp13: it now takes a
     # 10/13-digit epoch OR a datetime string, and always sends 13-digit millis.
-    import datetime as dt
     from unittest.mock import MagicMock
 
     from gangtise_openapi.domains.ai import AI
@@ -366,7 +376,7 @@ def test_knowledge_batch_accepts_datetime_string_and_converts():
     client._call.return_value = []
     AI(client).knowledge_batch(query="q", start_time="2026-06-01 09:00:00", end_time=1767225600)
     body = client._call.call_args.kwargs["body"]
-    assert body["startTime"] == int(dt.datetime(2026, 6, 1, 9, 0, 0).timestamp() * 1000)
+    assert body["startTime"] == _beijing_millis("2026-06-01 09:00:00")
     assert body["endTime"] == 1767225600000
 
 
@@ -423,18 +433,12 @@ def test_request_body_still_refuses_offset_iso_on_passthrough_fields():
 # ── Review round 1: the converted timestamp must not be re-validated as input ──
 
 
-def _local_millis(value: str) -> int:
-    """Expected epoch millis for a local wall-clock string, computed in the CURRENT
-    timezone — a literal would only be right in whatever zone it was written in."""
-    return int(dt.datetime.fromisoformat(value).timestamp() * 1000)
-
-
 @pytest.mark.parametrize(
     "value", ["1999-01-01", "1970-01-02", "2001-09-08", "2026-06-01", "2026-06-01 09:00:00"]
 )
 def test_converted_timestamp_survives_the_body_guard(value):
     millis = _to_timestamp13(value, "start_time")
-    assert millis == _local_millis(value)
+    assert millis == _beijing_millis(value)
     assert _request_body({"startTime": millis}) == {"startTime": millis}
 
 
@@ -457,7 +461,7 @@ def test_knowledge_batch_accepts_a_historical_date():
     client = MagicMock()
     client._call.return_value = []
     AI(client).knowledge_batch(query="q", start_time="1999-01-01")
-    assert client._call.call_args.kwargs["body"]["startTime"] == _local_millis("1999-01-01")
+    assert client._call.call_args.kwargs["body"]["startTime"] == _beijing_millis("1999-01-01")
 
 
 # ── Review round 1: a DST-gap wall clock cannot be converted faithfully ──

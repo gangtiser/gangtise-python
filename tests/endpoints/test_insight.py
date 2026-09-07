@@ -168,16 +168,19 @@ def test_announcement_list_scales_seconds_int_to_ms(tmp_path):
     assert b'"startTime":1767225600000' in sent.replace(b" ", b"")
 
 
-def test_to_timestamp13_naive_datetime_uses_local_timezone():
-    # Matches `new Date("2026-06-01 09:00:00")` in the CLI: system-local tz.
-    expected = int(dt.datetime(2026, 6, 1, 9, 0, 0).astimezone().timestamp() * 1000)
+_BEIJING = dt.timezone(dt.timedelta(hours=8))
+
+
+def test_to_timestamp13_naive_datetime_anchors_to_beijing():
+    # These two endpoints define their windows in Beijing time, so the anchor is fixed
+    # rather than the running machine's zone — the same call must query the same
+    # window on a UTC runner and a CST laptop.
+    expected = int(dt.datetime(2026, 6, 1, 9, 0, 0, tzinfo=_BEIJING).timestamp() * 1000)
     assert _to_timestamp13("2026-06-01 09:00:00", "start_time") == expected
 
 
-def test_to_timestamp13_date_only_uses_local_midnight():
-    # TS HEAD parity: CLI date-only values are anchored to local midnight, matching
-    # "YYYY-MM-DD 00:00:00" and avoiding boundary-day drift for announcement_list.
-    expected = int(dt.datetime(2026, 1, 1).astimezone().timestamp() * 1000)
+def test_to_timestamp13_date_only_uses_beijing_midnight():
+    expected = int(dt.datetime(2026, 1, 1, tzinfo=_BEIJING).timestamp() * 1000)
     assert _to_timestamp13("2026-01-01", "start_time") == expected
 
 

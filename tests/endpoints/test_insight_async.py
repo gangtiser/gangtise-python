@@ -291,8 +291,12 @@ async def test_async_announcement_list_body_shape_converts_times(tmp_path):
                 category="dividend",
             )
         body = route.calls.last.request.read().replace(b" ", b"")
-        # naive ISO string with time is interpreted in the local tz (TS parity)
-        expected_start = int(dt.datetime(2026, 1, 1, 0, 0, 0).astimezone().timestamp() * 1000)
+        # A naive wall clock is anchored to Beijing (UTC+8), not the running machine's
+        # zone — the same call must send the same instant wherever it runs.
+        expected_start = int(
+            dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.timezone(dt.timedelta(hours=8))).timestamp()
+            * 1000
+        )
         assert f'"startTime":{expected_start}'.encode() in body
         # int timestamps pass through unchanged
         assert b'"endTime":1767312000000' in body

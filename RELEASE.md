@@ -7,6 +7,17 @@
    uv run mypy src
    uv run pytest -m "not live"
    ```
+   🔴 **And across timezones — CI runs UTC, this machine is CST.** Anything that
+   converts a wall clock to an instant agrees with a local-anchored test only in the
+   zone that test was written in, so a green local run proves nothing about CI:
+   ```bash
+   for TZ in UTC America/Los_Angeles Pacific/Kiritimati Australia/Lord_Howe America/New_York; do
+     TZ=$TZ uv run pytest -m "not live" -q || echo "FAILED under $TZ"
+   done
+   ```
+   Skipping this is what turned the v0.4.0 tag red: the Beijing-anchored conversion
+   landed, 12 tests still asserted the old local anchor, and every one of them passed
+   here and failed on the runner.
 2. Live integration tests — **required only when the release touches endpoint/API
    surface** (new/changed endpoints, body-field shapes, or error-code handling):
    ```bash

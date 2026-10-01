@@ -6,10 +6,11 @@ import pytest
 import respx
 
 from gangtise_openapi._config import Config
-from gangtise_openapi._endpoints import EndpointDef, RetryPolicy
+from gangtise_openapi._endpoints import Billing, EndpointDef, RetryPolicy
 from gangtise_openapi._errors import (
     EDE_NO_DATA_HINT,
     ERROR_HINTS,
+    NO_REPLAY_SIDE_EFFECT_HINT,
     NO_REPLAY_UNCERTAIN_HINT,
     ApiError,
 )
@@ -247,9 +248,22 @@ def test_request_json_no_replay_999999_gets_billing_caution_hint(respx_mock, con
     respx_mock.post("/p").mock(
         return_value=httpx.Response(500, json={"code": "999999", "status": False, "msg": "err"})
     )
+    billed = replace(_endpoint("/p", retry="no-replay"), billing=Billing("call", 50))
+    with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
+        request_json(http, billed, body={}, token="tok")
+    assert exc.value.hint == NO_REPLAY_UNCERTAIN_HINT
+
+
+def test_request_json_free_no_replay_999999_gets_side_effect_hint(respx_mock, config: Config):
+    """A free no-replay write (drive create-folder, stock-pool create) risks a second
+    copy or a false "not found" on a manual retry, not a second charge — the billing
+    caution would name a cost that does not exist."""
+    respx_mock.post("/p").mock(
+        return_value=httpx.Response(500, json={"code": "999999", "status": False, "msg": "err"})
+    )
     with build_sync_client(config) as http, pytest.raises(ApiError) as exc:
         request_json(http, _endpoint("/p", retry="no-replay"), body={}, token="tok")
-    assert exc.value.hint == NO_REPLAY_UNCERTAIN_HINT
+    assert exc.value.hint == NO_REPLAY_SIDE_EFFECT_HINT
 
 
 # ─── Retry-After (TS v0.24 parity) ───
@@ -515,3 +529,141 @@ def test_endpoints_without_expects_are_untouched():
         )
         with httpx.Client(base_url="https://api.test") as http:
             assert request_json(http, ep, body={}, token="tok") is None
+
+
+# ─── expects="array" (TS v0.41.0: the opinion detail endpoints) ───
+
+
+def _array_ep() -> EndpointDef:
+    return EndpointDef(
+        key="insight.opinion.detail",
+        method="POST",
+        path="/q",
+        kind="json",
+        description="d",
+        expects="array",
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "described"),
+    [(None, "null"), ({"list": []}, "an object"), ("x", "str")],
+)
+def test_expects_array_refuses_anything_but_a_bare_array(data, described):
+    """An ID with nothing to return is simply absent, so the empty answer is `[]`.
+    Anything else is a changed layout — read as "no rows" it would report every
+    paid-for body as missing."""
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "traceId": "t-2", "data": data}
+            )
+        )
+        with httpx.Client(base_url="https://api.test") as http:  # noqa: SIM117
+            with pytest.raises(ApiError, match=f"no array payload \\(got {described}\\)") as exc:
+                request_json(http, _array_ep(), body={}, token="tok")
+    assert exc.value.structural is True
+    assert exc.value.trace_id == "t-2"
+
+
+def test_expects_array_accepts_an_empty_array():
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": []})
+        )
+        with httpx.Client(base_url="https://api.test") as http:
+            assert request_json(http, _array_ep(), body={}, token="tok") == []
+
+
+# ─── total request deadline (TS v0.44.0) ───
+
+
+class _TrickleStream(httpx.SyncByteStream):
+    """A body that keeps arriving, a little at a time — resets an idle timeout forever."""
+
+    def __init__(self, clock: list[float]) -> None:
+        self._clock = clock
+
+    def __iter__(self):
+        yield b'{"code": "000000", "status": true, "data": '
+        for _ in range(10):
+            self._clock[0] += 5.0  # 5 s pass between chunks
+            yield b" "
+        yield b"null}"
+
+
+def test_trickling_response_is_cut_at_the_total_deadline(monkeypatch):
+    """httpx's read timeout is an IDLE timeout: a server sending a few bytes per
+    interval holds the request open indefinitely. A JSON request gets 2x its timeout
+    in total, and is then a ReadTimeout — retried on the default policy, never on
+    no-replay."""
+    clock = [1000.0]
+    monkeypatch.setattr("gangtise_openapi._transport.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("gangtise_openapi._transport._retry_delay", lambda e, a: 0.0)
+    ep = EndpointDef(
+        key="x", method="POST", path="/q", kind="json", description="d", retry="no-replay"
+    )
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/q").mock(
+            side_effect=lambda request: httpx.Response(200, stream=_TrickleStream(clock))
+        )
+        with httpx.Client(base_url="https://api.test", timeout=10.0) as http:  # noqa: SIM117
+            with pytest.raises(httpx.ReadTimeout, match="overall deadline \\(20s\\)"):
+                request_json(http, ep, body={}, token="tok")
+    assert route.call_count == 1  # no-replay: a timed-out request may have run
+
+
+def test_deadline_uses_the_endpoint_floor_and_transfer_factor():
+    from gangtise_openapi._transport import request_deadline_seconds
+
+    with httpx.Client(timeout=30.0) as http:
+        plain = EndpointDef(key="x", method="POST", path="/q", kind="json", description="d")
+        floored = replace(plain, timeout_ms=120_000)
+        assert request_deadline_seconds(http, plain, transfer=False) == 60.0
+        assert request_deadline_seconds(http, floored, transfer=False) == 240.0
+        assert request_deadline_seconds(http, plain, transfer=True) == 1800.0
+
+
+# ─── multipart upload fields (vault.drive.upload) ───
+
+
+def test_upload_sends_the_extra_form_fields_next_to_the_file():
+    from gangtise_openapi._transport import UploadFile
+
+    ep = EndpointDef(key="u", method="POST", path="/up", kind="upload", description="d")
+    upload = UploadFile("a.pdf", b"%PDF", fields=(("spaceType", "1"), ("title", "年报")))
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/up").mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": {}})
+        )
+        with httpx.Client(base_url="https://api.test") as http:
+            request_json(http, ep, body=upload, token="tok")
+    sent = route.calls[0].request
+    assert sent.headers["content-type"].startswith("multipart/form-data; boundary=")
+    content = sent.read()
+    assert b'name="spaceType"\r\n\r\n1\r\n' in content
+    assert 'name="title"\r\n\r\n年报\r\n'.encode() in content
+    assert b'name="file"; filename="a.pdf"' in content
+
+
+def test_expects_array_payload_carries_the_envelope_trace_id():
+    """A detail batch found malformed downstream must still be traceable."""
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/q").mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "traceId": "t-9", "data": [{"a": 1}]}
+            )
+        )
+        with httpx.Client(base_url="https://api.test") as http:
+            out = request_json(http, _array_ep(), body={}, token="tok")
+    assert out == [{"a": 1}]
+    assert isinstance(out, list)
+    assert out.envelope_trace_id == "t-9"
+
+
+def test_retry_after_http_date_without_a_zone_is_gmt():
+    """``-0000`` makes ``parsedate_to_datetime`` return a naive datetime; read as local
+    time it was off by the machine's UTC offset."""
+    now = 1_000_000_000.0  # 2001-09-09T01:46:40Z
+    assert parse_retry_after_ms("Sun, 09 Sep 2001 01:47:40 -0000", now) == 60_000.0
+    assert parse_retry_after_ms("Sun, 09 Sep 2001 01:47:40 GMT", now) == 60_000.0

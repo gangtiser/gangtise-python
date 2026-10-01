@@ -1,7 +1,7 @@
 """reference.chiefs_search — 按关键词搜索首席分析师 ID（返回 DataFrame）。
 
 keyword 支持首席姓名 / 机构 / 团队; 结果的 chief ID 供 insight.opinion_list(chief=...) 等按首席筛选。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.reference.chiefs_search(...)（同步用法见 sample/sync 同名文件）。
 """
 

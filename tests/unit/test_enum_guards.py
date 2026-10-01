@@ -140,3 +140,92 @@ def test_file_type_true_is_not_file_type_1(tmp_path, seeded_config):
             Insight(client).research_download(
                 report_id="r1", file_type=True, output=tmp_path / "out.pdf"
             )
+
+
+# ── vault download content_type (CLI v0.43.0 ⑧) ──
+
+
+@pytest.mark.parametrize(
+    ("method", "id_kwarg", "value", "match"),
+    [
+        # `summery` is the typo the TS test uses; `original` is legal for recordings
+        # but not for conferences.
+        ("record_download", "record_id", "summery", "original/asr/summary"),
+        ("record_download", "record_id", "", "original/asr/summary"),
+        ("my_conference_download", "conference_id", "original", "asr/summary"),
+    ],
+)
+def test_vault_download_content_type_is_refused_locally(
+    tmp_path, seeded_config, method, id_kwarg, value, match
+):
+    # An unknown contentType comes back as 130003 「没有文件可供下载」, which reads as
+    # "this record has no file" (probed by the CLI 2026-09-25). No respx route:
+    # nothing may be sent.
+    from gangtise_openapi.domains.vault import Vault
+
+    with respx.mock(base_url="https://api.test"), GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+        with pytest.raises(ValidationError, match=f"invalid content_type.*{match}"):
+            getattr(Vault(client), method)(
+                **{id_kwarg: "1"}, content_type=value, output=tmp_path / "out.txt"
+            )
+    assert not (tmp_path / "out.txt").exists()
+
+
+@pytest.mark.parametrize(
+    ("method", "id_kwarg", "path", "value"),
+    [
+        ("record_download", "record_id", "/application/open-vault/record/download/file", "asr"),
+        (
+            "my_conference_download",
+            "conference_id",
+            "/application/open-vault/my-conference/download/file",
+            "summary",
+        ),
+    ],
+)
+def test_vault_download_legal_content_type_goes_out(
+    tmp_path, seeded_config, method, id_kwarg, path, value
+):
+    from gangtise_openapi.domains.vault import Vault
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get(path).mock(
+            return_value=httpx.Response(
+                200, content=b"x", headers={"content-disposition": 'attachment; filename="f.txt"'}
+            )
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            getattr(Vault(client), method)(
+                **{id_kwarg: "1"}, content_type=value, output=tmp_path / "out.txt"
+            )
+    assert f"contentType={value}" in str(route.calls.last.request.url)
+
+
+# ── ai.hot_topic category / ai.security_clue_list source (TS v0.43.0 ⑧) ──
+# Neither endpoint refuses an unknown value; security-clue answers the unfiltered,
+# fully billed set. Both are whitelisted locally, before any request.
+
+
+def test_ai_hot_topic_category_is_whitelisted(seeded_config):
+    from gangtise_openapi.domains.ai import AI
+
+    with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+        with pytest.raises(
+            ValidationError,
+            match="morningBriefing/noonBriefing/afternoonFlash/eveningBriefing",
+        ):
+            AI(client).hot_topic(category="morning")
+
+
+def test_ai_security_clue_source_is_whitelisted(seeded_config):
+    from gangtise_openapi.domains.ai import AI
+
+    with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+        with pytest.raises(ValidationError, match="researchReport/conference/announcement/view"):
+            AI(client).security_clue_list(
+                start_time="2026-09-01",
+                end_time="2026-09-02",
+                query_mode="bySecurity",
+                gts_code="600519.SH",
+                source="research",
+            )

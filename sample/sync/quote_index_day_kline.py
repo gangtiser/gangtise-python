@@ -1,11 +1,12 @@
-"""quote.index_day_kline — 指数日 K 线（SH/SZ/BJ 指数）, 返回含 securityName 列的 DataFrame。
+"""quote.index_day_kline — 指数日 K 线（SH/SZ/BJ 指数）, 返回 DataFrame。
 
-⚠️ 已下线（deprecated）: 请优先用 quote.day_kline。仍保留是因为本接口有两处 day_kline
-做不到的能力——"all" 一次取全部指数, 以及返回 securityName 指数名称。
-全市场分片粒度为 15 天（30 天窗口约 11.7K 行必然撞 10000 上限并静默截断）。
+⚠️ 已下线（deprecated）: 新代码直接用 quote.day_kline 传同样的指数代码——本接口没有
+day_kline 做不到的能力, 返回字段与 day_kline 相同, 不含指数名称。
+要指数名称用 reference.securities_search(keyword=<指数代码>, category="index") 的 gtsName。
+没有全市场关键字: 接口对 "all" 返回空结果、不报错, SDK 在发请求前直接拒绝;
+全部沪深京指数目前没有一次拿全的写法, 要逐个传指数代码。
 
-通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
-security="all" 时按日期窗口自动分片（每片 15 天）并并发拉取后合并。
+通过几组示例演示常用参数，可选参数的取值范围写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.quote.index_day_kline(...)。
 """
 
@@ -20,7 +21,7 @@ def main():
     # 示例 1 · 最简调用: 沪深 300 指数最近一段日 K 线
     show_result(
         gangtise.quote.index_day_kline(
-            security="000300.SH",  # 指数代码, 后缀 .SH/.SZ/.BJ; 支持单值或列表; "all"=全市场
+            security="000300.SH",  # 指数代码, 后缀 .SH/.SZ/.BJ; 支持单值或列表; 不收 "all"
             start_date="2026-05-01",  # 开始日期 YYYY-MM-DD; 省略默认结束日往前 1 年
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD; 省略默认最新交易日
             limit=10,  # 单次返回条数上限; 默认 6000, 最大 10000
@@ -35,7 +36,7 @@ def main():
             start_date="2026-05-01",
             end_date="2026-05-28",
             field=[
-                "securityName",
+                "securityCode",  # 多只时 SDK 会自动补 securityCode / tradeDate; 写全了就不补
                 "tradeDate",
                 "open",
                 "close",
@@ -56,8 +57,7 @@ def main():
         __file__,
     )
     # 其余可选用法:
-    #   security="all"            全市场: 配合 start_date/end_date 自动按 30 交易日/片分片并发拉取
-    #   field=<字段名或列表>       仅返回所需字段（含 securityName 指数名称）; 省略则用服务端默认字段
+    #   field=<字段名或列表>       仅返回所需字段（字段同 day_kline, 不含指数名称）; 省略则用服务端默认字段
 
 
 if __name__ == "__main__":

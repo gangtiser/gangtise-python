@@ -22,6 +22,7 @@ from gangtise_openapi.domains._common import (
     _extract_rows,
     _request_body,
     _result_to_dataframe,
+    _to_end_timestamp13,
     _to_timestamp13,
 )
 
@@ -58,7 +59,6 @@ def test_columnar_dataframe_fires_on_matrix():
 @pytest.mark.parametrize(
     "result",
     [
-        {"fieldList": ["a"], "list": []},  # empty rows
         {"fieldList": ["a", "b"], "list": [[1]]},  # ragged row (too short)
         {"fieldList": ["a"], "list": [[1, 2]]},  # ragged row (too long)
         {"fieldList": ["a", "a"], "list": [[1, 2]]},  # duplicate field names
@@ -85,7 +85,6 @@ def test_columnar_dataframe_falls_back(result: Any):
         {"fieldList": ["flag"], "list": [[True], [False]]},
         {"fieldList": ["s"], "list": [[""], [None]]},
         # fallback shapes
-        {"fieldList": ["a"], "list": []},  # empty
         {"list": [{"x": 1}, {"x": 2}]},  # already dict rows
         {"constants": [{"c": 1}]},  # constant-list alias
     ],
@@ -96,6 +95,15 @@ def test_result_to_dataframe_matches_slow_path(result: Any):
     assert list(fast.columns) == list(slow.columns)
     assert list(fast.dtypes) == list(slow.dtypes)
     assert fast.equals(slow)
+
+
+def test_empty_rows_keep_the_columns_the_server_named():
+    """A non-trading day / empty range answers ``{fieldList: [...], list: []}``: the
+    frame keeps those columns, so ``df["close"]`` is an empty column, not a KeyError."""
+    df = _result_to_dataframe({"fieldList": ["securityCode", "tradeDate", "close"], "list": []})
+    assert list(df.columns) == ["securityCode", "tradeDate", "close"]
+    assert df.empty
+    assert df["close"].tolist() == []
 
 
 def test_ragged_row_raises_on_both_paths():
@@ -430,7 +438,7 @@ def test_request_body_still_refuses_offset_iso_on_passthrough_fields():
         _request_body({"startTime": "2026-01-01T00:00:00+00:00"})
 
 
-# ── Review round 1: the converted timestamp must not be re-validated as input ──
+# ── The converted timestamp must not be re-validated as input ──
 
 
 @pytest.mark.parametrize(
@@ -464,7 +472,7 @@ def test_knowledge_batch_accepts_a_historical_date():
     assert client._call.call_args.kwargs["body"]["startTime"] == _beijing_millis("1999-01-01")
 
 
-# ── Review round 1: a DST-gap wall clock cannot be converted faithfully ──
+# ── A DST-gap wall clock cannot be converted faithfully ──
 
 
 def _under_tz(tz: str, snippet: str) -> str:
@@ -516,7 +524,7 @@ def test_request_body_still_allows_dst_gap_on_passthrough_fields():
     assert _request_body(dict(body)) == body  # copy: the guard writes back in place
 
 
-# ── Review round 1: "digits" must mean ASCII digits ──
+# ── "Digits" must mean ASCII digits ──
 
 
 def _fullwidth(text: str) -> str:
@@ -548,7 +556,7 @@ def test_guards_reject_fullwidth_digits(ascii_value, partial):
         _to_timestamp13(value, "start_time")
 
 
-# ── Review round 1: years datetime cannot construct ──
+# ── Years datetime cannot construct ──
 
 
 @pytest.mark.parametrize("value", ["0000-07-01", "0000-01-01"])
@@ -568,3 +576,48 @@ def test_validate_datetime_rejects_non_int_non_str():
     for value in [1.5, [1767225600000], {"ts": 1}, object()]:
         with pytest.raises(ValidationError):
             _request_body({"startTime": value})
+
+
+# ── _to_end_timestamp13 (TS v0.44.0 parseEndTimestamp13) ──
+
+
+@pytest.mark.parametrize("value", ["2026-09-01", "2026/09/01", "20260901", 20260901])
+def test_to_end_timestamp13_bare_date_is_the_last_millisecond_of_that_beijing_day(value):
+    # start=D, end=D must be the whole day D, not the empty window [D 00:00, D 00:00].
+    assert _to_end_timestamp13(value, "end_time") == _beijing_millis("2026-09-02") - 1
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-09-01 00:00",
+        "2026-09-01T15:30:00",
+        "2026-09-01T00:00:00+08:00",
+        "1756656000",
+        "1756656000000",
+        1756656000000,
+    ],
+)
+def test_to_end_timestamp13_converts_anything_with_a_time_as_written(value):
+    assert _to_end_timestamp13(value, "end_time") == _to_timestamp13(value, "end_time")
+
+
+def test_to_end_timestamp13_passes_none_and_refuses_what_start_refuses():
+    assert _to_end_timestamp13(None, "end_time") is None
+    with pytest.raises(ValidationError, match="invalid end_time"):
+        _to_end_timestamp13("07/01/2026", "end_time")
+
+
+def test_as_list_drops_repeats_keeping_the_first():
+    """CLI v0.44.0: `--security A,A` answered every row twice; a repeated filter value
+    is never meaningful."""
+    from gangtise_openapi.domains._common import _as_list
+
+    assert _as_list(["600519.SH", "000001.SZ", "600519.SH"], "x") == ["600519.SH", "000001.SZ"]
+    assert _as_list((1, 2, 1), "x") == [1, 2]
+    assert _as_list("x", "x") == ["x"]
+    assert _as_list(None, "x") is None
+    assert _as_list([], "x") == []  # kept, so _request_body refuses it by name
+    assert _as_list([" 600519.SH ", "", "600519.SH", "  "], "x") == ["600519.SH"]
+    assert _as_list("  ", "x") == []
+    assert _as_list([{"a": 1}, {"a": 1}], "x") == [{"a": 1}, {"a": 1}]  # unhashable: untouched

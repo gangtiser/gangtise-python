@@ -6,7 +6,7 @@ date 会作为每个指标各自的 tradeDate 下发（服务端 2026-08-01 起�
 tradeDate。按 search 返回的 parameterList 分四种: ① 有 tradeDate → 不用管;
 ② 无 tradeDate 有 reportDate（is_* 那族）→ 传 reportDate; ③ 无 tradeDate 但有别的参数
 → 传那些参数再加 "tradeDate": None; ④ parameterList 为空 → 传 {}。别按 code 前缀推断。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.indicator.cross_section(...)（同步用法见 sample/sync 同名文件）。
 """
 
@@ -39,9 +39,8 @@ async def main():
             currency="CNY",  # 币种: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）
             scale="8",  # 数量级: 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）
             indicator_param={"qte_close": {"adjustType": "2"}},  # 单指标参数; 2=前复权 3=后复权
-            # ⚠️ 复权参数名是 adjustType, 不是 adjustmentType——服务端对错参数名是
-            # 静默忽略并退回不复权, 拿到的数看着正常实则错（实测茅台 2024-01-02:
-            # adjustType=3 → 13609.6168 后复权, 错名 → 1685.01 不复权）。
+            # ⚠️ 复权参数名是 adjustType, 不是 adjustmentType——写错名服务端报 100003
+            # 并点名是哪个指标的哪个参数; 参数名一律以 indicator.search 的 parameterList 为准。
         ),
         __file__,
     )
@@ -88,6 +87,21 @@ async def main():
                 "cf_finc_exp_qtr": {"reportDate": "2025-06-30"},
             },
             key_by="code",  # 列头来源: name=服务端显示名（默认） code=indicatorCode
+        ),
+        __file__,
+    )
+
+    # 示例 6 · N 期统计 + 报告期类指标: finc_roe_avg_avg（平均ROE N 期均值）要 periodNum,
+    # 且按报告期取数——只给 date 会报 100003, 必须显式给 reportDate（SDK 见到它就不再注入
+    # tradeDate）。indicator_param 里键名以 Date 结尾的值与 date 一样校验, 年在后的写法本地拒绝。
+    # parameterList 要 fiscalYear 的指标（frcst_* / div_cash_yr 等）漏传不报错, 会按服务端
+    # 默认年度取数, 一律显式传。
+    show_result(
+        await gangtise.async_.indicator.cross_section(
+            date="2026-03-31",
+            indicator="finc_roe_avg_avg",
+            security="600519.SH",
+            indicator_param={"finc_roe_avg_avg": {"periodNum": "4", "reportDate": "2025-12-31"}},
         ),
         __file__,
     )

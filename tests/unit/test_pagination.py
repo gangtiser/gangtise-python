@@ -287,7 +287,8 @@ def test_total_cap_probe_still_runs_on_a_no_replay_endpoint():
         rows = [{"i": j} for j in range(f, min(f + s, 40))]
         return {"total": 40, "list": rows}
 
-    out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
+    # Fetching everything is the point here, not the credit guard (40 reports x 50).
+    out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3, allow_costly=True)
     assert "totalCapped" not in out  # honest total: the probe comes back empty
     assert (40, 1) in pages_seen  # ...but it WAS sent
 
@@ -303,8 +304,9 @@ def test_total_cap_probe_flags_a_capped_total_on_a_no_replay_endpoint():
         f, s = body["from"], body["size"]
         return {"total": 40, "list": [{"i": j} for j in range(f, f + s)]}
 
+    # Fetching everything is the point here, not the credit guard (40 reports x 50).
     with pytest.warns(UserWarning, match="server-side cap"):
-        out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3)
+        out = collect_paginated(endpoint, body={}, fetch=fetch, concurrency=3, allow_costly=True)
     assert out["totalCapped"] is True
     assert out["partial"] is True
 

@@ -1,7 +1,7 @@
 """insight.qa_list — 查询投资者问答 QA（返回 DataFrame）。
 
 按单只证券提取互动平台/电话会议/调研纪要中的提问与回答; 自动翻页（单页上限 500）; 0.1 积分/条。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.insight.qa_list(...)（同步用法见 sample/sync 同名文件）。
 """
 

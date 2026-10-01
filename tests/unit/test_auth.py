@@ -157,3 +157,28 @@ def test_require_credentials_missing():
 
 def test_require_credentials_ok():
     assert require_credentials("ak", "sk") == ("ak", "sk")
+
+
+def test_issued_for_round_trips_under_the_cli_key(tmp_path):
+    """``issuedFor`` is the key the npm CLI writes (TS v0.40.0); both tools share
+    ~/.config/gangtise/token.json, so each must read the other's fingerprint."""
+    path = tmp_path / "token.json"
+    cache = TokenCache(
+        access_token="t", expires_in=1, time=0, expires_at=9999999999, issued_for="abc"
+    )
+    write_token_cache(path, cache)
+    assert json.loads(path.read_text())["issuedFor"] == "abc"
+    loaded = read_token_cache(path)
+    assert loaded is not None and loaded.issued_for == "abc"
+
+
+def test_is_cache_valid_checks_the_fingerprint_only_when_asked():
+    cache = TokenCache(
+        access_token="t", expires_in=1, time=0, expires_at=9999999999, issued_for="abc"
+    )
+    assert is_cache_valid(cache)
+    assert is_cache_valid(cache, expected_fingerprint="abc")
+    assert not is_cache_valid(cache, expected_fingerprint="xyz")
+    legacy = TokenCache(access_token="t", expires_in=1, time=0, expires_at=9999999999)
+    assert is_cache_valid(legacy)
+    assert not is_cache_valid(legacy, expected_fingerprint="abc")

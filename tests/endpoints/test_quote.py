@@ -1,4 +1,5 @@
 import json
+import warnings
 from dataclasses import replace
 
 import httpx
@@ -409,29 +410,49 @@ def test_day_kline_all_weekend_range_makes_no_requests(tmp_path):
     assert out == {"list": []}
 
 
-def test_index_day_kline_15_day_shards(tmp_path):
+@pytest.mark.parametrize("keyword", ["all", "ALL", "aShares"])
+def test_index_day_kline_refuses_a_keyword_before_any_request(tmp_path, keyword):
+    # TS v0.41.1: the endpoint answers `all` with 000000 and an empty list while explicit
+    # index codes return rows — passing it through would be a silent empty success.
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/index/kline/daily")
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="explicit security codes only") as excinfo:
+                Quote(client).index_day_kline(
+                    security=keyword, start_date="2026-06-03", end_date="2026-06-03"
+                )
+        assert route.call_count == 0
+    # The reason and the ways out, so the refusal does not read as a usage slip.
+    message = str(excinfo.value)
+    assert "total 0 and no error" in message
+    assert "quote.day_kline takes the same codes" in message
+    assert 'reference.securities_search(keyword=<index code>, category="index")' in message
+    assert "gtsName" in message
+    assert "no way to fetch every SH/SZ/BJ index in one call" in message
+
+
+def test_index_day_kline_explicit_codes_still_go_out_in_one_request(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-quote/index/kline/daily").mock(
             return_value=httpx.Response(
-                200,
-                json={"code": "000000", "status": True, "data": {"list": []}},
+                200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
             )
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             Quote(client).index_day_kline(
-                security="all",
-                start_date="2026-01-01",
-                end_date="2026-03-31",
+                security=["000001.SH", "399001.SZ"], start_date="2026-06-03", end_date="2026-06-03"
             )
-        # 90 days / 15 per shard = 6 shards. 30-day windows (~22 trading days x 531
-        # index rows) blew past the 10000-row cap and lost ~11% of the range.
-        assert route.call_count == 6
+    assert route.call_count == 1
+    assert json.loads(route.calls.last.request.content)["securityList"] == [
+        "000001.SH",
+        "399001.SZ",
+    ]
 
 
 def test_index_day_kline_passes_through_security_name(tmp_path):
-    # index-day-kline returns a list of dicts (not a columnar matrix); the v0.1.3
-    # dynamic-schema path keeps every field the API sends, so the added
-    # `securityName` column flows through with no wrapper change. Lock that.
+    # The dynamic-schema path keeps every field the API sends. index-day-kline once
+    # returned `securityName`; the CLI docs (v0.41.1) say its fields now match day-kline
+    # and carry no name — this only pins that an extra column, if sent, flows through.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-quote/index/kline/daily").mock(
             return_value=httpx.Response(
@@ -1093,6 +1114,128 @@ def test_shard_merge_treats_an_empty_shard_claiming_rows_as_failed():
     assert failed == [shards[1]]
 
 
+def test_shard_merge_raises_when_every_shard_failed_at_merge():
+    """One anomaly (total > 0, no rows) on EVERY shard is an error, as at the fetch stage
+    (and in TS) — not an empty frame marked partial."""
+    from gangtise_openapi._errors import GangtiseError
+
+    shards = _windows(2)
+    results = [_shard([], total_override=None), _shard([], total_override=None)]
+    for r in results:
+        r["total"] = 5
+    with pytest.warns(UserWarning), pytest.raises(GangtiseError, match="All 2"):
+        _finalize_quote_result(
+            results,
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=2,
+            failed_shards=[],
+            shards=shards,
+        )
+
+
+def test_shard_merge_raises_the_window_error_when_the_rest_failed_at_merge():
+    """Half the shards outside the history window (110003) and the rest failing only at
+    merge raise the 110003, not a generic error — it is the actionable reason."""
+    shards = _windows(2)
+    window_error = ApiError("超出时间范围限制", code="110003")
+    result = _shard([], total_override=None)
+    result["total"] = 5
+    with pytest.warns(UserWarning), pytest.raises(ApiError) as exc:
+        _finalize_quote_result(
+            [None, result],
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=2,
+            failed_shards=[],
+            shards=shards,
+            out_of_window=[shards[0]],
+            window_error=window_error,
+        )
+    assert exc.value.code == "110003"
+
+
+def test_shard_merge_keeps_the_first_contributing_shards_metadata():
+    """Metadata comes from the FIRST contributing shard, not the last one merged
+    (TS ``if (!header) header = rec``)."""
+    shards = _windows(2)
+    first = _shard([["a", 1]], ["securityCode", "close"])
+    second = _shard([["b", 2]], ["securityCode", "close"])
+    first["marker"], second["marker"] = "first", "second"
+    out, _rows = _finalize_quote_result(
+        [first, second],
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=[],
+        shards=shards,
+    )
+    assert out["marker"] == "first"
+
+
+def test_shard_merge_keeps_the_first_shard_even_when_it_carries_no_metadata():
+    """A first shard with nothing but fieldList / list must still be THE header: a later
+    shard's metadata must not slip in because the first one's was empty."""
+    shards = _windows(2)
+    first = _shard([["a", 1]], ["securityCode", "close"])
+    first.pop("total", None)
+    second = _shard([["b", 2]], ["securityCode", "close"])
+    second["source"] = "second"
+    out, _rows = _finalize_quote_result(
+        [first, second],
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=[],
+        shards=shards,
+    )
+    assert "source" not in out
+
+
+def test_shard_merge_an_empty_window_never_outranks_a_bare_contributing_shard():
+    """The contributing shard carries nothing but list + fieldList; an earlier EMPTY
+    window carries metadata. The contributor is still the header — whether a shard
+    contributed decides, not whether it brought metadata — and `total` is the merged
+    count."""
+    shards = _windows(2)
+    empty = _shard([], [])
+    empty["source"] = "empty-window"
+    contributor = _shard([["a", 1]], ["securityCode", "close"])
+    contributor.pop("total", None)
+    out, _rows = _finalize_quote_result(
+        [empty, contributor],
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=[],
+        shards=shards,
+    )
+    assert "source" not in out
+    assert out["total"] == 1
+    assert out["fieldList"] == ["securityCode", "close"]
+
+
+def test_shard_merge_all_empty_takes_the_first_empty_windows_metadata():
+    # TS `if (!fallback) fallback = rec`: the first empty window, even a bare {list: []},
+    # and the merged count still lands in `total`.
+    shards = _windows(2)
+    out, _rows = _finalize_quote_result(
+        [{"list": []}, {"list": [], "source": "second", "fieldList": ["securityCode"]}],
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=[],
+        shards=shards,
+    )
+    assert out == {"list": [], "total": 0}
+
+
 def test_shard_merge_accepts_a_genuinely_empty_window():
     # A weekend / holiday shard is a real answer: not failed, and it must NOT supply
     # the merged header (an empty fieldList would swallow every later column).
@@ -1197,8 +1340,10 @@ def test_day_kline_split_decision_does_not_depend_on_date_layout(tmp_path, layou
                 security=["600519.SH", "000001.SZ", "00700.HK"],
                 start_date=layout,
                 end_date=end,
+                limit=5000,
             )
-    # 3 securities x ~2610 weekdays = ~7830 > the 6000 default -> one request each.
+    # 3 securities x ~2610 weekdays = ~7830 >= limit 5000 -> groups of (4999 // 2610) = 1,
+    # one request each. Misread as the one-year default (786 rows) it would not split.
     assert route.call_count == 3
     assert df["securityCode"].tolist() == ["600519.SH", "000001.SZ", "00700.HK"]
     # And the dates actually sent are normalized, whatever the caller typed.
@@ -1243,3 +1388,564 @@ def test_a_server_set_partial_marker_is_announced_on_single_request_paths(tmp_pa
         with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
             with pytest.warns(UserWarning, match="marked this response partial"):
                 call(Quote(client))
+
+
+# ── CLI v0.39.0 - v0.44.0 port ────────────────────────────────────────────────
+
+
+def _weekday_strings(start: str, end: str) -> list[str]:
+    import datetime as dt
+
+    first, last = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
+    days = [first + dt.timedelta(days=i) for i in range((last - first).days + 1)]
+    return [d.isoformat() for d in days if d.weekday() < 5]
+
+
+def _kline_responder(request, *, first_day: str | None = None):
+    """A daily-kline stub: one row per requested security per weekday, answered sorted by
+    upper-cased code (as the server does), in the columns asked for, capped at `limit`."""
+    body = json.loads(request.content)
+    codes = sorted(str(c).upper() for c in body.get("securityList", []))
+    days = _weekday_strings(body.get("startDate", "2026-06-01"), body.get("endDate", "2026-06-05"))
+    if first_day is not None:
+        days = [d for d in days if d >= first_day]
+    fields = body.get("fieldList") or ["securityCode", "tradeDate", "close"]
+    rows = [
+        [code if f == "securityCode" else day if f == "tradeDate" else 1.0 for f in fields]
+        for code in codes
+        for day in days
+    ][: body.get("limit", 6000)]
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {"total": len(rows), "fieldList": fields, "list": rows},
+        },
+    )
+
+
+def _empty_ok(request):
+    return httpx.Response(
+        200, json={"code": "000000", "status": True, "data": {"total": 0, "list": []}}
+    )
+
+
+def _sent(route) -> list[dict]:
+    return [json.loads(call.request.content) for call in route.calls]
+
+
+# v0.43.0 ⑤ — a whole-market keyword needs both dates; weekday shards.
+
+
+@pytest.mark.parametrize(
+    ("method", "keyword", "dates"),
+    [
+        ("day_kline", "aShares", {"start_date": "2026-09-15"}),
+        ("day_kline", "hkStocks", {"end_date": "2026-09-24"}),
+        ("day_kline", "usStocks", {}),
+        ("day_kline_hk", "all", {"start_date": "2026-09-15"}),
+        ("day_kline_us", "all", {}),
+        ("fund_flow", "aShares", {"end_date": "2026-09-24"}),
+    ],
+)
+def test_full_market_keyword_requires_both_dates_before_any_request(
+    tmp_path, method, keyword, dates
+):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.route(method="POST")
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="requires both start_date and end_date"):
+                getattr(Quote(client), method)(security=keyword, **dates)
+        assert route.call_count == 0
+
+
+def test_hk_full_market_shards_two_weekdays_across_the_weekend(tmp_path):
+    # 07-03 Fri .. 07-08 Wed -> [Fri + Mon], [Tue + Wed]; no Sat + Sun request.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(side_effect=_empty_ok)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Quote(client).day_kline(
+                security="hkStocks", start_date="2026-07-03", end_date="2026-07-08"
+            )
+    windows = sorted((b["startDate"], b["endDate"]) for b in _sent(route))
+    assert windows == [("2026-07-03", "2026-07-06"), ("2026-07-07", "2026-07-08")]
+    assert all(b["limit"] == 10000 for b in _sent(route))
+
+
+# v0.44.0 ⑨ — 110003 shards are skipped; the failure warning names the first error.
+
+
+def _window_responder(request):
+    body = json.loads(request.content)
+    if body["startDate"] < "2016-01-01":
+        return httpx.Response(
+            200, json={"code": "110003", "status": False, "msg": "超出时间范围限制"}
+        )
+    return _kline_responder(request)
+
+
+def test_day_kline_skips_shards_before_the_history_window(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_window_responder
+        )
+        with (
+            GangtiseClient(_config=replace(_cfg(tmp_path), page_concurrency=1)) as client,
+            pytest.warns(
+                UserWarning, match=r"4/10 day-kline shard\(s\) between 2015-12-28 and 2015-12-31"
+            ),
+        ):
+            out = Quote(client).day_kline(
+                security="aShares", start_date="2015-12-28", end_date="2016-01-08", raw=True
+            )
+        assert route.call_count == 10  # nothing aborted
+    assert "partial" not in out
+    assert "failedShards" not in out
+    assert [w["startDate"] for w in out["outOfWindowShards"]] == [
+        "2015-12-28",
+        "2015-12-29",
+        "2015-12-30",
+        "2015-12-31",
+    ]
+    assert sorted({row[1] for row in out["list"]}) == _weekday_strings("2016-01-01", "2016-01-08")
+
+
+def test_day_kline_failure_warning_names_the_first_error_and_the_unsent_shards(tmp_path):
+    def responder(request):
+        body = json.loads(request.content)
+        if body["startDate"] == "2026-01-06":
+            return httpx.Response(
+                200, json={"code": "120001", "status": False, "msg": "证券代码无效"}
+            )
+        return _kline_responder(request)
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        with (
+            GangtiseClient(_config=replace(_cfg(tmp_path), page_concurrency=1)) as client,
+            pytest.warns(UserWarning) as record,
+        ):
+            out = Quote(client).day_kline(
+                security="aShares", start_date="2026-01-05", end_date="2026-01-16", raw=True
+            )
+    messages = [str(w.message) for w in record]
+    assert any(
+        "9/10 day-kline shards failed (8 of them not sent: the first error stopped the rest); "
+        "first error: (120001) 证券代码无效" in m
+        for m in messages
+    ), messages
+    # A failed shard alone moves the first row later — the late-start note stays quiet.
+    assert not any("after the requested start" in m for m in messages)
+    assert out["partial"] is True
+
+
+# v0.39.0 ⑤ — a column only later shards return is named, not dropped silently.
+
+
+def test_shard_merge_names_a_column_only_a_later_shard_returned():
+    shards = _windows(3)
+    results = [
+        _shard([[10, 100]], ["close", "volume"]),
+        _shard([[20, 200, 2000]], ["close", "volume", "amount"]),
+        _shard([[100, 10]], ["volume", "close"]),  # same set, other order: nothing lost
+    ]
+    with pytest.warns(UserWarning, match="came back only in later shards"):
+        out, rows = _finalize_quote_result(
+            results,
+            label="day-kline",
+            limit=6000,
+            sharded=True,
+            shard_count=3,
+            failed_shards=[],
+            shards=shards,
+        )
+    assert out["fieldList"] == ["close", "volume"]
+    assert rows == [[10, 100], [20, 200], [10, 100]]
+    assert out["partial"] is True
+    assert out["droppedColumns"] == ["amount"]
+
+
+def test_shard_merge_does_not_flag_a_reordered_shard_as_dropping_columns():
+    out, _rows = _finalize_quote_result(
+        [_shard([[10, 100]], ["close", "volume"]), _shard([[100, 10]], ["volume", "close"])],
+        label="day-kline",
+        limit=6000,
+        sharded=True,
+        shard_count=2,
+        failed_shards=[],
+        shards=_windows(2),
+    )
+    assert "droppedColumns" not in out
+    assert "partial" not in out
+
+
+# v0.43.0 ③ — identity columns on multi-security / full-market `field`.
+
+
+def test_day_kline_adds_identity_columns_for_several_securities(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            quote = Quote(client)
+            with pytest.warns(UserWarning, match="adds securityCode, tradeDate to field"):
+                df = quote.day_kline(
+                    security=["600519.SH", "000858.SZ"],
+                    start_date="2026-06-01",
+                    end_date="2026-06-05",
+                    field="close",
+                )
+            # One security: rows are one series, so `field="close"` stays just that.
+            quote.day_kline(
+                security="600519.SH", start_date="2026-06-01", end_date="2026-06-05", field="close"
+            )
+            # Named already (in any order): left alone, no warning.
+            quote.day_kline(
+                security=["600519.SH", "000858.SZ"],
+                start_date="2026-06-01",
+                end_date="2026-06-05",
+                field=["tradeDate", "securityCode", "close"],
+            )
+    assert [b["fieldList"] for b in _sent(route)] == [
+        ["securityCode", "tradeDate", "close"],
+        ["close"],
+        ["tradeDate", "securityCode", "close"],
+    ]
+    assert list(df.columns) == ["securityCode", "tradeDate", "close"]
+
+
+def test_full_market_day_kline_adds_identity_columns_to_every_shard(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(side_effect=_empty_ok)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="adds securityCode, tradeDate"):
+                Quote(client).day_kline(
+                    security="aShares",
+                    start_date="2026-06-01",
+                    end_date="2026-06-02",
+                    field="close",
+                )
+    assert [b["fieldList"] for b in _sent(route)] == [["securityCode", "tradeDate", "close"]] * 2
+
+
+def test_minute_kline_identity_columns_are_security_code_and_trade_time(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/minute").mock(side_effect=_empty_ok)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="adds securityCode, tradeTime to field"):
+                Quote(client).minute_kline(security=["600519.SH", "000858.SZ"], field="close")
+    assert [b["fieldList"] for b in _sent(route)] == [["securityCode", "tradeTime", "close"]] * 2
+
+
+@pytest.mark.parametrize(
+    ("security", "expected"),
+    [
+        (["600519.SH", "000858.SZ"], ["securityCode", "latestPrice"]),
+        ("ashares", ["securityCode", "latestPrice"]),  # a keyword names many securities
+        ("600519.SH", ["latestPrice"]),
+    ],
+)
+def test_realtime_adds_security_code_only_when_several_securities_share_the_result(
+    tmp_path, security, expected
+):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/quote/realtime").mock(side_effect=_empty_ok)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            if len(expected) > 1:
+                with pytest.warns(UserWarning, match="adds securityCode to field"):
+                    Quote(client).realtime(security=security, field="latestPrice")
+            else:
+                Quote(client).realtime(security=security, field="latestPrice")
+    assert _sent(route)[0]["fieldList"] == expected
+
+
+def test_fund_flow_adds_no_identity_columns(tmp_path):
+    # The server always sends securityCode / tradeDate with fund-flow rows.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/fund-flow/daily").mock(side_effect=_empty_ok)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Quote(client).fund_flow(
+                security=["600519.SH", "000858.SZ"],
+                start_date="2026-06-01",
+                end_date="2026-06-05",
+                field="mainNetInflow",
+            )
+    assert _sent(route)[0]["fieldList"] == ["mainNetInflow"]
+
+
+# v0.43.0 ④ — multi-security day-kline packing.
+
+
+def test_day_kline_without_limit_packs_securities_up_to_the_row_ceiling(tmp_path):
+    # 30 securities x 784 weekdays cannot go out as one request; without `limit` a request
+    # may carry 9999 // 784 = 12 of them: 3 requests instead of 30.
+    codes = [f"GRP{(i * 7) % 30:02d}.SZ" for i in range(30)]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = Quote(client).day_kline(
+                security=codes, start_date="2024-01-01", end_date="2026-12-31", raw=True
+            )
+    sent = _sent(route)
+    assert sorted(len(b["securityList"]) for b in sent) == [6, 12, 12]
+    assert all(b["limit"] == 10000 for b in sent)
+    order = [row[0] for row in out["list"]]
+    assert len(order) == 30 * 784
+    assert [c for i, c in enumerate(order) if i == 0 or c != order[i - 1]] == codes
+    assert "partial" not in out
+
+
+@pytest.mark.parametrize(("n", "sizes"), [(5, [1, 4]), (6, [2, 4])])
+def test_day_kline_never_plans_a_request_onto_its_cap(tmp_path, n, sizes):
+    # 2026-06-01..02 is two weekdays; 5 x 2 = 10 rows = limit 10 would come back with
+    # exactly 10 rows, indistinguishable from a cut answer — so groups of 4.
+    codes = [f"GRP{i:02d}.SZ" for i in range(1, n + 1)]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = Quote(client).day_kline(
+                security=codes, start_date="2026-06-01", end_date="2026-06-02", limit=10, raw=True
+            )
+    assert sorted(len(b["securityList"]) for b in _sent(route)) == sizes
+    assert all(b["limit"] == 10 for b in _sent(route))
+    assert len(out["list"]) == 2 * n
+    assert "partial" not in out
+
+
+def test_day_kline_keeps_input_order_when_codes_are_typed_in_lower_case(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        with GangtiseClient(_config=replace(_cfg(tmp_path), page_concurrency=1)) as client:
+            out = Quote(client).day_kline(
+                security=["grp09.sz", "GRP01.SZ", "GRP05.SZ"],
+                start_date="2026-06-01",
+                end_date="2026-06-02",
+                limit=6,
+                raw=True,
+            )
+    assert [b["securityList"] for b in _sent(route)] == [["grp09.sz", "GRP01.SZ"], ["GRP05.SZ"]]
+    assert [row[0] for row in out["list"]] == [
+        "GRP09.SZ",
+        "GRP09.SZ",
+        "GRP01.SZ",
+        "GRP01.SZ",
+        "GRP05.SZ",
+        "GRP05.SZ",
+    ]
+
+
+def test_day_kline_single_security_reaching_the_limit_is_still_truncated(tmp_path):
+    # 2 x 5 weekdays >= limit 5: groups of one, and each fills its limit.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=_kline_responder)
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.warns(UserWarning, match="likely truncated"),
+        ):
+            out = Quote(client).day_kline(
+                security=["600519.SH", "000858.SZ"],
+                start_date="2026-06-01",
+                end_date="2026-06-05",
+                limit=5,
+                raw=True,
+            )
+    assert out["partial"] is True
+    assert out["truncatedSecurities"] == ["600519.SH", "000858.SZ"]
+
+
+# v0.43.0 ⑥ — late first row / empty minute range.
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("day_kline", "/application/open-quote/kline/daily"),
+        ("fund_flow", "/application/open-quote/fund-flow/daily"),
+    ],
+)
+def test_a_series_starting_well_after_the_requested_start_is_noted(tmp_path, method, path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(path).mock(side_effect=lambda r: _kline_responder(r, first_day="2026-06-03"))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(
+                UserWarning,
+                match="starts at 2026-06-03, 33 days after the requested start 2026-05-01",
+            ):
+                out = getattr(Quote(client), method)(
+                    security="600519.SH", start_date="2026-05-01", end_date="2026-06-05", raw=True
+                )
+            # A weekend or holiday before the first trading day is not a late start.
+            getattr(Quote(client), method)(
+                security="600519.SH", start_date="2026-06-01", end_date="2026-06-05"
+            )
+    assert "partial" not in out  # a note, not a completeness verdict
+
+
+def test_a_grouped_day_kline_reads_the_earliest_date_over_every_security(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            side_effect=lambda r: _kline_responder(r, first_day="2026-06-03")
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.warns(UserWarning, match="starts at 2026-06-03"),
+        ):
+            Quote(client).day_kline(
+                security=["600519.SH", "000858.SZ"],
+                start_date="2026-05-01",
+                end_date="2026-06-05",
+                limit=10,
+            )
+
+
+def _minute_responder(request):
+    body = json.loads(request.content)
+    code = body["securityCode"]
+    if code == "EMPTY.SH":
+        return _empty_ok(request)
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {
+                "total": 1,
+                "fieldList": ["securityCode", "tradeTime", "close"],
+                "list": [[code, "2026-06-01 09:31:00", 1.0]],
+            },
+        },
+    )
+
+
+def test_minute_kline_notes_a_late_start_and_an_empty_range(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/minute").mock(side_effect=_minute_responder)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            quote = Quote(client)
+            with pytest.warns(
+                UserWarning,
+                match="starts at 2026-06-01, 31 days after the requested start 2026-05-01",
+            ):
+                quote.minute_kline(
+                    security="600519.SH",
+                    start_time="2026/05/01 09:30:00",
+                    end_time="2026-06-01 15:00:00",
+                )
+            with pytest.warns(UserWarning, match="no minute bars came back"):
+                df = quote.minute_kline(
+                    security="EMPTY.SH",
+                    start_time="2026-06-01 09:30:00",
+                    end_time="2026-06-01 15:00:00",
+                )
+            # Without a range there is nothing the window could explain: stay quiet.
+            quote.minute_kline(security="EMPTY.SH")
+    assert df.empty
+
+
+# v0.44.0 ⑧ — repeated codes / field names do not double rows.
+
+
+def test_repeated_codes_and_fields_are_sent_once(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        daily = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        minute = router.post("/application/open-quote/kline/minute").mock(
+            side_effect=_minute_responder
+        )
+        realtime = router.post("/application/open-quote/quote/realtime").mock(side_effect=_empty_ok)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            quote = Quote(client)
+            # One security once deduped: no identity column is added, no warning.
+            df = quote.day_kline(
+                security=["600519.SH", "600519.SH"],
+                start_date="2026-06-01",
+                end_date="2026-06-05",
+                field=["close", "close"],
+            )
+            quote.minute_kline(security=["600519.SH", "600519.SH"])
+            quote.realtime(security=["600519.SH", "600519.SH"])
+    assert _sent(daily)[0]["securityList"] == ["600519.SH"]
+    assert _sent(daily)[0]["fieldList"] == ["close"]
+    assert len(df) == 5
+    assert minute.call_count == 1
+    assert _sent(realtime)[0]["securityList"] == ["600519.SH"]
+
+
+def test_full_market_reversed_range_is_a_validation_error_and_sends_nothing(seeded_config):
+    """A reversed range is a ValidationError, caught by ``except GangtiseError`` —
+    not a bare ValueError from the shard planner."""
+
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-quote/kline/daily")
+        with GangtiseClient(_config=seeded_config) as client, pytest.raises(ValidationError):
+            Quote(client).day_kline(
+                security="aShares", start_date="2026-09-10", end_date="2026-09-01"
+            )
+    assert route.call_count == 0
+
+
+def test_empty_kline_keeps_the_columns(tmp_path):
+    """An empty range answers ``{fieldList, list: []}``: the frame keeps its columns."""
+    fields = ["securityCode", "tradeDate", "close"]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"total": 0, "fieldList": fields, "list": []},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).day_kline(
+                security="600519.SH", start_date="2026-09-26", end_date="2026-09-27"
+            )
+    assert list(df.columns) == fields
+    assert df["close"].tolist() == []
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "kwargs", "fields"),
+    [
+        (
+            "minute_kline",
+            "/application/open-quote/kline/minute",
+            {"security": "600519.SH", "start_time": "2026-09-01 09:30:00"},
+            ["securityCode", "tradeTime", "close"],
+        ),
+        (
+            "realtime",
+            "/application/open-quote/quote/realtime",
+            {"security": "600519.SH"},
+            ["securityCode", "latestPrice"],
+        ),
+    ],
+)
+def test_empty_minute_and_realtime_keep_the_columns(tmp_path, method, path, kwargs, fields):
+    """Both reviews: the empty-result column fix covered daily klines only."""
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(path).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"total": 0, "fieldList": fields, "list": []},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client, warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # the empty-minutes note
+            df = getattr(Quote(client), method)(**kwargs)
+    assert list(df.columns) == fields

@@ -1,6 +1,6 @@
 """ai.stock_summary_list — 个股看点, 每只证券的精炼研究摘要（返回 DataFrame）。
 
-security 必填, 传具体证券代码（本接口不支持市场关键词）, 单次最多 5000 只; 留空会抛 ValidationError
+security 必填, 传具体证券代码（本接口不支持市场关键词）, 单次最多 6000 只（无看点的证券不返回、不计费）; 留空会抛 ValidationError
 （省略会被后端当作全市场, 每行约 3 积分 × 数千行）。
 异步用法相同, 路径为 gangtise.async_.ai.stock_summary_list(...)。
 """
@@ -19,7 +19,10 @@ def main():
     # 示例 2 · 多只证券（列表入参）
     show_result(
         gangtise.ai.stock_summary_list(
-            security=["600519.SH", "00700.HK"],  # 证券代码, 支持单值或列表; 单次最多 5000 只
+            security=[
+                "600519.SH",
+                "00700.HK",
+            ],  # 证券代码, 支持单值或列表; 单次最多 6000 只（无看点的证券不返回、不计费）
         ),
         __file__,
     )

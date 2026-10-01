@@ -19,7 +19,7 @@ async def main():
     data_id = os.environ.get("GANGTISE_SAMPLE_EARNINGS_REVIEW_DATA_ID")
     if not data_id:
         raise SystemExit(
-            "Set GANGTISE_SAMPLE_EARNINGS_REVIEW_DATA_ID to a dataId returned by the corresponding wait=False sample."
+            "请先把 GANGTISE_SAMPLE_EARNINGS_REVIEW_DATA_ID 设为对应生成示例以 wait=False 返回的 data_id。"
         )
     try:
         result = await gangtise.async_.ai.earnings_review_check(

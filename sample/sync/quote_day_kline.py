@@ -3,10 +3,12 @@
 A股 / 港股 / 美股个股 + 交易所指数（沪深京）、概念指数（.GT）、
 行业指数（中信 .CI / 申万 .SWI）, 可在一次请求里混着传。
 
-通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值范围写在注释里；全部参数见 sample/API_PARAMETERS.md。
 全市场关键字为 aShares / hkStocks / usStocks（服务端 2026-08-14 起停止支持 "all"）,
 关键字必须单独传, 与代码或另一个关键字混填会被本地拦下。
-带日期区间时按市场粒度自动分片（aShares/usStocks 每片 1 交易日、hkStocks 2 天）并发拉取后合并。
+关键字必须同时传 start_date 与 end_date（缺一个本地报错）, 按工作日自动分片
+（aShares/usStocks 每片 1 个工作日、hkStocks 每片 2 个工作日, 周末不单独发请求）并发拉取后合并。
+多只证券且「证券数 × 工作日数」达到 limit 时, SDK 按行数上限分组请求、按传入顺序合并。
 异步用法相同, 路径为 gangtise.async_.quote.day_kline(...)。
 """
 
@@ -37,7 +39,8 @@ def main():
             start_date="2026-05-01",
             end_date="2026-05-28",
             field=[
-                "tradeDate",
+                "securityCode",  # 多只证券时 SDK 会自动补上 securityCode / tradeDate
+                "tradeDate",  # （缺哪个补哪个并发 warning）; 写全了就不补、不告警
                 "open",
                 "close",
                 "high",
@@ -59,8 +62,8 @@ def main():
         __file__,
     )
     # 其余可选用法:
-    #   security="aShares"        全 A 股: 配合 start_date/end_date 自动按 1 交易日/片分片并发拉取
-    #   security="hkStocks"       全港股: 每片 2 天; security="usStocks" 全美股: 每片 1 天
+    #   security="aShares"        全 A 股: 必须同时传 start_date/end_date, 按 1 个工作日/片分片并发拉取
+    #   security="hkStocks"       全港股: 每片 2 个工作日; security="usStocks" 全美股: 每片 1 个工作日
     #   （关键字必须单独传; "all" 已被服务端下线, 传了会本地报错并提示改用哪个关键字）
     #   field=<字段名或列表>       仅返回所需字段（如 open/close/volume）; 省略则用服务端默认字段
 

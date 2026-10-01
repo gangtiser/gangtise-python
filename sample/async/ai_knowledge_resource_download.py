@@ -21,7 +21,7 @@ async def main():
     source_id = os.environ.get("GANGTISE_SAMPLE_KNOWLEDGE_SOURCE_ID")
     resource_type = os.environ.get("GANGTISE_SAMPLE_KNOWLEDGE_RESOURCE_TYPE", "1")
     if not source_id:
-        raise SystemExit("Set GANGTISE_SAMPLE_KNOWLEDGE_SOURCE_ID to a downloadable sourceId.")
+        raise SystemExit("请先把 GANGTISE_SAMPLE_KNOWLEDGE_SOURCE_ID 设为可下载的 sourceId。")
     previous_cwd = Path.cwd()
     output_dir = (previous_cwd / "sample_downloads").resolve()
     output_dir.mkdir(exist_ok=True)

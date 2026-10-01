@@ -17,11 +17,11 @@ from gangtise_openapi import gangtise
 def main():
     items = gangtise.vault.drive_list(size=1)
     if items.empty:
-        raise SystemExit("No source item found for vault.drive_download.")
+        raise SystemExit("没有找到可用于 vault.drive_download 的条目。")
     row = items.iloc[0]
     item_id = row.get("fileId") or row.get("id") or row.get("id")
     if not item_id:
-        raise SystemExit("Could not find an ID column in the list response.")
+        raise SystemExit("列表返回里找不到 ID 列。")
     previous_cwd = Path.cwd()
     output_dir = (previous_cwd / "sample_downloads").resolve()
     output_dir.mkdir(exist_ok=True)

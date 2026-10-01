@@ -18,11 +18,11 @@ from gangtise_openapi import gangtise
 async def main():
     items = await gangtise.async_.vault.record_list(size=1)
     if items.empty:
-        raise SystemExit("No source item found for vault.record_download.")
+        raise SystemExit("没有找到可用于 vault.record_download 的条目。")
     row = items.iloc[0]
     item_id = row.get("recordId") or row.get("id") or row.get("id")
     if not item_id:
-        raise SystemExit("Could not find an ID column in the list response.")
+        raise SystemExit("列表返回里找不到 ID 列。")
     previous_cwd = Path.cwd()
     output_dir = (previous_cwd / "sample_downloads").resolve()
     output_dir.mkdir(exist_ok=True)

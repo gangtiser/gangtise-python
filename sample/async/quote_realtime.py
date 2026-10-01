@@ -1,6 +1,6 @@
 """quote.realtime — 实时行情快照（A 股 / 港股 / 美股）, 返回 DataFrame。
 
-通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值范围写在注释里；全部参数见 sample/API_PARAMETERS.md。
 security 既可传具体代码（支持列表）, 也可传市场关键词整体取该市场快照。
 异步路径为 gangtise.async_.quote.realtime(...)。
 """

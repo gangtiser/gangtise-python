@@ -241,26 +241,16 @@ async def test_async_day_kline_hk_shard_count_and_body(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_index_day_kline_15_day_shards_and_body(tmp_path):
+@pytest.mark.parametrize("keyword", ["all", "ALL"])
+async def test_async_index_day_kline_refuses_a_keyword_before_any_request(tmp_path, keyword):
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
-        route = router.post("/application/open-quote/index/kline/daily").mock(
-            return_value=httpx.Response(
-                200,
-                json={"code": "000000", "status": True, "data": {"list": []}},
-            )
-        )
+        route = router.post("/application/open-quote/index/kline/daily")
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            await AsyncQuote(client).index_day_kline(
-                security="all",
-                start_date="2026-01-01",
-                end_date="2026-03-31",
-            )
-        # 90 days / 15 per shard = 6 shards (see the sync sibling).
-        assert route.call_count == 6
-        # index-day-kline body uses `securityList` (camelCase, list form)
-        sent = route.calls.last.request.read().replace(b" ", b"")
-        assert b'"securityList":["all"]' in sent
-        assert b'"securityCode"' not in sent
+            with pytest.raises(ValidationError, match="total 0 and no error"):
+                await AsyncQuote(client).index_day_kline(
+                    security=keyword, start_date="2026-06-03", end_date="2026-06-03"
+                )
+        assert route.call_count == 0
 
 
 @pytest.mark.anyio
@@ -564,6 +554,7 @@ async def test_async_day_kline_split_decision_does_not_depend_on_date_layout(tmp
                 security=["600519.SH", "000001.SZ", "00700.HK"],
                 start_date=layout,
                 end_date=end,
+                limit=5000,
             )
     assert route.call_count == 3
     for call in route.calls:
@@ -590,3 +581,234 @@ async def test_async_minute_kline_warns_when_a_part_reports_itself_partial(tmp_p
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             with pytest.warns(UserWarning, match="600519.SH reported itself partial"):
                 await AsyncQuote(client).minute_kline(security=["600519.SH", "000001.SZ"])
+
+
+# ── CLI v0.39.0 - v0.44.0 port (async mirrors; stubs shared with the sync module) ──
+
+from tests.endpoints.test_quote import (  # noqa: E402
+    _empty_ok,
+    _kline_responder,
+    _minute_responder,
+    _sent,
+    _weekday_strings,
+    _window_responder,
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "keyword", "dates"),
+    [
+        ("day_kline", "aShares", {"start_date": "2026-09-15"}),
+        ("day_kline_hk", "all", {"end_date": "2026-09-24"}),
+        ("fund_flow", "aShares", {}),
+    ],
+)
+async def test_async_full_market_keyword_requires_both_dates(tmp_path, method, keyword, dates):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.route(method="POST")
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match="requires both start_date and end_date"):
+                await getattr(AsyncQuote(client), method)(security=keyword, **dates)
+        assert route.call_count == 0
+
+
+@pytest.mark.anyio
+async def test_async_hk_full_market_shards_two_weekdays_across_the_weekend(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(side_effect=_empty_ok)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncQuote(client).day_kline(
+                security="hkStocks", start_date="2026-07-03", end_date="2026-07-08"
+            )
+    windows = sorted((b["startDate"], b["endDate"]) for b in _sent(route))
+    assert windows == [("2026-07-03", "2026-07-06"), ("2026-07-07", "2026-07-08")]
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_skips_shards_before_the_history_window(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_window_responder
+        )
+        async with AsyncGangtiseClient(
+            _config=replace(_cfg(tmp_path), page_concurrency=1)
+        ) as client:
+            with pytest.warns(
+                UserWarning, match=r"lie outside your account's history window \(110003\)"
+            ):
+                out = await AsyncQuote(client).day_kline(
+                    security="aShares", start_date="2015-12-28", end_date="2016-01-08", raw=True
+                )
+        assert route.call_count == 10
+    assert "partial" not in out
+    assert len(out["outOfWindowShards"]) == 4
+    assert sorted({row[1] for row in out["list"]}) == _weekday_strings("2016-01-01", "2016-01-08")
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_failure_warning_names_the_first_error_and_the_unsent_shards(
+    tmp_path,
+):
+    def responder(request):
+        if json.loads(request.content)["startDate"] == "2026-01-06":
+            return httpx.Response(
+                200, json={"code": "120001", "status": False, "msg": "证券代码无效"}
+            )
+        return _kline_responder(request)
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        async with AsyncGangtiseClient(
+            _config=replace(_cfg(tmp_path), page_concurrency=1)
+        ) as client:
+            with pytest.warns(UserWarning) as record:
+                out = await AsyncQuote(client).day_kline(
+                    security="aShares", start_date="2026-01-05", end_date="2026-01-16", raw=True
+                )
+    messages = [str(w.message) for w in record]
+    assert any(
+        "not sent: the first error stopped the rest" in m and "(120001)" in m for m in messages
+    )
+    assert not any("after the requested start" in m for m in messages)
+    assert out["partial"] is True
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_names_a_column_only_a_later_shard_returned(tmp_path):
+    def responder(request):
+        start = json.loads(request.content)["startDate"]
+        fields, row = (
+            (["close", "volume", "amount"], [20, 200, 2000])
+            if start == "2026-04-03"
+            else (["close", "volume"], [10, 100])
+        )
+        return httpx.Response(
+            200,
+            json={"code": "000000", "status": True, "data": {"fieldList": fields, "list": [row]}},
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(side_effect=responder)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="came back only in later shards"):
+                out = await AsyncQuote(client).day_kline(
+                    security="aShares", start_date="2026-04-01", end_date="2026-04-03", raw=True
+                )
+    assert out["fieldList"] == ["close", "volume"]
+    assert out["droppedColumns"] == ["amount"]
+    assert out["partial"] is True
+    assert len(out["list"]) == 3
+
+
+@pytest.mark.anyio
+async def test_async_identity_columns_for_several_securities(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        daily = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        minute = router.post("/application/open-quote/kline/minute").mock(side_effect=_empty_ok)
+        realtime = router.post("/application/open-quote/quote/realtime").mock(side_effect=_empty_ok)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            quote = AsyncQuote(client)
+            with pytest.warns(UserWarning, match="adds securityCode, tradeDate to field"):
+                await quote.day_kline(
+                    security=["600519.SH", "000858.SZ"],
+                    start_date="2026-06-01",
+                    end_date="2026-06-05",
+                    field="close",
+                )
+            with pytest.warns(UserWarning, match="adds securityCode, tradeTime to field"):
+                await quote.minute_kline(security=["600519.SH", "000858.SZ"], field="close")
+            with pytest.warns(UserWarning, match="adds securityCode to field"):
+                await quote.realtime(security="aShares", field="latestPrice")
+            await quote.realtime(security="600519.SH", field="latestPrice")
+    assert _sent(daily)[0]["fieldList"] == ["securityCode", "tradeDate", "close"]
+    assert [b["fieldList"] for b in _sent(minute)] == [["securityCode", "tradeTime", "close"]] * 2
+    assert [b["fieldList"] for b in _sent(realtime)] == [
+        ["securityCode", "latestPrice"],
+        ["latestPrice"],
+    ]
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_packs_securities_and_keeps_input_order(tmp_path):
+    codes = [f"GRP{(i * 7) % 30:02d}.SZ" for i in range(30)]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = await AsyncQuote(client).day_kline(
+                security=codes, start_date="2024-01-01", end_date="2026-12-31", raw=True
+            )
+    assert sorted(len(b["securityList"]) for b in _sent(route)) == [6, 12, 12]
+    order = [row[0] for row in out["list"]]
+    assert [c for i, c in enumerate(order) if i == 0 or c != order[i - 1]] == codes
+
+
+@pytest.mark.anyio
+async def test_async_day_kline_never_plans_a_request_onto_its_cap(tmp_path):
+    codes = [f"GRP{i:02d}.SZ" for i in range(1, 6)]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = await AsyncQuote(client).day_kline(
+                security=codes, start_date="2026-06-01", end_date="2026-06-02", limit=10, raw=True
+            )
+    assert sorted(len(b["securityList"]) for b in _sent(route)) == [1, 4]
+    assert len(out["list"]) == 10
+    assert "partial" not in out
+
+
+@pytest.mark.anyio
+async def test_async_late_start_and_empty_minute_range_are_noted(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-quote/kline/daily").mock(
+            side_effect=lambda r: _kline_responder(r, first_day="2026-06-03")
+        )
+        router.post("/application/open-quote/kline/minute").mock(side_effect=_minute_responder)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            quote = AsyncQuote(client)
+            with pytest.warns(
+                UserWarning,
+                match="starts at 2026-06-03, 33 days after the requested start 2026-05-01",
+            ):
+                await quote.day_kline(
+                    security="600519.SH", start_date="2026-05-01", end_date="2026-06-05"
+                )
+            with pytest.warns(UserWarning, match="31 days after the requested start 2026-05-01"):
+                await quote.minute_kline(
+                    security=["600519.SH", "000858.SZ"],
+                    start_time="2026-05-01 09:30:00",
+                    end_time="2026-06-01 15:00:00",
+                    field=["securityCode", "tradeTime", "close"],
+                )
+            with pytest.warns(UserWarning, match="no minute bars came back"):
+                await quote.minute_kline(
+                    security="EMPTY.SH",
+                    start_time="2026-06-01 09:30:00",
+                    end_time="2026-06-01 15:00:00",
+                )
+
+
+@pytest.mark.anyio
+async def test_async_repeated_codes_are_sent_once(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        daily = router.post("/application/open-quote/kline/daily").mock(
+            side_effect=_kline_responder
+        )
+        minute = router.post("/application/open-quote/kline/minute").mock(
+            side_effect=_minute_responder
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            quote = AsyncQuote(client)
+            df = await quote.day_kline(
+                security=["600519.SH", "600519.SH"], start_date="2026-06-01", end_date="2026-06-05"
+            )
+            await quote.minute_kline(security=["600519.SH", "600519.SH"])
+    assert _sent(daily)[0]["securityList"] == ["600519.SH"]
+    assert len(df) == 5
+    assert minute.call_count == 1

@@ -1,7 +1,7 @@
 """reference.official_account_search — 按名称/机构/关键字搜索公众号 ID（返回 DataFrame）。
 
 返回 accountId（喂 insight.official_account_list 的 account_id）; 按 matchScore 降序; 免费。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.reference.official_account_search(...)（同步用法见 sample/sync 同名文件）。
 """
 

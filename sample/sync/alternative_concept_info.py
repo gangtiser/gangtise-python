@@ -1,6 +1,7 @@
 """alternative.concept_info — 概念(主题指数)最新画像, 返回 dict。
 
-返回单个截面对象(定义、投资逻辑、行业空间、竞争格局、关键事件 keyEvents 等), 因此为 dict。
+返回单个截面对象(定义、投资逻辑、行业空间、竞争格局等), 因此为 dict。默认 50 积分/次;
+催化事件 keyEvents 只有 full=True(旧版接口, 500 积分/次)才返回。
 concept_id 与 ai.theme_tracking 共用题材 id 命名空间, 用 reference.concept_search(keyword=...) 按名查询(机器人=121000130)。
 返回 dict, 多次 show_result 会写同一 .md 路径互相覆盖, 故只保留 1 个执行示例, 其余用注释覆盖。
 异步用法相同, 路径为 gangtise.async_.alternative.concept_info(...)。
@@ -25,6 +26,8 @@ def main():
     # 其余用法(用注释覆盖, 避免 dict 写同一 .md 互相覆盖):
     #   换一个主题(题材 ID 见 reference.concept_search(keyword=...), 如 ai.theme_tracking 文档示例 121000342):
     #     gangtise.alternative.concept_info(concept_id="121000342")
+    #   full=True 走旧版接口(500 积分/次, 默认 50), 只多一列催化事件 keyEvents:
+    #     gangtise.alternative.concept_info(concept_id="121000130", full=True)
     #   raw=True 仅为签名统一而保留, 返回内容与默认一致(同为该 dict):
     #     gangtise.alternative.concept_info(concept_id="121000130", raw=True)
 

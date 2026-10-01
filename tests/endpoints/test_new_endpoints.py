@@ -345,9 +345,12 @@ def test_file_parse_check_wait_aborts_on_a_terminal_failure(tmp_path, seeded_con
             )
         )
         with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
-            with pytest.raises(ApiError, match="terminal 140002"):
+            with pytest.raises(ApiError, match="terminal 140002") as exc:
                 Tool(client).file_parse_check(task_id="t-1", output=tmp_path / "r.zip", wait=True)
     assert route.call_count == 1
+    # The generic 140002 / 410111 hint names the AI generators' data_id; here it is task_id.
+    assert "task_id" in (exc.value.hint or "")
+    assert "data_id" not in (exc.value.hint or "")
 
 
 @pytest.mark.anyio

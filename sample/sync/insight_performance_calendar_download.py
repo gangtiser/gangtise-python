@@ -22,10 +22,10 @@ def main():
         start_date="2026-07-01", end_date="2026-07-07", size=1
     )
     if items.empty:
-        raise SystemExit("No source item found for insight.performance_calendar_download.")
+        raise SystemExit("没有找到可用于 insight.performance_calendar_download 的条目。")
     item_id = items.iloc[0].get("performanceReportId")
     if not item_id:
-        raise SystemExit("Could not find a performanceReportId column in the list response.")
+        raise SystemExit("列表返回里找不到 performanceReportId 列。")
 
     # 步骤 2 · chdir 到 sample_downloads 后下载, 结束再 chdir 回去
     previous_cwd = Path.cwd()

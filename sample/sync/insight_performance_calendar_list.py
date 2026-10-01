@@ -46,6 +46,7 @@ def main():
     show_result(
         gangtise.insight.performance_calendar_list(
             security="600519.SH",
+            size=20,  # 按条计费: 省略 size 会按 total × 单价估算全量, 超过 1000 积分拒绝
             raw=True,  # True=返回服务端原始 data（含 total/list/partial）, 不转 DataFrame
         ),
         __file__,

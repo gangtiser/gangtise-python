@@ -68,16 +68,17 @@ async def test_async_knowledge_batch_body_shape(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_knowledge_batch_empty_resource_type_omitted(tmp_path):
-    # TS omits resourceTypes when empty (`.length` guard); Python must match.
-    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post("/application/open-data/ai/search/knowledge/batch").mock(
-            return_value=_list_response([{"id": "1"}]),
-        )
+async def test_async_knowledge_batch_empty_resource_type_is_refused(tmp_path):
+    # An explicit empty filter is refused (0.5.0): omitting it would search every
+    # resource type, which is not what "filter by nothing" asked for.
+    from gangtise_openapi._errors import ValidationError
+
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-data/ai/search/knowledge/batch")
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            await AsyncAI(client).knowledge_batch(query="q1", resource_type=[])
-        sent = route.calls.last.request.read().replace(b" ", b"")
-        assert b'"resourceTypes"' not in sent
+            with pytest.raises(ValidationError, match="empty list"):
+                await AsyncAI(client).knowledge_batch(query="q1", resource_type=[])
+    assert route.call_count == 0
 
 
 @pytest.mark.anyio
@@ -92,7 +93,7 @@ async def test_async_security_clue_list_sends_bare_source(tmp_path):
                 end_time="2026-05-28",
                 query_mode="bySecurity",
                 gts_code="000001.SZ",
-                source="research",
+                source="researchReport",
             )
         sent = route.calls.last.request.read().replace(b" ", b"")
         assert b'"startTime":"2026-05-01"' in sent
@@ -100,7 +101,7 @@ async def test_async_security_clue_list_sends_bare_source(tmp_path):
         assert b'"queryMode":"bySecurity"' in sent
         assert b'"gtsCodeList":["000001.SZ"]' in sent
         # TS sends bare `source`, NOT `sourceList`.
-        assert b'"source":["research"]' in sent
+        assert b'"source":["researchReport"]' in sent
         assert b'"sourceList"' not in sent
     assert df.iloc[0]["gtsCode"] == "000001.SZ"
 
@@ -465,4 +466,4 @@ async def test_async_stock_summary_list_requires_security(tmp_path):
 async def test_async_stock_summary_refuses_an_oversized_batch(tmp_path):
     async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
         with pytest.raises(ValidationError, match="Split the codes into batches"):
-            await AsyncAI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(5001)])
+            await AsyncAI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(6001)])

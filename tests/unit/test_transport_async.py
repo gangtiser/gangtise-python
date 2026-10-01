@@ -165,3 +165,57 @@ async def test_request_json_async_no_999999_search_keeps_generic_hint(respx_mock
             await request_json_async(http, endpoint, body={}, token="tok")
     # Exact: the generic 999999 hint, NOT the EDE data-fetch hint (and not None).
     assert exc.value.hint == ERROR_HINTS["999999"]
+
+
+class _AsyncTrickle(httpx.AsyncByteStream):
+    def __init__(self, clock: list[float]) -> None:
+        self._clock = clock
+
+    async def __aiter__(self):
+        yield b'{"code": "000000", "status": true, "data": '
+        for _ in range(10):
+            self._clock[0] += 5.0
+            yield b" "
+        yield b"null}"
+
+
+@pytest.mark.anyio
+async def test_async_trickling_response_is_cut_at_the_total_deadline(respx_mock, monkeypatch):
+    """Async mirror of the TS v0.44.0 total deadline (2x the idle timeout for JSON)."""
+    clock = [1000.0]
+    monkeypatch.setattr("gangtise_openapi._transport_async.time.monotonic", lambda: clock[0])
+    ep = EndpointDef(
+        key="x", method="POST", path="/p", kind="json", description="d", retry="no-replay"
+    )
+    route = respx_mock.post("/p").mock(
+        side_effect=lambda request: httpx.Response(200, stream=_AsyncTrickle(clock))
+    )
+    async with httpx.AsyncClient(base_url="https://api.test", timeout=10.0) as http:
+        with pytest.raises(httpx.ReadTimeout, match="overall deadline"):
+            await request_json_async(http, ep, body={}, token="tok")
+    assert route.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_async_deadline_also_covers_waiting_for_the_headers(monkeypatch):
+    """The deadline must cover send + headers, not just the body — a
+    server trickling its headers resets the idle timeout too."""
+    import anyio
+
+    from gangtise_openapi import _transport_async as mod
+
+    monkeypatch.setattr(mod, "request_deadline_seconds", lambda *a, **k: 0.2)
+    ep = EndpointDef(
+        key="x", method="POST", path="/p", kind="json", description="d", retry="no-replay"
+    )
+
+    async def stall(request):
+        await anyio.sleep(5)  # headers never arrive within the deadline
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": None})
+
+    transport = httpx.MockTransport(stall)
+    started = anyio.current_time()
+    async with httpx.AsyncClient(transport=transport, base_url="https://api.test") as http:
+        with pytest.raises(httpx.ReadTimeout, match="overall deadline"):
+            await request_json_async(http, ep, body={}, token="tok")
+    assert anyio.current_time() - started < 2

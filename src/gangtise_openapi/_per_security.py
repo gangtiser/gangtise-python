@@ -1,9 +1,14 @@
-"""Fan a quote query out one request per security and merge the parts in order.
+"""Fan a quote query out one request per security (or per group of securities)
+and merge the parts in input order.
 
-Used where the API takes a single security per request (``quote.minute-kline``),
-and where one request naming N securities would blow past the per-request row cap
-(``quote.day-kline`` over a long range). Ported from the TS CLI's
-``core/perSecurity.ts`` (v0.38.0).
+Used where the API takes a single security per request (``quote.minute-kline``,
+groups of one), and where one request naming N securities would blow past the
+per-request row cap (``quote.day-kline`` over a long range, groups packed to fit the
+cap). Ported from the TS CLI's ``core/perSecurity.ts`` (v0.43.0).
+
+A "part" is one request. Everywhere below, the item a part was fetched for is either
+a single security code or a list of codes (a group); :func:`pack_securities` builds
+the groups.
 
 The contract deliberately differs from the date sharder in ``_quote_sharding``:
 there a bad window is dropped and recorded in ``failedShards`` because the
@@ -81,10 +86,65 @@ def _as_date(value: Any) -> dt.date:
     return dt.date.fromisoformat(str(value))
 
 
+def pack_securities(securities: Sequence[Any], *, trading_days: int, cap: int) -> list[list[Any]]:
+    """Group securities so each request stays BELOW ``cap`` rows (TS v0.43.0).
+
+    Each group holds as many securities as fit ``trading_days`` rows apiece under the
+    cap, in input order. A request is only ever planned to below its cap, never onto
+    it: a full answer that lands exactly on the cap reads as truncated. A security
+    whose own range reaches the cap still goes alone, and is flagged by the merge.
+    """
+    size = max(1, (cap - 1) // max(1, trading_days))
+    return [list(securities[i : i + size]) for i in range(0, len(securities), size)]
+
+
+def _members(item: Any) -> list[Any]:
+    """The securities a part was fetched for: a group, or one code."""
+    return list(item) if isinstance(item, (list, tuple)) else [item]
+
+
+def _name(item: Any) -> str:
+    return ", ".join(str(code) for code in _members(item))
+
+
 def _structural(message: str, details: Any) -> ApiError:
     error = ApiError(message, details=details)
     error.structural = True
     return error
+
+
+def _in_input_order(rows: list[Any], fields: Any, group: list[Any], label: str) -> list[Any]:
+    """A part that named several securities, put back in the order the caller listed
+    them: the server answers such a request sorted by securityCode (CLI probe
+    2026-09-25), and the merge promises input order. The sort is stable, so each
+    security keeps its date order. Codes compare case-blind — the server takes
+    ``600519.sh`` and answers ``600519.SH``.
+    """
+    if len(group) < 2:
+        return rows
+    column = (
+        fields.index("securityCode")
+        if isinstance(fields, list) and "securityCode" in fields
+        else -1
+    )
+    if column < 0 and any(isinstance(row, list) for row in rows):
+        raise _structural(
+            f"{label}: {_name(group)} answered without a securityCode column — rows of "
+            "several securities cannot be told apart",
+            None,
+        )
+    rank = {str(code).upper(): i for i, code in enumerate(group)}
+
+    def position(row: Any) -> int:
+        if isinstance(row, list):
+            code = row[column] if column < len(row) else None
+        elif isinstance(row, dict):
+            code = row.get("securityCode")
+        else:
+            code = None
+        return rank.get(str(code).upper(), len(group))
+
+    return sorted(rows, key=position)
 
 
 def check_part(part: Any, security: Any, label: str) -> None:
@@ -104,7 +164,8 @@ def check_part(part: Any, security: Any, label: str) -> None:
     """
     if not (isinstance(part, dict) and isinstance(part.get("list"), list)):
         raise _structural(
-            f"{label}: {security} returned no list payload — the response layout may have changed",
+            f"{label}: {_name(security)} returned no list payload — the response layout may "
+            "have changed",
             part,
         )
     rows = part["list"]
@@ -120,7 +181,8 @@ def check_part(part: Any, security: Any, label: str) -> None:
                 else "carried a partial marker"
             )
             raise _structural(
-                f"{label}: {security} {claim} but delivered no rows — the response is inconsistent",
+                f"{label}: {_name(security)} {claim} but delivered no rows — the response is "
+                "inconsistent",
                 part,
             )
         return
@@ -128,7 +190,7 @@ def check_part(part: Any, security: Any, label: str) -> None:
     usable = fields if isinstance(fields, list) and fields else None
     if any(isinstance(row, list) for row in rows) and not columnar_schema_valid(usable, rows):
         raise _structural(
-            f"{label}: {security} returned columnar rows without a usable fieldList "
+            f"{label}: {_name(security)} returned columnar rows without a usable fieldList "
             "(missing, duplicated or mis-sized) — they cannot be read by position",
             part,
         )
@@ -141,8 +203,10 @@ def merge_parts(
     cap: int,
     label: str,
 ) -> dict[str, Any]:
-    """Merge per-security answers into one payload, in input order.
+    """Merge per-security (or per-group) answers into one payload, in input order.
 
+    ``securities[i]`` is what part ``i`` was fetched for: one code, or a group of
+    codes whose rows are put back in the caller's order (:func:`_in_input_order`).
     Every part is the same endpoint with the same ``fieldList`` request, so the
     column layout must agree EXACTLY — a part whose columns differ is a broken
     response, not something to merge under the wrong names. An empty part is a
@@ -151,8 +215,9 @@ def merge_parts(
     ``fieldList`` is used for the output only when NO part had rows, so that a
     requested-but-missing column is still reportable.
 
-    A part filling its row cap lands in ``truncatedSecurities`` and marks the merge
-    ``partial``; a part already carrying ``partial`` keeps the merge partial too.
+    A part filling its row cap lands in ``truncatedSecurities`` (every member of
+    its group) and marks the merge ``partial``; a part already carrying ``partial``
+    keeps the merge partial too.
     """
     field_list: list[Any] | None = None
     header_security: str | None = None
@@ -163,8 +228,9 @@ def merge_parts(
 
     for part, security in zip(parts, securities, strict=True):
         check_part(part, security, label)
+        group = _members(security)
         if part.get("partial") is True:
-            partial_securities.append(security)
+            partial_securities.extend(group)
         rows: list[Any] = part["list"]
         if not rows:
             if empty_fields is None and isinstance(part.get("fieldList"), list):
@@ -174,16 +240,16 @@ def merge_parts(
         usable = fields if isinstance(fields, list) and fields else None
         if usable is not None and field_list is None:
             field_list = usable
-            header_security = security
+            header_security = _name(security)
         if (usable is not None or field_list is not None) and usable != field_list:
             raise _structural(
-                f"{label}: {security} answered with columns {usable!r} while "
+                f"{label}: {_name(security)} answered with columns {usable!r} while "
                 f"{header_security} answered {field_list!r} — the parts cannot be merged",
                 part,
             )
         if len(rows) >= cap:
-            truncated.append(security)
-        merged.extend(rows)
+            truncated.extend(group)
+        merged.extend(_in_input_order(rows, usable or field_list, group, label))
 
     out: dict[str, Any] = {"total": len(merged), "list": merged}
     if field_list is not None:
@@ -224,7 +290,8 @@ def fetch_per_security(
     label: str,
     concurrency: int,
 ) -> list[Any]:
-    """Fetch one part per security concurrently, in input order.
+    """Fetch one part per item concurrently, in input order. An item is whatever
+    ``fetch`` takes: one security code, or a group from :func:`pack_securities`.
 
     Each answer is structurally checked as it lands (:func:`check_part`) and a
     failure stops the remaining parts from being dispatched — an unusable answer

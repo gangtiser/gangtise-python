@@ -19,10 +19,10 @@ def main():
     # 步骤 1 · 先搜索拿到一个可下载的 chunkId（list 免费）
     items = gangtise.insight.report_image_list(keyword="AI", top=1)
     if items.empty:
-        raise SystemExit("No source item found for insight.report_image_download.")
+        raise SystemExit("没有找到可用于 insight.report_image_download 的条目。")
     chunk_id = items.iloc[0].get("chunkId")
     if not chunk_id:
-        raise SystemExit("Could not find a chunkId column in the list response.")
+        raise SystemExit("列表返回里找不到 chunkId 列。")
 
     # 步骤 2 · chdir 到 sample_downloads 后下载, 结束再 chdir 回去
     previous_cwd = Path.cwd()

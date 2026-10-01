@@ -1,7 +1,7 @@
 """insight.report_image_list — 按关键词搜索研报图片（返回 DataFrame）。
 
 返回 chunkId + 元数据（标题/券商/页码/图注/OCR 文本）, chunkId 供 report_image_download 下载原图; 免费。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.insight.report_image_list(...)（同步用法见 sample/sync 同名文件）。
 """
 

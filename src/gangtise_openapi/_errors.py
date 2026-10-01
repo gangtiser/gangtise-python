@@ -51,7 +51,9 @@ ERROR_HINTS: dict[str, str] = {
     "100004": "检查 size / from_ 是否为非负数且未超单页上限。",
     "100005": "对照方法 docstring 列出的合法取值检查。",
     # 2026-08-14 起 list 类端点把单页上限（50）也归到此码，不再只是「一次要太多行」。
-    "100006": "缩短日期范围或调小 size / limit（list 类端点单页上限为 50，SDK 会自动翻页，直发 raw 请求时要自己遵守）。",
+    # 2026-09 起 EDE 截面 / 时序的单次单元格上限（30000）与 fund 不分页的 10000 行上限
+    # 也归这里，msg 会写明限额。
+    "100006": "缩短日期范围或调小 size / limit（list 类端点单页上限为 50，SDK 会自动翻页，直发 raw 请求时要自己遵守）；indicator.cross_section / time_series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑；fund 方法不分页，撞此码是单次超过 10000 行，减少 security 只数或缩短日期区间分批查。",
     # 按参数名判断，不要按域预判：ai.management_discuss_* 的 report_date 是 date 型，
     # 而同属 ai 的 knowledge_batch 收时间戳或 datetime。
     "110001": '看参数名：`*_date` 用 YYYY-MM-DD，`*_time` 用 "YYYY-MM-DD HH:mm:ss"（ai.knowledge_batch 与 insight 的 A 股公告接口收时间戳或 datetime，SDK 统一转 13 位毫秒）。',
@@ -62,8 +64,9 @@ ERROR_HINTS: dict[str, str] = {
     "120001": "用 `gangtise.reference.securities_search()` 确认代码与后缀（如 600519.SH / 00700.HK）。",
     "130001": "未找到数据——先核对查询条件；EDE 指标端点此码也可能是未开通该指标权限，仍失败联系客户经理。",
     # 2026-08-14 起下载类把「file_type 非法」拆到 130005、「资源未生成」拆到 130003，
-    # 但历史上两者都归过此码，所以提示保留对 file_type 的指引。
-    "130002": "确认下载 ID 有效且本账号可见；下载类还需检查 file_type 取值是否合法。",
+    # 但历史上两者都归过此码，所以提示保留对 file_type 的指引。云盘管理对不存在的
+    # 文件夹 / 文件 ID 也回此码，包括重复执行一次已生效的删除。
+    "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 gangtise.vault.drive_folder_list() 核对；删除类方法收到此码可能是目标已被删掉）；下载类还需检查 file_type 取值是否合法。",
     "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment / hasFile 为 true 的），或稍后再试。",
     # 下载类各有各的 ID 参数（report_id / announcement_id / chunk_id / summary_id /
     # conference_id / record_id / file_id / article_id / independent_opinion_id）；
@@ -71,9 +74,10 @@ ERROR_HINTS: dict[str, str] = {
     "130004": "下载 ID 需为数字，检查该方法的 *_id 参数是否传对。",
     "130005": "对照方法 docstring 检查 file_type / content_type 取值。",
     "140001": "稍后用对应 *_check 方法查询。",
-    # 两类来源共用此码：AI 异步生成失败，以及 EDE 的参数/表达式错误（CLI 实测
-    # 2026-08-02：枚举越界、表达式语法错误）。两者都是终态、都不该重试。
-    "140002": "终态失败，重试同一请求不会变——按 msg 改参数后重新提交；EDE 的指标参数名/枚举以 gangtise.indicator.search() 的 parameterList 为准。",
+    # 三类来源共用此码：AI 异步生成失败；EDE 的参数/表达式错误（CLI 实测
+    # 2026-08-02：枚举越界、表达式语法错误）；其他接口的 PROCESSING_FAILED「业务处理
+    # 失败」（与入参无关）。都不该立即重试，所以文案按 msg 分流而不预设是哪一类。
+    "140002": "终态失败，立即重试同一请求不会变。msg 指向参数（EDE 的指标参数名/枚举以 gangtise.indicator.search() 的 parameterList 为准）就改参数重新提交；msg 是「业务处理失败」则与参数无关，稍后再试，持续出现请带 trace 报障。",
     # ── 接口专有层 2xxxxx ──
     "210001": "换一篇，或改用对应 list 方法取正文摘要。",
     "220001": "改用对应 list 方法取正文摘要。",
@@ -81,6 +85,15 @@ ERROR_HINTS: dict[str, str] = {
     # 2026-08-07 新增码。私域模块，vault.wechat_* 就在这个模块下且明确要求「已绑定
     # 并激活群消息助理」，所以 SDK 够得着，不能当作不可达而不给提示。
     "230002": "微信账号未绑定——群消息类接口要求先在 Gangtise 端绑定并激活群消息助理、且助理已入群。",
+    "230003": "股票池数量已达账号上限（30 个）——先用 gangtise.vault.stock_pool_delete() 删掉不用的池再建。",
+    # 建/改股票池的两个专有码。名称重复与名称超长各占一个，所以「换个名字」和「缩短
+    # 名字」两种动作不必靠猜（CLI 实测 2026-09-19：两者都带可读 msg）。
+    "230006": "池名与该账号已有的池重复——先用 gangtise.vault.stock_pool_list() 看现有名称，换一个再建/改名。",
+    "230007": "池名超过 10 个字符（按字符计，中文算 1 个）——缩短后重试。终端里建的老池可以更长，OpenAPI 建池不行。",
+    # 云盘管理的三个专有码（2026-09-23 文档）。名称按 UTF-16 计，emoji 算 2。
+    "230004": "云盘文件 / 文件夹名称超过 200 个字符（按 UTF-16 计，中文算 1、emoji 算 2）——缩短 name / title 后重试。",
+    "230005": "文件夹不能移到自身、自己的子文件夹或另一个空间——换一个同空间、不在其下级的目标文件夹。",
+    "230008": "试用账号当日累计上传已超过 500MB——次日再传，或联系客户经理。",
     "240001": "换更早的 period（如 2025q3 → 2025interim）。",
     "240002": "改述后重新提交。",
     "240003": "对照方法 docstring 检查取值。",
@@ -96,7 +109,9 @@ ERROR_HINTS: dict[str, str] = {
     "410106": "读 `gangtise.indicator.search(raw=True)` 的 parameterList，用 indicator_param 补上 required=True 的参数（如 periodNum / startDate / fiscalYear）。",
     "410004": "换证券或日期确认该条件下本应有数据；仍失败多为未开通该指标，联系客户经理。",
     "410110": "稍后用对应 *_check 方法查询。",
-    "410111": "终态，换参数后重新提交，重试同一请求不会变。",
+    # Same split as 140002 (CLI v0.44.0 terminal-failure wording): the msg says whether
+    # the parameters are at fault; a plain 「业务处理失败」 is not about them.
+    "410111": "终态失败，再查同一 data_id 不会变。msg 指向参数或内容就先改再重新提交（重新提交会再次计费）；msg 是「业务处理失败」则与参数无关，确有需要再稍后重新提交。",
     "430004": "确认 report_id 有效，或更换 file_type 重试（官方未文档化错误码）。",
     "430007": "缩短日期范围或调小 limit。",
     "433007": "检查 resource_type 与 source_id 组合（两者都来自 knowledge_batch 返回）。",
@@ -233,17 +248,28 @@ def _message_hint(code: str | None, message: str) -> str | None:
 # system error above. indicator.search keeps the generic hint — it takes only a
 # keyword, so date/scope/param guidance would be nonsense (TS v0.28.2).
 EDE_NO_DATA_HINT = (
-    "EDE 的 999999 多为查询无数据——先核对："
-    "日期匹配指标周期（财务/MRQ 用报告期末如 2025-12-31、日频估值用交易日）、"
-    "标的在 scopeList 覆盖内、parameterList 中 required 参数已补；确认应有数据再重试。"
+    "EDE 取数故障。先核对参数再重试：参数名以 gangtise.indicator.search() 的 parameterList"
+    " 为准（传错名会报 100003 并指名）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，"
+    "PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示"
+    "无数据——无数据返回保留行列的 null 单元格；code 或参数名写错报 100003、缺必填参数报"
+    " 100001，都会指名（fiscalYear 例外：漏传不报错，返回 null 或默认年度的值）。"
 )
 
-# Override for per-call billed (no-replay) endpoints: the SDK deliberately did
-# not retry because the request may already have executed and billed — the
-# generic "请稍后重试" would invite a manual double-bill.
+# Override for billed no-replay endpoints: the SDK deliberately did not retry because
+# the request may already have executed and billed — the generic "请稍后重试" would
+# invite a manual double-bill.
 NO_REPLAY_UNCERTAIN_HINT = (
-    "Gangtise 系统错误；该接口按次计费且此请求可能已被服务端执行"
+    "Gangtise 系统错误；该接口计费且此请求可能已被服务端执行"
     "（SDK 按 no-replay 策略未自动重试）——请先核实结果/扣费，再决定是否手动重试。"
+)
+
+# Same, for the free no-replay endpoints (drive upload / create-folder / copy / deletes,
+# stock-pool create): what a blind retry risks there is a second copy or a false
+# "not found", not a second charge (TS v0.40.0 / v0.41.0).
+NO_REPLAY_SIDE_EFFECT_HINT = (
+    "Gangtise 系统错误；此写操作可能已被服务端执行（SDK 按 no-replay 策略未自动重试）"
+    "——先用对应的 list 方法核实是否已生效，再决定是否手动重试（重发创建类会多出一份，"
+    "重发删除会报「不存在」）。"
 )
 
 # Override for an error surfaced from a FOLLOWED redirect/presigned target: the

@@ -1,13 +1,24 @@
 import datetime as dt
 import json
+import types
 
 import httpx
 import pandas as pd
+import pytest
 import respx
 
 from gangtise_openapi._client import GangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ValidationError
+from gangtise_openapi.domains import fundamental as fundamental_module
 from gangtise_openapi.domains.fundamental import Fundamental
+
+_BEIJING = dt.timezone(dt.timedelta(hours=8))
+
+
+def _beijing_today() -> dt.date:
+    """The wrapper's default end date: Beijing's day, whatever the machine's zone."""
+    return dt.datetime.now(_BEIJING).date()
 
 
 def _cfg(tmp_path) -> Config:
@@ -337,15 +348,15 @@ def test_earning_forecast_default_is_latest(tmp_path):
 
 
 def test_earning_forecast_injects_default_dates(tmp_path):
-    # TS CLI parity: endDate defaults to today, startDate to 365 days back.
+    # TS CLI parity: endDate defaults to BEIJING's today, startDate to 365 days back.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-fundamental/earning-forecast").mock(
             return_value=_earning_forecast_response(),
         )
-        before = dt.date.today()
+        before = _beijing_today()
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             Fundamental(client).earning_forecast(security_code="000001.SZ")
-        after = dt.date.today()
+        after = _beijing_today()
         body = json.loads(route.calls.last.request.read())
     assert body["endDate"] in {before.isoformat(), after.isoformat()}
     assert body["startDate"] in {
@@ -494,3 +505,284 @@ def test_main_business_matrix_shape_is_transposed(tmp_path):
     assert df.shape == (2, 4)
     assert df.iloc[0]["name"] == "Segment A"
     assert df.iloc[1]["revenue"] == 600.0
+
+
+# ─────────────── valuation-analysis completeness (TS v0.39.0-v0.42.0) ───────────────
+
+_VALUATION = "/application/open-fundamental/valuation-analysis"
+_EARNING = "/application/open-fundamental/earning-forecast"
+_KNOWN = ["tradeDate", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]
+
+
+def _valuation_stub(days: int = 2, *, rows_anyway: bool = False, echo_indicator: bool = True):
+    """Shaped like the live endpoint (CLI probes 2026-09-24/25): the echoed field list
+    is `tradeDate` then the requested names de-duplicated, unknown ones kept; each row
+    is the date then one value per requested name in request order — so an explicit
+    `tradeDate` or a repeated name adds a value and an unknown name adds none. A request
+    with no value column answers an empty list. `limit` keeps the MOST RECENT rows."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        req = json.loads(request.read())
+        requested = req.get("fieldList")
+        fields = (
+            ["tradeDate", *dict.fromkeys(f for f in requested if f != "tradeDate")]
+            if requested
+            else _KNOWN
+        )
+        rows = [[f"2026-09-{i + 1:02d}", 21.5 + i, 0.42, 20, 20, 30, 10] for i in range(days)]
+        has_value = not requested or any(f in _KNOWN[1:] for f in requested)
+        kept = rows[-req["limit"] :] if (has_value or rows_anyway) else []
+        if rows_anyway:
+            out = [[row[_KNOWN.index(f)] if f in _KNOWN else None for f in fields] for row in kept]
+        elif requested:
+            out = [
+                [row[0], *(row[_KNOWN.index(f)] for f in requested if f in _KNOWN)] for row in kept
+            ]
+        else:
+            out = kept
+        data = {"fieldList": fields, "list": out}
+        if echo_indicator:
+            data = {"indicator": req.get("indicator"), **data}
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+    return handler
+
+
+def _valuation(tmp_path, stub, **kwargs):
+    """Call valuation_analysis against ``stub``; returns (result, sent body)."""
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_VALUATION).mock(side_effect=stub)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = Fundamental(client).valuation_analysis(
+                security_code="600519.SH", indicator="peTtm", **kwargs
+            )
+        sent = json.loads(route.calls.last.request.read())
+    return out, sent
+
+
+def test_valuation_sends_the_default_limit_when_omitted(tmp_path):
+    # Sent explicitly so the truncation check compares against the number actually sent.
+    _, sent = _valuation(tmp_path, _valuation_stub())
+    assert sent["limit"] == 2000
+
+
+def test_valuation_rejects_a_non_positive_limit_before_any_request(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_VALUATION).mock(side_effect=_valuation_stub())
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            for bad in (0, -1, True, 1.5):
+                with pytest.raises(ValidationError, match="limit"):
+                    Fundamental(client).valuation_analysis(
+                        security_code="600519.SH", indicator="peTtm", limit=bad
+                    )
+    assert not route.called
+
+
+def test_valuation_full_page_is_partial_and_says_the_start_is_missing(tmp_path):
+    # The server keeps the most recent rows, so a range longer than the limit silently
+    # loses its beginning (TS v0.41.1 ②).
+    with pytest.warns(UserWarning, match="START of the range"):
+        out, _ = _valuation(tmp_path, _valuation_stub(5), limit=3, raw=True)
+    assert out["partial"] is True
+    assert [row[0] for row in out["list"]] == ["2026-09-03", "2026-09-04", "2026-09-05"]
+
+
+def test_valuation_full_page_warns_on_the_dataframe_path_too(tmp_path):
+    with pytest.warns(UserWarning, match="START of the range"):
+        df, _ = _valuation(tmp_path, _valuation_stub(5), limit=3)
+    assert list(df["tradeDate"]) == ["2026-09-03", "2026-09-04", "2026-09-05"]
+
+
+def test_valuation_skip_null_keeps_the_truncation_signal(tmp_path):
+    with pytest.warns(UserWarning, match="START of the range"):
+        df, _ = _valuation(tmp_path, _valuation_stub(5), limit=3, skip_null=True)
+    assert len(df) == 3
+
+
+def test_valuation_range_of_exactly_limit_days_is_not_flagged(tmp_path):
+    # Full page, but the ascending first row IS the requested start: nothing was cut.
+    out, _ = _valuation(tmp_path, _valuation_stub(5), start_date="2026-09-03", limit=3, raw=True)
+    assert "partial" not in out
+
+
+def test_valuation_full_page_starting_after_start_date_is_flagged_once(tmp_path):
+    # The truncation warning already says the start is missing; no second, vaguer note.
+    with pytest.warns(UserWarning) as record:
+        out, _ = _valuation(
+            tmp_path, _valuation_stub(5), start_date="2026-09-01", limit=3, raw=True
+        )
+    assert out["partial"] is True
+    messages = [str(w.message) for w in record]
+    assert any("START of the range" in m for m in messages)
+    assert not any("later than start_date" in m for m in messages)
+
+
+def test_valuation_late_first_row_on_a_short_page_is_noted(tmp_path):
+    # The server clips a range reaching past the account's history window without an
+    # error, and a later listing looks the same (TS v0.41.1 ④).
+    with pytest.warns(UserWarning, match="starts at 2026-09-01, later than start_date 2026-08-01"):
+        out, _ = _valuation(tmp_path, _valuation_stub(5), start_date="2026-08-01", raw=True)
+    assert "partial" not in out
+    # On time: silent (the suite escalates any UserWarning to an error).
+    _valuation(tmp_path, _valuation_stub(5), start_date="2026-09-01")
+
+
+def test_valuation_result_under_the_limit_is_not_flagged(tmp_path):
+    out, _ = _valuation(tmp_path, _valuation_stub(5), limit=10, raw=True)
+    assert "partial" not in out
+    assert len(out["list"]) == 5
+
+
+def test_valuation_sends_each_field_once_and_never_trade_date(tmp_path):
+    # An explicit tradeDate or a repeated name adds a value to every row while the
+    # echoed field list names it once (TS v0.41.1 ③).
+    for field in (["tradeDate", "value"], ["value", "value"], ["value", "tradeDate", "value"]):
+        df, sent = _valuation(tmp_path, _valuation_stub(), field=field)
+        assert sent["fieldList"] == ["value"], field
+        assert df.iloc[0].to_dict() == {"tradeDate": "2026-09-01", "value": 21.5}, field
+
+
+def test_valuation_trade_date_alone_is_still_sent_and_explained(tmp_path):
+    # Dropping it would ask for every column; the endpoint answers it with no rows,
+    # which says nothing about whether data exists (TS v0.42.0 ⑤).
+    with pytest.warns(UserWarning, match="names no value column"):
+        df, sent = _valuation(tmp_path, _valuation_stub(), field="tradeDate")
+    assert sent["fieldList"] == ["tradeDate"]
+    assert df.empty
+
+
+def test_valuation_no_value_column_note_needs_an_empty_answer(tmp_path):
+    # A server that answers rows anyway must not get the "nothing came back" note.
+    df, _ = _valuation(tmp_path, _valuation_stub(rows_anyway=True), field="tradeDate")
+    assert len(df) == 2
+    # And a value column never triggers it.
+    _valuation(tmp_path, _valuation_stub(), field="value")
+
+
+def test_valuation_refuses_a_field_list_that_would_shift_every_value(tmp_path):
+    # tradeDate (one value too many) plus an unknown name (one too few) would cancel
+    # out: widths equal, every value one column to the right. tradeDate is not sent, so
+    # the unknown name leaves the rows short and the width guard refuses it.
+    for extra in ({}, {"skip_null": True}):
+        with pytest.raises(ValidationError, match="fieldList"):
+            _valuation(
+                tmp_path,
+                _valuation_stub(),
+                field=["tradeDate", "value", "percentileRank", "foo"],
+                **extra,
+            )
+
+
+def test_valuation_skip_null_fetches_the_columns_it_filters_on(tmp_path):
+    # Narrowing field must not narrow the REQUEST past the filter's own column: without
+    # percentileRank every row reads as null and the filter drops them all (TS v0.39.0 ⑥).
+    df, sent = _valuation(tmp_path, _valuation_stub(), field="value", skip_null=True)
+    assert sent["fieldList"] == ["value", "percentileRank"]
+    assert len(df) == 2
+    # Fetched for the filter only: field still decides the output columns.
+    assert list(df.columns) == ["tradeDate", "value"]
+
+
+def test_valuation_skip_null_with_trade_date_only(tmp_path):
+    df, sent = _valuation(tmp_path, _valuation_stub(), field="tradeDate", skip_null=True)
+    assert sent["fieldList"] == ["value", "percentileRank"]
+    assert list(df.columns) == ["tradeDate"]
+    assert list(df["tradeDate"]) == ["2026-09-01", "2026-09-02"]
+
+
+def test_valuation_without_skip_null_sends_field_unchanged(tmp_path):
+    df, sent = _valuation(tmp_path, _valuation_stub(), field="value")
+    assert sent["fieldList"] == ["value"]
+    assert list(df.columns) == ["tradeDate", "value"]
+
+
+def test_valuation_raw_ignores_skip_null_and_requests_only_field(tmp_path):
+    out, sent = _valuation(tmp_path, _valuation_stub(), field="value", skip_null=True, raw=True)
+    assert sent["fieldList"] == ["value"]
+    assert out["fieldList"] == ["tradeDate", "value"]
+
+
+def test_valuation_skip_null_filters_the_bare_array_layout(tmp_path):
+    # Without the `indicator` echo the normalized rows are a bare array.
+    def stub(request):
+        data = {
+            "fieldList": ["tradeDate", "value", "percentileRank"],
+            "list": [["2026-09-01", 1.0, 0.1], ["2026-09-02", None, 0.2]],
+        }
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+    df, _ = _valuation(tmp_path, stub, skip_null=True)
+    assert list(df["tradeDate"]) == ["2026-09-01"]
+
+
+# ─────────────── earning-forecast: Beijing default + credit guard ───────────────
+
+
+def _forecast_ok() -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {"securityCode": "600519.SH", "securityName": "贵州茅台", "updateList": []},
+        },
+    )
+
+
+def test_earning_forecast_defaults_the_end_date_to_beijing_whatever_the_machine_zone(
+    tmp_path, monkeypatch
+):
+    # 2026-07-05 23:30 UTC is already 07-06 in Beijing; the UTC day (and the local day
+    # on a UTC host) still say 07-05 (TS v0.43.0 ⑪).
+    class _Frozen(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = dt.datetime(2026, 7, 5, 23, 30, tzinfo=dt.timezone.utc)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    fake_dt = types.SimpleNamespace(datetime=_Frozen, date=dt.date, timedelta=dt.timedelta)
+    monkeypatch.setattr(fundamental_module, "dt", fake_dt)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EARNING).mock(return_value=_forecast_ok())
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Fundamental(client).earning_forecast(security_code="600519.SH")
+        body = json.loads(route.calls.last.request.read())
+    assert body["endDate"] == "2026-07-06"
+    assert body["startDate"] == "2025-07-06"
+
+
+def test_earning_forecast_slash_end_date_anchors_the_default_start(tmp_path):
+    # The anchor is computed from the NORMALIZED end date: fromisoformat cannot read
+    # "2026/09/30".
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EARNING).mock(return_value=_forecast_ok())
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Fundamental(client).earning_forecast(security_code="600519.SH", end_date="2026/09/30")
+        body = json.loads(route.calls.last.request.read())
+    assert body["endDate"] == "2026-09-30"
+    assert body["startDate"] == "2025-09-30"
+
+
+def test_earning_forecast_costly_range_needs_confirm(tmp_path):
+    # Billed 0.5 per row, ~3 rows per weekday: ten years is far above 1000 credits
+    # and is refused before anything is sent (TS v0.44.0 ⑧).
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_EARNING).mock(return_value=_forecast_ok())
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match=r"about \d+ credits"):
+                Fundamental(client).earning_forecast(
+                    security_code="600519.SH", start_date="2016-01-01", end_date="2026-09-30"
+                )
+            assert not route.called
+            # The default one-year window stays under the guard.
+            Fundamental(client).earning_forecast(security_code="600519.SH", end_date="2026-09-30")
+            Fundamental(client).earning_forecast(
+                security_code="600519.SH",
+                start_date="2016-01-01",
+                end_date="2026-09-30",
+                confirm=True,
+            )
+        bodies = [json.loads(call.request.read()) for call in route.calls]
+    assert [b["startDate"] for b in bodies] == ["2025-09-30", "2016-01-01"]
+    # confirm is a local switch, never a wire field.
+    assert all("confirm" not in b for b in bodies)

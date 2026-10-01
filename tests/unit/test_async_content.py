@@ -2,6 +2,8 @@ import pytest
 
 from gangtise_openapi._async_content import (
     POLL_MAX_ATTEMPTS,
+    TERMINAL_FAILURE_HINT,
+    check_content,
     next_delay_seconds,
     poll_content,
 )
@@ -187,3 +189,40 @@ def test_terminal_error_keeps_server_message_and_trace():
     assert "敏感内容拦截" in text
     assert "830965044897325056" in text
     assert exc.value.trace_id == "830965044897325056"
+
+
+# ── TS v0.44.0 ⑫: the terminal message is split by msg, not "change the parameters" ──
+
+
+def test_terminal_error_does_not_blame_the_parameters_unconditionally():
+    def fetch():
+        raise ApiError("业务处理失败", code="410111", status_code=400)
+
+    with pytest.raises(ApiError) as exc:
+        poll_content(fetch, sleep=lambda s: None)
+    text = str(exc.value)
+    assert "if the message points at a parameter or the content, change that first" in text
+    assert "a plain 业务处理失败 is not about the parameters" in text
+    # The replaced per-code hint said "换参数后重新提交" whatever the msg was.
+    assert exc.value.hint == TERMINAL_FAILURE_HINT
+    assert "换参数后重新提交" not in text
+
+
+def test_check_content_translates_terminal_and_passes_everything_else():
+    def terminal():
+        raise ApiError("生成失败", code="140002", details={"traceId": "T-7"})
+
+    with pytest.raises(ApiError, match="not about the parameters") as exc:
+        check_content(terminal)
+    assert exc.value.code == "140002"
+    assert exc.value.trace_id == "T-7"
+
+    pending = ApiError("正在生成中", code="410110")
+
+    def still_pending():
+        raise pending
+
+    with pytest.raises(ApiError) as exc:
+        check_content(still_pending)
+    assert exc.value is pending
+    assert check_content(lambda: {"content": None}) == {"content": None}

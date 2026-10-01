@@ -19,7 +19,7 @@ def main():
     # 步骤 1 · 取列表（多取几条以便跳过无附件的研报）
     items = gangtise.insight.research_list(size=10)
     if items.empty:
-        raise SystemExit("No source item found for insight.research_download.")
+        raise SystemExit("没有找到可用于 insight.research_download 的条目。")
     previous_cwd = Path.cwd()
     output_dir = (previous_cwd / "sample_downloads").resolve()
     output_dir.mkdir(exist_ok=True)
@@ -45,7 +45,7 @@ def main():
             os.chdir(previous_cwd)
         show_result(result, __file__)
         return
-    raise SystemExit(f"No downloadable research report found. Last error: {last_error}")
+    raise SystemExit(f"没有找到可下载的研报。最后一次错误：{last_error}")
 
 
 if __name__ == "__main__":

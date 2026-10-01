@@ -1,8 +1,8 @@
 """quote.fund_flow — A 股个股日资金流向（SH/SZ/BJ）, 返回 DataFrame。
 
 沪深京个股, 返回小/中/大/特大单流入流出金额及占比、主力净流入等; 免费。
-通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
-security="aShares" 时按日期窗口自动分片（每片 1 个交易日）并并发拉取后合并, 须同时传日期区间。
+通过几组示例演示常用参数，可选参数的取值范围写在注释里；全部参数见 sample/API_PARAMETERS.md。
+security="aShares" 时按工作日自动分片（每片 1 个工作日）并发拉取后合并, 须同时传日期区间。
 异步用法相同, 路径为 gangtise.async_.quote.fund_flow(...)。
 """
 
@@ -53,7 +53,7 @@ def main():
     )
     # 其余可选用法:
     #   security="aShares"        全市场: 必须同时传 start_date/end_date（缺日期抛 ValidationError）,
-    #                             自动按 1 交易日/片分片并发拉取合并
+    #                             自动按 1 个工作日/片分片并发拉取合并
     #   单只证券撞上 limit 时结果标 partial（raw 可见）并发 UserWarning, 提示缩小日期区间或分批取数
 
 

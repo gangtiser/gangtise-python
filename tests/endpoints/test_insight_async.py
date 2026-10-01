@@ -38,7 +38,7 @@ def _row_response(row: dict) -> httpx.Response:
 @pytest.mark.anyio
 async def test_async_opinion_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-insight/chief-opinion/getList").mock(
+        router.post("/application/open-insight/chief-opinion/v2/getList").mock(
             return_value=_row_response(
                 {"id": "1", "title": "x", "broker": "A", "chief": "B"},
             )
@@ -68,7 +68,7 @@ async def test_async_announcement_list_scales_seconds_int_to_ms(tmp_path):
 @pytest.mark.anyio
 async def test_async_opinion_list_body_shape_and_raw(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post("/application/open-insight/chief-opinion/getList").mock(
+        route = router.post("/application/open-insight/chief-opinion/v2/getList").mock(
             return_value=_row_response({"id": "1", "title": "x"})
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -329,7 +329,7 @@ async def test_async_announcement_hk_list_keeps_string_times(tmp_path):
 @pytest.mark.anyio
 async def test_async_foreign_opinion_list_body_shape(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post("/application/open-insight/foreign-opinion/getList").mock(
+        route = router.post("/application/open-insight/foreign-opinion/v2/getList").mock(
             return_value=_row_response({"id": "fo1", "title": "外资观点"})
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
@@ -409,7 +409,7 @@ async def test_async_raw_passthrough(tmp_path):
         "/application/open-insight/foreign-report/getList",
         "/application/open-insight/announcement/getList",
         "/application/open-insight/announcement-hk/getList",
-        "/application/open-insight/foreign-opinion/getList",
+        "/application/open-insight/foreign-opinion/v2/getList",
         "/application/open-insight/independent-opinion/getList",
         "/application/open-insight/officialAccount/getList",
     ]

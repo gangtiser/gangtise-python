@@ -115,7 +115,7 @@ _CONCEPT_SECURITIES_DATA = {
 
 def test_concept_info_returns_profile_dict(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post("/application/open-alternative/concept/info").mock(
+        route = router.post("/application/open-alternative/concept/v2/info").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -128,9 +128,6 @@ def test_concept_info_returns_profile_dict(tmp_path):
                         "investmentLogic": "需求刚性、技术临界点、产业链壁垒",
                         "industrySpace": "2030 年全球约 1200 亿美元",
                         "competitiveLandscape": "行业0-1阶段中美主导",
-                        "keyEvents": [
-                            {"date": "2026-12-01", "content": "小鹏预计26年Q4量产高阶人形机器人"},
-                        ],
                     },
                 },
             )
@@ -142,10 +139,64 @@ def test_concept_info_returns_profile_dict(tmp_path):
     # A concept profile is a single cross-section object — returned as a dict, not a DataFrame.
     assert isinstance(result, dict)
     assert result["conceptName"] == "机器人"
+
+
+def test_concept_info_full_hits_the_v1_endpoint(tmp_path):
+    # keyEvents (catalyst events) only exist on the v1 endpoint, 500 credits/call
+    # instead of 50 — `full=True` is the one way to reach it (TS v0.41.0 ②).
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-alternative/concept/info").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {
+                        "conceptId": "121000130",
+                        "conceptName": "机器人",
+                        "keyEvents": [
+                            {"date": "2026-12-01", "content": "小鹏预计26年Q4量产高阶人形机器人"},
+                        ],
+                    },
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = Alternative(client).concept_info(concept_id="121000130", full=True)
+        sent = route.calls.last.request.read().replace(b" ", b"")
+        assert sent == b'{"conceptId":"121000130"}'
     assert result["keyEvents"][0]["date"] == "2026-12-01"
 
 
-def test_concept_securities_flattens_groups(tmp_path):
+def test_concept_securities_default_is_v2_without_key_columns(tmp_path):
+    v2 = {
+        "conceptId": "121000130",
+        "conceptName": "机器人",
+        "securityCount": 2,
+        "securityDetail": [
+            {
+                "groupName": "丝杠",
+                "securityList": [{"securityCode": "603009.SH", "securityName": "北特科技"}],
+            },
+            # A group with no constituents answers securityList: null.
+            {"groupName": "空组", "securityList": None},
+            {
+                "groupName": "灵巧手",
+                "securityList": [{"securityCode": "002779.SZ", "securityName": "中坚科技"}],
+            },
+        ],
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-alternative/concept/v2/securities").mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": v2})
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Alternative(client).concept_securities(concept_id="121000130")
+    assert list(df.columns) == ["groupName", "securityCode", "securityName"]
+    assert df["securityCode"].tolist() == ["603009.SH", "002779.SZ"]
+
+
+def test_concept_securities_full_flattens_groups(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-alternative/concept/securities").mock(
             return_value=httpx.Response(
@@ -154,7 +205,7 @@ def test_concept_securities_flattens_groups(tmp_path):
             )
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Alternative(client).concept_securities(concept_id="121000130")
+            df = Alternative(client).concept_securities(concept_id="121000130", full=True)
         sent = route.calls.last.request.read().replace(b" ", b"")
         assert b'"conceptId":"121000130"' in sent
     assert isinstance(df, pd.DataFrame)
@@ -175,7 +226,7 @@ def test_concept_securities_flattens_groups(tmp_path):
 
 def test_concept_securities_raw_keeps_group_structure(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-alternative/concept/securities").mock(
+        router.post("/application/open-alternative/concept/v2/securities").mock(
             return_value=httpx.Response(
                 200,
                 json={"code": "000000", "status": True, "data": _CONCEPT_SECURITIES_DATA},
@@ -193,7 +244,7 @@ def test_concept_securities_empty_returns_empty_dataframe(tmp_path):
     # securityDetail null (or absent). The default path must still yield a
     # DataFrame with the expected columns — not the raw dict.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-alternative/concept/securities").mock(
+        router.post("/application/open-alternative/concept/v2/securities").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -211,6 +262,24 @@ def test_concept_securities_empty_returns_empty_dataframe(tmp_path):
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Alternative(client).concept_securities(concept_id="121000999")
     assert isinstance(df, pd.DataFrame)
+    assert len(df) == 0
+    assert list(df.columns) == ["groupName", "securityCode", "securityName"]
+
+
+def test_concept_securities_full_empty_keeps_the_key_columns(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-alternative/concept/securities").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"conceptId": "121000999", "securityCount": 0, "securityDetail": None},
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Alternative(client).concept_securities(concept_id="121000999", full=True)
     assert len(df) == 0
     assert list(df.columns) == [
         "groupName",

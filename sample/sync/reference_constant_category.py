@@ -1,6 +1,6 @@
 """reference.constant_category — 列出常量分类及各分类适用的接口参数（返回 DataFrame）。
 
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.reference.constant_category(...)。
 """
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any, TypeAlias
 
 import pandas as pd
@@ -22,17 +22,57 @@ from gangtise_openapi._normalize import normalize_rows, to_dataframe
 # are ID / enum / code filters the API accepts as either — the npm CLI sends strings,
 # the SDK's own tests send ints (e.g. industry=1, permission=1), and ``source`` is
 # numeric in one endpoint yet a string in another. A ``str``-only type would reject
-# valid calls (regression caught by Codex review of 810bf19).
+# valid calls.
 FilterValue: TypeAlias = str | int | Sequence[str | int]
 
 
-def _as_list(value: Any) -> list[Any] | None:
-    """Wrap a scalar in a list, pass lists/tuples through, leave ``None`` as ``None``."""
+_BYTES = (bytes, bytearray, memoryview)
+
+
+def _as_list(value: Any, name: str) -> list[Any] | None:
+    """Wrap a scalar in a list, pass lists/tuples through, leave ``None`` as ``None``.
+
+    Strings are trimmed and blank ones dropped, then repeats are dropped, first kept
+    (CLI v0.44.0 ``collectList``): a code named twice made the server answer its rows
+    twice, and ``" 600519.SH"`` is the same code. Every caller passes scalar filter
+    values; an unhashable item (never expected) disables the dedupe rather than
+    failing. An empty result stays ``[]`` so ``_request_body`` can refuse it by name —
+    dropping it would turn "filter by nothing" into "no filter".
+
+    Refused before any request, naming ``name`` (the caller's argument): bytes (not
+    text), and any iterable that is not a sequence — a set has no order (a str set's
+    order changes run to run), a dict or dict view is not a list of values, an
+    iterator is spent after one pass."""
     if value is None:
         return None
-    if isinstance(value, (list, tuple)):
-        return list(value)
-    return [value]
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+    if isinstance(value, _BYTES):
+        raise ValidationError(f"{name}: pass text (str), not {type(value).__name__}")
+    if hasattr(value, "tolist") and not isinstance(value, (list, tuple)):
+        value = value.tolist()  # a pandas Series / Index, a numpy array or numpy scalar
+    if isinstance(value, Sequence) and not isinstance(value, (list, tuple, *_BYTES)):
+        value = list(value)  # any other sequence (UserList, range, …)
+    if not isinstance(value, (list, tuple)):
+        if isinstance(value, Iterable):
+            raise ValidationError(
+                f"{name}: pass a list (or tuple) of values, not a {type(value).__name__}"
+            )
+        return [value]
+    items = []
+    for v in value:
+        if isinstance(v, _BYTES):
+            raise ValidationError(f"{name}: pass text (str), not {type(v).__name__}")
+        if hasattr(v, "tolist") and not isinstance(v, (str, list, tuple)):
+            v = v.tolist()  # a numpy scalar is not JSON-serializable; its Python twin is
+        items.append(v)
+    items = [v.strip() if isinstance(v, str) else v for v in items]
+    items = [v for v in items if not (isinstance(v, str) and not v)]
+    try:
+        return list(dict.fromkeys(items))
+    except TypeError:
+        return items
 
 
 def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +350,59 @@ def _to_timestamp13(value: Any, name: str) -> int | None:
     )
 
 
+_DAY_MILLIS = 86_400_000
+
+
+def _to_end_timestamp13(value: Any, name: str) -> int | None:
+    """:func:`_to_timestamp13` for the END of a window: a date written without a
+    time is the LAST millisecond of that Beijing day (23:59:59.999), not its
+    midnight — so ``start_time=D, end_time=D`` is that whole day rather than an
+    empty window (TS v0.44.0 ``parseEndTimestamp13``). Anything carrying a time,
+    an offset, or an epoch converts exactly as :func:`_to_timestamp13` does.
+    UTC+8 has no DST, so every Beijing day is exactly 24 hours long."""
+    millis = _to_timestamp13(value, name)
+    if millis is None:
+        return None
+    text = str(value) if isinstance(value, int) else value
+    parts = _LOCAL_DATETIME.match(text)
+    if parts and parts[5] is None:
+        return millis + _DAY_MILLIS - 1
+    return millis
+
+
+def _empty_list_error(name: str) -> ValidationError:
+    return ValidationError(
+        f"{name} is an empty list (or blank): pass at least one value, or leave the "
+        "argument out if it is optional — an empty list is never sent, since the server "
+        'could read it as "no filter"'
+    )
+
+
+def _refuse_empty(value: Any, name: str) -> None:
+    """For a list argument a wrapper turns into "omitted" or a default when empty
+    (``x or None``, ``x or ALL``): an EXPLICIT empty list is refused like the ones
+    ``_request_body`` catches, instead of silently widening the query."""
+    if value is not None and _as_list(value, name) == []:
+        raise _empty_list_error(name)
+
+
+def _as_named_list(value: Any, name: str) -> list[Any] | None:
+    """``_as_list`` for a kwarg whose wire field is not its snake-case twin
+    (``type_`` → ``type``, ``security`` → ``securityCodeList``): an explicit empty
+    list is refused HERE, naming the argument the caller actually wrote."""
+    values = _as_list(value, name)
+    if values == []:
+        raise _empty_list_error(name)
+    return values
+
+
+# Body fields the SDK itself builds and that legitimately go out as ``[]``: the EDE
+# time-series / cross-section parameter groups when no ``indicator_param`` was given
+# (the CLI sends ``indicatorParamList: []`` too). Everything else that arrives empty came
+# from a caller's list and is refused in ``_request_body``.
+_EMPTY_LIST_WIRE_FIELDS = frozenset({"indicatorParamList"})
+
+
 def _request_body(body: dict[str, Any]) -> dict[str, Any]:
     """Finalize a request body: validate date / datetime fields, then drop unset ones.
 
@@ -324,6 +417,14 @@ def _request_body(body: dict[str, Any]) -> dict[str, Any]:
     for field, value in list(body.items()):
         if value is None:
             continue
+        if isinstance(value, list) and not value and field not in _EMPTY_LIST_WIRE_FIELDS:
+            # Explicitly "filter by nothing" (or a blank string): refused, never sent.
+            # Sending ``[]`` has no probed meaning, and dropping it (the CLI's
+            # ``maybeArray``, where an empty list can only mean "flag not passed") would
+            # quietly widen a metered query to everything — in Python an empty list is
+            # usually a computed one that came out empty.
+            name = _snake(field)
+            raise _empty_list_error(name[: -len("_list")] if name.endswith("_list") else name)
         if field in _DATE_FIELDS:
             body[field] = _validate_date(value, field)
         elif field in _DATETIME_FIELDS:
@@ -357,8 +458,8 @@ def _columnar_dataframe(result: Any) -> pd.DataFrame | None:
     builds the frame directly — skipping the per-row dict transpose in
     :func:`normalize_rows`, which is 2-5x slower and roughly doubles peak memory at
     K-line / financial-statement scale. Returns ``None`` for any other shape (dict
-    rows, ragged rows, missing / non-string ``fieldList``, **duplicate** field names,
-    empty ``list``) so the caller falls back to the normalize path, whose output is
+    rows, ragged rows, missing / non-string ``fieldList``, **duplicate** field names)
+    so the caller falls back to the normalize path, whose output is
     identical for those cases — or, for the two broken ones, whose REFUSAL is the
     output.
 
@@ -378,9 +479,10 @@ def _columnar_dataframe(result: Any) -> pd.DataFrame | None:
         and all(isinstance(f, str) for f in fields)
         and len(set(fields)) == len(fields)
         and isinstance(rows, list)
-        and rows
         and all(isinstance(r, list) and len(r) == len(fields) for r in rows)
     ):
+        # An empty ``list`` keeps the columns the server named: an empty range must
+        # still give ``df["close"]`` (empty), not a column-less frame and a KeyError.
         return pd.DataFrame(rows, columns=fields)
     return None
 
@@ -442,7 +544,7 @@ def _validate_choices(value: Any, *, name: str, allowed: tuple[str, ...]) -> lis
     to reject bad values — it silently ignores the filter or returns empty instead,
     so a typo would masquerade as "no results" (TS CLI v0.25.0). Endpoints that
     answer 100003 keep server-side validation."""
-    values = _as_list(value)
+    values = _as_list(value, name)
     if values is None:
         return None
     for item in values:

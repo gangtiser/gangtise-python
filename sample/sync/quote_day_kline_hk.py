@@ -2,8 +2,9 @@
 
 ⚠️ 已下线（deprecated）: 官方菜单已移除本接口, 请优先用 quote.day_kline——它已覆盖港股/美股/指数并支持混传。接口本身仍可调用, 且仍认 "all" 全市场关键字。
 
-通过多组示例覆盖全部参数；可选参数的取值范围已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
-security="all" 时按日期窗口自动分片（每片 2 个交易日）并并发拉取后合并。
+通过几组示例演示常用参数，可选参数的取值范围写在注释里；全部参数见 sample/API_PARAMETERS.md。
+security="all" 时必须同时传 start_date 与 end_date（缺一个本地报错）,
+按工作日自动分片（每片 2 个工作日, 周末不单独发请求）并发拉取后合并。
 异步用法相同, 路径为 gangtise.async_.quote.day_kline_hk(...)。
 """
 
@@ -33,7 +34,8 @@ def main():
             start_date="2026-05-01",
             end_date="2026-05-28",
             field=[
-                "tradeDate",
+                "securityCode",  # 多只证券时 SDK 会自动补上 securityCode / tradeDate
+                "tradeDate",  # （缺哪个补哪个并发 warning）; 写全了就不补、不告警
                 "open",
                 "close",
                 "high",
@@ -55,7 +57,7 @@ def main():
         __file__,
     )
     # 其余可选用法:
-    #   security="all"            全市场: 配合 start_date/end_date 自动按 2 交易日/片分片并发拉取
+    #   security="all"            全市场: 必须同时传 start_date/end_date, 按 2 个工作日/片分片并发拉取
     #   field=<字段名或列表>       仅返回所需字段（如 open/close/volume）; 省略则用服务端默认字段
 
 

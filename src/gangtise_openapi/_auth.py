@@ -3,6 +3,7 @@
 # Chinese text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -22,6 +23,22 @@ class TokenCache:
     uid: int | None = None
     user_name: str | None = None
     tenant_id: int | None = None
+    # Which credentials + host this token was minted for (``issuedFor`` on disk, shared
+    # with the npm CLI). Without it the cache is just "some valid token": swap
+    # GANGTISE_ACCESS_KEY to a second account and the unexpired token of the FIRST one
+    # keeps being sent, so writes land on the wrong account — and
+    # ``vault.stock_pool_delete`` is not reversible. Never the key itself; a fingerprint
+    # is enough to tell two accounts apart and leaks nothing if the 0600 file is read.
+    # None on caches written before the field existed (TS v0.40.0).
+    issued_for: str | None = None
+
+
+def credential_fingerprint(access_key: str, base_url: str) -> str:
+    """Stable, non-reversible id for "which credentials + which host" — the same
+    digest the CLI writes, so a cache either tool wrote is recognized by the other.
+    Only the access key participates: the secret never needs to, and keeping it out
+    means a leaked cache file cannot help an offline guess against the secret."""
+    return hashlib.sha256(f"{access_key}\0{base_url}".encode()).hexdigest()[:16]
 
 
 _BUFFER_SECONDS = 300
@@ -33,8 +50,22 @@ def normalize_token(token: str) -> str:
     return f"Bearer {token[match.end() :]}" if match else f"Bearer {token}"
 
 
-def is_cache_valid(cache: TokenCache | None, buffer_seconds: int = _BUFFER_SECONDS) -> bool:
+def is_cache_valid(
+    cache: TokenCache | None,
+    buffer_seconds: int = _BUFFER_SECONDS,
+    *,
+    expected_fingerprint: str | None = None,
+) -> bool:
+    """``expected_fingerprint`` is the identity the caller requires, or None when it
+    cannot check one (no access key configured — then there is no "other account" to
+    confuse this with, and refusing the cache would only break the token-cache-only
+    workflow with no safety gained)."""
     if cache is None or not cache.access_token or not cache.expires_at:
+        return False
+    # A cache that belongs to other credentials (or one from before the field existed,
+    # whose owner is simply unknown) is a miss: one extra login is the whole cost; the
+    # alternative is silently acting as the previous account.
+    if expected_fingerprint is not None and cache.issued_for != expected_fingerprint:
         return False
     now = int(time.time())
     return (cache.expires_at - buffer_seconds) > now
@@ -43,7 +74,7 @@ def is_cache_valid(cache: TokenCache | None, buffer_seconds: int = _BUFFER_SECON
 def read_token_cache(path: Path) -> TokenCache | None:
     try:
         raw = path.read_text(encoding="utf8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):  # a non-UTF-8 file is a corrupt cache
         return None
     try:
         data: object = json.loads(raw)
@@ -60,6 +91,7 @@ def read_token_cache(path: Path) -> TokenCache | None:
     uid = data.get("uid")
     user_name = data.get("userName")
     tenant_id = data.get("tenantId")
+    issued_for = data.get("issuedFor")
     return TokenCache(
         access_token=access_token,
         expires_in=int(expires_in_raw) if isinstance(expires_in_raw, int) else 0,
@@ -68,6 +100,7 @@ def read_token_cache(path: Path) -> TokenCache | None:
         uid=uid if isinstance(uid, int) else None,
         user_name=user_name if isinstance(user_name, str) else None,
         tenant_id=tenant_id if isinstance(tenant_id, int) else None,
+        issued_for=issued_for if isinstance(issued_for, str) else None,
     )
 
 
@@ -81,6 +114,7 @@ def write_token_cache(path: Path, cache: TokenCache) -> None:
         "uid": cache.uid,
         "userName": cache.user_name,
         "tenantId": cache.tenant_id,
+        "issuedFor": cache.issued_for,
     }
     # Atomic write: create a fresh 0600 temp file, then rename over the target.
     # The temp must be 0600 *from the first byte* — writing then chmod-ing would

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from collections.abc import Iterable
@@ -26,6 +27,45 @@ def _cap_titles(titles: dict[str, str]) -> dict[str, str]:
     if len(titles) <= TITLE_CACHE_MAX_PER_ENDPOINT:
         return titles
     return dict(list(titles.items())[-TITLE_CACHE_MAX_PER_ENDPOINT:])
+
+
+_SURROGATES = re.compile("[\ud800-\udfff]")
+
+
+def _encodable(text: str) -> str:
+    """``text`` with any lone surrogate replaced by U+FFFD, so it encodes as UTF-8."""
+    return _SURROGATES.sub("\ufffd", text) if isinstance(text, str) else text
+
+
+def _live_entries(parsed: Any) -> dict[str, dict[str, Any]]:
+    """The usable endpoint entries of a parsed cache file: fresh (within the TTL) and
+    well-formed, each capped. Anything else yields ``{}``."""
+    if not isinstance(parsed, dict):
+        return {}
+    # Drop endpoint entries past the TTL so the on-disk cache self-bounds
+    # instead of growing without limit (it had reached tens of MB). Stale
+    # entries are pruned from memory now and from disk on the next flush.
+    now_ms = int(time.time() * 1000)
+    pruned: dict[str, dict[str, Any]] = {}
+    for key, entry in parsed.items():
+        if not isinstance(entry, dict):
+            continue
+        ts = entry.get("ts")
+        if isinstance(ts, int) and (now_ms - ts) <= TITLE_CACHE_TTL_MS:
+            titles = entry.get("titles")
+            if not isinstance(titles, dict):
+                # Drop a half-corrupt entry (titles not a dict) rather than carry
+                # it forward: set_titles() does existing.get(...) and lookup()
+                # assumes a dict, so a bad value would crash the next list call.
+                continue
+            # Sanitized here too, not only in set_titles: the npm CLI shares this file and
+            # writes a lone surrogate as a valid JSON escape (``"\\udc80"``), which loads
+            # back as one — and one such title would make every flush of this process fail.
+            titles = {_encodable(k): _encodable(v) for k, v in titles.items()}
+            if len(titles) > TITLE_CACHE_MAX_PER_ENDPOINT:
+                titles = _cap_titles(titles)
+            pruned[key] = {**entry, "titles": titles}
+    return pruned
 
 
 def extract_titles(
@@ -67,34 +107,38 @@ class TitleCache:
             return {}
         try:
             raw = self._path.read_text(encoding="utf8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):  # a non-UTF-8 file is a corrupt cache
             return {}
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             return {}
-        if not isinstance(parsed, dict):
-            return {}
-        # Drop endpoint entries past the TTL so the on-disk cache self-bounds
-        # instead of growing without limit (it had reached tens of MB). Stale
-        # entries are pruned from memory now and from disk on the next flush.
-        now_ms = int(time.time() * 1000)
-        pruned: dict[str, dict[str, Any]] = {}
-        for key, entry in parsed.items():
-            if not isinstance(entry, dict):
+        return _live_entries(parsed)
+
+    def _merge_from_disk(self) -> None:
+        """Fold in what other processes (another SDK process, or the npm CLI, which
+        shares this file) flushed since this one loaded it, so a flush does not put a
+        stale snapshot back over their titles (TS v0.44.0 ``mergeFromDisk``). No
+        cross-process lock: two overlapping flushes still race, but only over the
+        moment between this read and the rename rather than a whole run. This
+        process's titles win a clash and are the ones the per-endpoint cap keeps.
+        Caller holds ``self._lock``."""
+        for key, theirs in self._load().items():
+            mine = self._data.get(key)
+            if mine is None:
+                self._data[key] = theirs
                 continue
-            ts = entry.get("ts")
-            if isinstance(ts, int) and (now_ms - ts) <= TITLE_CACHE_TTL_MS:
-                titles = entry.get("titles")
-                if not isinstance(titles, dict):
-                    # Drop a half-corrupt entry (titles not a dict) rather than carry
-                    # it forward: set_titles() does existing.get(...) and lookup()
-                    # assumes a dict, so a bad value would crash the next list call.
-                    continue
-                if len(titles) > TITLE_CACHE_MAX_PER_ENDPOINT:
-                    entry = {**entry, "titles": _cap_titles(titles)}
-                pruned[key] = entry
-        return pruned
+            my_titles = mine["titles"]
+            # Theirs first, mine last: _cap_titles keeps the tail, so on overflow it is
+            # the other process's ids that go. (Unlike JS objects, a dict keeps insertion
+            # order for integer-like ids too, so no separate "fresh keys" list is needed.)
+            others = {k: v for k, v in theirs["titles"].items() if k not in my_titles}
+            self._data[key] = {
+                "titles": _cap_titles({**others, **my_titles}),
+                "ts": max(theirs["ts"], mine["ts"]),
+            }
+        # Same bound as a load: drop what went past the TTL while this process ran.
+        self._data = _live_entries(self._data)
 
     def lookup(self, endpoint_key: str, id_value: str) -> str | None:
         with self._lock:
@@ -113,6 +157,10 @@ class TitleCache:
     def set_titles(self, endpoint_key: str, titles: dict[str, str]) -> None:
         if not titles:
             return
+        # A lone surrogate (a server string escaping ``\udc80``) cannot be written as
+        # UTF-8: kept as is, it would make EVERY later flush of this process fail, and
+        # the whole cache would silently stop persisting. Replaced on the way in.
+        titles = {_encodable(k): _encodable(v) for k, v in titles.items()}
         with self._lock:
             existing = self._data.get(endpoint_key, {}).get("titles", {})
             # Skip the write when the call surfaces nothing new — most repeat
@@ -133,6 +181,7 @@ class TitleCache:
         with self._lock:
             if not self._dirty:
                 return
+            self._merge_from_disk()
             self._path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._path.with_suffix(
                 self._path.suffix + f".tmp-{os.getpid()}-{int(time.time() * 1000)}"

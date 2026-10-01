@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from gangtise_openapi._config import (
     DEFAULT_BASE_URL,
     DEFAULT_TIMEOUT_MS,
@@ -63,9 +65,55 @@ def test_env_overrides(monkeypatch, tmp_path):
 
 
 def test_invalid_timeout_falls_back_to_default(monkeypatch):
+    import gangtise_openapi._config as config_module
+
+    monkeypatch.setattr(config_module, "_timeout_warned", False)
     monkeypatch.setenv("GANGTISE_TIMEOUT_MS", "not-a-number")
-    cfg = load_config()
+    with pytest.warns(UserWarning, match="not in effect"):
+        cfg = load_config()
     assert cfg.timeout_ms == DEFAULT_TIMEOUT_MS
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected", "warns"),
+    [
+        ("45000", 45_000, False),
+        ("045000", 45_000, False),
+        (" 45000 ", 45_000, False),
+        ("30", 30_000, True),  # seconds written where ms were meant
+        ("0.5", 30_000, True),
+        ("1e4", 30_000, True),
+        ("30s", 30_000, True),
+        ("9999999999", 3_600_000, True),  # capped to an hour
+        ("", 30_000, False),  # blank = unset
+    ],
+)
+def test_timeout_env_is_whole_milliseconds(monkeypatch, raw, expected, warns):
+    """TS v0.42.0: only plain decimal integers in [1s, 1h]; anything else falls back
+    (or caps) and says so once — the variable is set for the AI generators, which are
+    not replayed on a timeout."""
+    import warnings
+
+    import gangtise_openapi._config as config_module
+
+    monkeypatch.setattr(config_module, "_timeout_warned", False)
+    monkeypatch.setenv("GANGTISE_TIMEOUT_MS", raw)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert load_config().timeout_ms == expected
+    assert bool([w for w in caught if "not in effect" in str(w.message)]) is warns
+
+
+def test_blank_env_values_count_as_unset(monkeypatch):
+    """TS v0.44.0: ``export GANGTISE_BASE_URL=`` must not send requests to an empty
+    base URL, and an empty GANGTISE_TOKEN must not shadow working AK/SK."""
+    monkeypatch.setenv("GANGTISE_BASE_URL", "")
+    monkeypatch.setenv("GANGTISE_TOKEN", "  ")
+    monkeypatch.setenv("GANGTISE_ACCESS_KEY", "")
+    cfg = load_config()
+    assert cfg.base_url == "https://openapi.gangtise.com"
+    assert cfg.token is None
+    assert cfg.access_key is None
 
 
 def test_invalid_concurrency_falls_back(monkeypatch):

@@ -173,9 +173,9 @@ def is_empty_matrix(data: Any) -> bool:
 
     What it MEANS changed on 2026-08-07: a genuine no-data answer (non-trading
     date, uncovered market, future date) now comes back as a null cell with its
-    row and column intact, so an all-empty matrix no longer means "no data". It
-    now means nothing in the request RESOLVED — every security code or every
-    indicator code was unrecognised — or a parameter name is wrong.
+    row and column intact, and an unrecognised code or parameter name as an error
+    (100003, re-probed by the CLI 2026-09-25), so an all-empty matrix is neither —
+    it is not a known answer. The caller's warning says so.
 
     The check covers every STRUCTURAL array, not just the two axis lists: anything
     looser would let a malformed payload (``values: null``, a missing ``values``,
@@ -212,8 +212,9 @@ def dropped_from_matrix(
     """What the caller asked for that the response does not contain.
 
     The server used to drop any axis it had no DATA for, which made this a
-    coverage check. Re-probed 2026-08-08: a coverage gap is now padded with
-    ``null`` and keeps its row and column, down to the 1×1 case. What still
+    coverage check. Re-probed 2026-09-12: a coverage gap is now padded with
+    ``null`` and keeps its row and column, down to the 1×1 case (``mgn_bal`` ×
+    00700.HK — null, present, alone in the request). What still
     disappears is a code the server cannot RESOLVE: an unknown indicator code, or
     a security code with the wrong market suffix (``AAPL.US`` vanishes, ``AAPL.O``
     returns).

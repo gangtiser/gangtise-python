@@ -31,6 +31,8 @@ _SAMPLES = _ROOT / "sample"
 # Every domain the facade exposes; the parameter reference is expected to cover them all.
 _DOMAINS = (
     "auth",
+    "bond",
+    "fund",
     "lookup",
     "reference",
     "insight",

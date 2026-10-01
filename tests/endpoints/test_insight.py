@@ -39,7 +39,7 @@ def _row_response(row: dict) -> httpx.Response:
 
 def test_opinion_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-insight/chief-opinion/getList").mock(
+        router.post("/application/open-insight/chief-opinion/v2/getList").mock(
             return_value=_row_response(
                 {"id": "1", "title": "x", "broker": "A", "chief": "B"},
             )
@@ -205,7 +205,7 @@ def test_announcement_hk_list(tmp_path):
 
 def test_foreign_opinion_list(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-insight/foreign-opinion/getList").mock(
+        router.post("/application/open-insight/foreign-opinion/v2/getList").mock(
             return_value=_row_response({"id": "fo1", "title": "外资观点"}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from gangtise_openapi._async_content import poll_content_async
+from gangtise_openapi._async_content import (
+    TERMINAL_FAILURE_HINT,
+    check_content_async,
+    poll_content_async,
+)
 from gangtise_openapi._errors import ApiError
 
 
@@ -114,3 +118,36 @@ async def test_async_terminal_error_keeps_server_message_and_trace():
     assert "敏感内容拦截" in text
     assert "830965044897325056" in text
     assert exc.value.trace_id == "830965044897325056"
+
+
+@pytest.mark.anyio
+async def test_async_terminal_error_uses_the_split_wording():
+    async def fetch():
+        raise ApiError("业务处理失败", code="410111")
+
+    with pytest.raises(ApiError, match="not about the parameters") as exc:
+        await poll_content_async(fetch)
+    assert exc.value.hint == TERMINAL_FAILURE_HINT
+
+
+@pytest.mark.anyio
+async def test_async_check_content_translates_terminal_only():
+    async def terminal():
+        raise ApiError("生成失败", code="410111", details={"traceId": "T-8"})
+
+    with pytest.raises(ApiError, match="not about the parameters") as exc:
+        await check_content_async(terminal)
+    assert exc.value.trace_id == "T-8"
+
+    async def pending():
+        raise ApiError("正在生成中", code="140001")
+
+    with pytest.raises(ApiError) as exc:
+        await check_content_async(pending)
+    assert exc.value.code == "140001"
+    assert "not about the parameters" not in str(exc.value)
+
+    async def ready():
+        return {"content": "done"}
+
+    assert await check_content_async(ready) == {"content": "done"}

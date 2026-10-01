@@ -26,7 +26,15 @@ def _login_ok() -> httpx.Response:
 def _seed_stale_token(cfg: Config) -> None:
     cfg.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
     cfg.token_cache_path.write_text(
-        json.dumps({"accessToken": "stale", "expiresIn": 1, "time": 0, "expiresAt": 9999999999})
+        json.dumps(
+            {
+                "accessToken": "stale",
+                "expiresIn": 1,
+                "time": 0,
+                "expiresAt": 9999999999,
+                "issuedFor": "3ec07b4be220b9de",
+            }
+        )
     )
 
 

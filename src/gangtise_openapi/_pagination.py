@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import threading
 import warnings
 from collections.abc import Callable
@@ -8,10 +11,21 @@ from typing import Any
 
 import anyio
 
-from gangtise_openapi._endpoints import EndpointDef
-from gangtise_openapi._errors import ValidationError
+from gangtise_openapi._endpoints import COSTLY_FETCH_CREDITS, EndpointDef
+from gangtise_openapi._errors import ApiError, ValidationError
 
 MAX_PAGES = 1000
+
+# A guarded list whose full first page would cost more than this learns its total from a
+# one-row probe first, so a refused fetch pays for one row rather than a page (TS v0.43.0).
+PROBE_ABOVE_CREDITS = 50
+
+# How a list endpoint refuses an offset past its window: 140002 (at HTTP 500) on the vault
+# message list (probed 2026-09-25), 100006 on the insight lists that declare ``max_window``.
+# A total-cap probe answered with one of these sat on a window; any other failure (a 503
+# that outlived its retries, a dropped connection) says nothing about the total, so it
+# stays silent (TS v0.43.0).
+OFFSET_REFUSAL_CODES = frozenset({"140002", "100006"})
 
 PageFetcher = Callable[[dict[str, Any]], Any]
 
@@ -125,254 +139,53 @@ def _build_remaining_requests(
     return remaining_requests, dropped
 
 
-def _finalize_short_first_page(
-    first_page: dict[str, Any],
-    total: int,
-    collected: list[Any],
-    target: int,
-    endpoint: EndpointDef,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {**first_page, "total": total, "list": collected}
-    if len(collected) < target:
-        result["partial"] = True
-        warnings.warn(
-            f"short first page for {endpoint.key}; results are partial — "
-            f"got {len(collected)}/{total} rows",
-            stacklevel=2,
-        )
-    return result
+# Marks a fan-out page that was never fetched (it raised, or the fan-out had already
+# stopped): the page goes to ``failedPages``.
+_NOT_FETCHED: Any = object()
 
 
-def collect_paginated(
-    endpoint: EndpointDef,
-    *,
-    body: dict[str, Any],
-    fetch: PageFetcher,
-    concurrency: int,
-) -> Any:
-    if endpoint.pagination is None:
-        return fetch(body)
-
-    initial = dict(body)
-    _validate_paging_args(initial)
-
-    raw_from = initial.get("from")
-    start_from = raw_from if isinstance(raw_from, int) else 0
-    raw_size = initial.get("size")
-    requested_size = raw_size if isinstance(raw_size, int) else None
-    max_page_size = endpoint.pagination.max_page_size
-
-    first_page_size = (
-        max_page_size if requested_size is None else min(max_page_size, requested_size)
-    )
-    first_body = {**initial, "from": start_from, "size": first_page_size}
-    first_page = fetch(first_body)
-
-    if not _is_paginated_response(first_page):
-        return _first_page_shape_drift(endpoint, first_page)
-
-    warn_if_server_partial(first_page, endpoint.key)
-    total = first_page["total"]
-    collected: list[Any] = list(first_page["list"])
-
-    available = max(total - start_from, 0)
-    target = available if requested_size is None else min(requested_size, available)
-
-    if len(first_page["list"]) < first_page_size:
-        if requested_size is not None:
-            collected = collected[:requested_size]
-        return _finalize_short_first_page(first_page, total, collected, target, endpoint)
-
-    if len(collected) >= target:
-        if requested_size is not None:
-            collected = collected[:requested_size]
-        complete: dict[str, Any] = {**first_page, "total": total, "list": collected}
-        if _probe_first_page_complete(
-            endpoint,
-            requested_size=requested_size,
-            total=total,
-            first_page_size=first_page_size,
-        ):
-            try:
-                probe = fetch({**initial, "from": total, "size": 1})
-            except Exception:
-                probe = None
-            if _probe_total_capped(endpoint, total, len(collected), probe):
-                complete["partial"] = True
-                complete["totalCapped"] = True
-        return complete
-
-    next_from = start_from + len(first_page["list"])
-    end_from = start_from + target
-    remaining_requests, dropped_pages = _build_remaining_requests(
-        initial=initial,
-        next_from=next_from,
-        end_from=end_from,
-        max_page_size=max_page_size,
-        max_pages=MAX_PAGES,
-    )
-
-    # Fail-soft fan-out (TS parity): a hard page failure (rate limit, no-perm,
-    # retries exhausted) must NOT discard the pages already fetched. Catch per
-    # page, record it, and stop starting new requests so we don't keep burning
-    # quota into a rate limit. firstPage already succeeded to get here.
-    failed_pages: list[dict[str, Any]] = []
-    state: dict[str, Any] = {"aborted": False, "first_error": None, "total_drift": False}
-    if remaining_requests:
-        workers = max(1, min(concurrency, len(remaining_requests)))
-        lock = threading.Lock()
-
-        def _run_page(req: dict[str, Any]) -> list[Any]:
-            with lock:
-                if state["aborted"]:
-                    failed_pages.append(req)
-                    return []
-            try:
-                page = fetch(req)
-            except Exception as error:  # fail-soft: record and keep prior pages
-                with lock:
-                    if state["first_error"] is None:
-                        state["first_error"] = error
-                    state["aborted"] = True
-                    failed_pages.append(req)
-                return []
-            if not _is_paginated_response(page):
-                # 2xx but malformed (no total/list): record it so the result is tagged
-                # partial instead of silently dropping rows. Don't set aborted — unlike
-                # a rate limit, one malformed page is no reason to stop the whole batch.
-                with lock:
-                    failed_pages.append(req)
-                return []
-            with lock:
-                if page["total"] != total:
-                    state["total_drift"] = True
-                if page.get("partial") is True:
-                    state["later_partial"] = True
-            return page["list"]  # type: ignore[no-any-return]  # may be [] (empty page)
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            page_lists = list(pool.map(_run_page, remaining_requests))
-        for page_list in page_lists:
-            collected.extend(page_list)
-
-    total_capped = False
-    if _should_probe_total_cap(
-        endpoint=endpoint,
-        requested_size=requested_size,
-        total=total,
-        collected=len(collected),
-        target=target,
-        state=state,
-        failed_pages=failed_pages,
-        dropped_pages=dropped_pages,
+def _read_empty_list(page: Any) -> Any:
+    """Several lists answer "nothing matched" with ``list: null`` instead of ``[]`` —
+    hot-topic, summary, the A-share and HK announcement lists, performance-calendar
+    (probed 2026-09-25, server P2-27). A numeric total of exactly 0 says what an empty
+    list would, so it is read as one; a null list under any other total, a string total
+    or a missing list is still a broken page and takes the unexpected-shape path
+    (TS v0.43.0). Returns a copy: the caller's payload is never mutated."""
+    if (
+        isinstance(page, dict)
+        and "list" in page
+        and page["list"] is None
+        and type(page.get("total")) is int
+        and page["total"] == 0
     ):
-        try:
-            probe = fetch({**initial, "from": total, "size": 1})
-        except Exception:
-            # A failed probe must never fail an otherwise-complete fetch: we simply
-            # do not learn whether the total was capped, which is the prior behaviour.
-            probe = None
-        total_capped = _probe_total_capped(endpoint, total, len(collected), probe)
-
-    if requested_size is not None:
-        collected = collected[:requested_size]
-    return _finalize_partial(
-        first_page,
-        total,
-        collected,
-        failed_pages,
-        state,
-        endpoint,
-        target=target,
-        dropped_pages=dropped_pages,
-        total_capped=total_capped,
-    )
+        return {**page, "list": []}
+    return page
 
 
-def _probe_first_page_complete(
-    endpoint: EndpointDef,
-    *,
-    requested_size: int | None,
-    total: int,
-    first_page_size: int,
-) -> bool:
-    """Whether the first-page-already-complete exit should run the total-cap probe.
-
-    A fetch-all that STARTS INSIDE THE LAST PAGE (``from=9950`` against
-    ``total=10000``) returns here rather than through the fan-out, and is just as
-    exposed to a capped ``total`` — it used to return without ever checking.
-    ``total > first_page_size`` keeps the request count unchanged for a result that
-    genuinely fits in one page from offset 0: only a late ``from`` can land here with
-    a total larger than a page. See :func:`_should_probe_total_cap` for why the probe
-    is free when it finds nothing (TS v0.38.0).
-    """
-    return requested_size is None and total > first_page_size
+def _row_digest(row: Any) -> bytes:
+    """JSON with object keys sorted and array order kept, so two copies of one row that
+    differ only in key order digest the same when paging drops repeats."""
+    text = json.dumps(row, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    # surrogatepass: a server string escaping a lone surrogate (``\udc80``) decodes into
+    # one, and a strict encode would crash a fetch whose pages are already paid for.
+    return hashlib.sha1(text.encode("utf-8", "surrogatepass"), usedforsecurity=False).digest()
 
 
-def _should_probe_total_cap(
-    *,
-    endpoint: EndpointDef,
-    requested_size: int | None,
-    total: int,
-    collected: int,
-    target: int,
-    state: dict[str, Any],
-    failed_pages: list[dict[str, Any]],
-    dropped_pages: int,
-) -> bool:
-    """Whether to spend one request checking that ``total`` is the real row count.
-
-    ``total`` is not always the real row count. Three opinion endpoints report a
-    fixed 10000 while ``from=30000`` still returns real rows with monotonically
-    older publish times (the shape of Elasticsearch's default track_total_hits). A
-    fetch-all then stops exactly at the cap with ``collected == total``, so every
-    completeness check passes and the truncated export LOOKS complete — the worst
-    failure mode there is, because ``insight.opinion`` bills 30 credits per row.
-
-    Only probed on a genuine fetch-all that otherwise looked complete: when
-    ``total`` is honest the probe comes back empty, and an endpoint that prices per
-    item charges nothing for an empty answer — so the probe is free exactly when it
-    finds nothing wrong.
-
-    ⚠️ **Do NOT gate this on ``retry == "no-replay"``.** An earlier version did,
-    reading that flag as a per-call-billing marker; it is not one. ``no-replay``
-    means "never resend a request the server may already have executed" — REPLAY
-    safety — and the probe is a new request, never a resend, so the flag has
-    nothing to say about it. Billing-wise the one endpoint that gate excluded,
-    ``ai.hot-topic``, is priced per returned item (50 per 篇, where a 篇 is one whole
-    report), and the platform does not charge a per-item endpoint for a query that
-    finds nothing — so the gate saved no credits while costing that endpoint its
-    only truncation check.
-
-    Do NOT generalize that into "every paginated endpoint is per-item billed": this
-    client cannot measure billing at all (no quota/usage API), at least one
-    paginated endpoint has no published unit price, and several are free. What the
-    probe relies on is narrower — on the endpoints where a capped ``total`` has been
-    observed, an empty answer is not billed.
-    Raised by gangtise-mcp; the CLI reverted the same exclusion on 2026-08-18.
-    """
-    return (
-        requested_size is None
-        and total > 0
-        and collected >= target
-        and not state.get("total_drift")
-        and not failed_pages
-        and not dropped_pages
-    )
+def _credits(value: float) -> str:
+    """A credit amount as the price list writes it: ``2500``, ``1000.1``."""
+    return str(int(value)) if float(value).is_integer() else str(value)
 
 
-def _probe_total_capped(endpoint: EndpointDef, total: int, collected: int, probe: Any) -> bool:
-    """Read a probe response; warn and return True when rows exist past ``total``."""
-    if not (_is_paginated_response(probe) and probe["list"]):
-        return False
+def _mark_total_capped(out: dict[str, Any], why: str, collected: int, keep_below: int) -> None:
+    """A fetch-all whose ``total`` is, or may be, a server-side cap: warn, and mark the
+    result so a truncated fetch cannot pass as complete."""
     warnings.warn(
-        f"{endpoint.key} reported total={total} but rows exist past that offset — "
-        "'total' is a server-side cap, not the real count. This result is TRUNCATED "
-        f"at {collected} rows. Narrow the query (date range / filters) and fetch in "
-        "slices.",
-        stacklevel=2,
+        f"{why}. This result is TRUNCATED at {collected} rows. Narrow the query (e.g. a "
+        f"shorter time range) until total stays below {keep_below}, and fetch in slices.",
+        stacklevel=4,
     )
-    return True
+    out["partial"] = True
+    out["totalCapped"] = True
 
 
 def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
@@ -382,82 +195,578 @@ def _warn_capped(endpoint: EndpointDef, dropped: int) -> None:
     warnings.warn(
         f"pagination capped at MAX_PAGES={MAX_PAGES} for {endpoint.key}; "
         f"dropping {dropped} page(s) of results",
-        stacklevel=2,
+        stacklevel=4,
     )
 
 
-def _finalize_partial(
-    first_page: dict[str, Any],
-    total: int,
-    collected: list[Any],
-    failed_pages: list[dict[str, Any]],
-    state: dict[str, Any],
+class _PagedFetch:
+    """One auto-paginated fetch: every decision the sync and async collectors share.
+
+    The collectors only send the requests this object asks for — the credit probe, the
+    first page, the fan-out pages, the total-cap probe — and hand the answers back, so
+    the two cannot drift apart. Mirrors TS ``requestPaginated`` (core/client.ts v0.44.0).
+    """
+
+    def __init__(self, endpoint: EndpointDef, body: dict[str, Any], allow_costly: bool) -> None:
+        pagination = endpoint.pagination
+        assert pagination is not None
+        self.endpoint = endpoint
+        self.initial = dict(body)
+        _validate_paging_args(self.initial)
+        raw_from = self.initial.get("from")
+        self.start_from: int = raw_from if isinstance(raw_from, int) else 0
+        raw_size = self.initial.get("size")
+        self.requested_size: int | None = raw_size if isinstance(raw_size, int) else None
+        self.max_page_size = pagination.max_page_size
+        # Rows past the offset window are unreachable (the server rejects the page), so
+        # no page is planned across it — a page straddling it would fail the whole tail
+        # (TS v0.41.0 ``maxWindow``).
+        self.max_window = pagination.max_window
+        if self.max_window is not None and self.start_from >= self.max_window:
+            raise ValidationError(
+                f"{endpoint.key} serves rows only up to offset {self.max_window} (from + size "
+                f"<= {self.max_window}); from={self.start_from} is past it. Narrow the query "
+                "(e.g. a shorter time range) instead of paging deeper."
+            )
+        self.window_room: int | None = (
+            None if self.max_window is None else self.max_window - self.start_from
+        )
+        # A per-row billed list fetched without ``size`` — or with one large enough to
+        # pass the guard by itself (``size=100000`` as "everything") — is priced from
+        # ``total`` before the fetch fans out, and refused past COSTLY_FETCH_CREDITS
+        # unless the caller passed ``confirm=True`` (TS v0.43.0 / v0.44.0).
+        billing = endpoint.billing
+        self.guarded = (
+            billing is not None
+            and billing.per == "row"
+            and not allow_costly
+            and (
+                self.requested_size is None
+                or self.requested_size * billing.price > COSTLY_FETCH_CREDITS
+            )
+        )
+        # The one-row credit probe (see probe_body): ``probed`` means it stands in as
+        # the first page.
+        self.probe: Any = None
+        self.probed = False
+        self.probe_rows = 0
+        # Row dedupe by ``endpoint.row_id``: per id, a digest of every version kept.
+        self.seen: dict[str, set[bytes]] = {}
+        self.duplicate_rows = 0
+        self.changed_rows = 0
+        self.id_is_row_key = True
+        # Filled in by start().
+        self.first_page: dict[str, Any] = {}
+        self.total = 0
+        self.wanted = 0
+        self.target = 0
+        self.collected: list[Any] = []
+        # Filled in by plan().
+        self.requests: list[dict[str, Any]] = []
+        self.dropped_pages = 0
+
+    # ── credit guard ──
+
+    def _rows_left(self, total: int) -> int:
+        """Rows a fetch against ``total`` would bring back: those past ``from``, inside
+        the offset window, and no more than the requested size."""
+        rows = max(total - self.start_from, 0)
+        if self.window_room is not None:
+            rows = min(rows, self.window_room)
+        if self.requested_size is not None:
+            rows = min(rows, self.requested_size)
+        return rows
+
+    def refuse_if_costly(self, total: int, fetched: int) -> None:
+        billing = self.endpoint.billing
+        if not self.guarded or billing is None:
+            return
+        rows = self._rows_left(total)
+        # Rounded half-up to the cent, as the CLI does (Math.round).
+        estimate = math.floor(rows * billing.price * 100 + 0.5) / 100
+        if estimate <= COSTLY_FETCH_CREDITS:
+            return
+        if self.requested_size is None:
+            what, escape = f"all {rows} rows", "Pass size=N for a bounded subset"
+        else:
+            what, escape = f"{rows} rows (size={self.requested_size})", "Pass a smaller size"
+        raise ValidationError(
+            f"fetching {what} of {self.endpoint.key} would cost about {_credits(estimate)} "
+            f"credits ({_credits(billing.price)} per row), above the "
+            f"{COSTLY_FETCH_CREDITS}-credit guard. Only {fetched} row(s) were fetched, to "
+            f"learn the total. {escape}, or confirm=True to fetch them all."
+        )
+
+    def probe_body(self) -> dict[str, Any] | None:
+        """The one-row request a guarded list learns its ``total`` from, or ``None``.
+
+        A cheap list learns ``total`` from its first page. Where a full first page would
+        itself cost more than PROBE_ABOVE_CREDITS, one row is asked for first, so a
+        refused fetch pays for that row alone; the fetch then starts over from the same
+        offset at the usual page size, keeping every page on the usual boundaries (the
+        probe row is billed twice) rather than depending on how an endpoint reads an
+        unaligned ``from``.
+        """
+        billing = self.endpoint.billing
+        if not self.guarded or billing is None:
+            return None
+        page = self.max_page_size
+        if self.window_room is not None:
+            page = min(page, self.window_room)
+        if page * billing.price <= PROBE_ABOVE_CREDITS:
+            return None
+        return {**self.initial, "from": self.start_from, "size": 1}
+
+    def take_probe(self, probe: Any) -> None:
+        """Read the credit probe (refusing a costly fetch). The probe stands in as the
+        first page when it already answers the fetch: when its shape is unexpected
+        (reported by start(), without paying a full page to see it again) and when it
+        holds exactly the rows left to fetch (a result of one row or none; more rows than
+        ``total`` leaves contradicts itself, and the first page is fetched as usual)."""
+        probe = _read_empty_list(probe)
+        self.probe = probe
+        if not _is_paginated_response(probe):
+            self.probed = True
+            return
+        self.refuse_if_costly(probe["total"], len(probe["list"]))
+        self.probe_rows = len(probe["list"])
+        self.probed = self.probe_rows == self._rows_left(probe["total"])
+
+    # ── first page ──
+
+    @property
+    def first_page_size(self) -> int:
+        if self.probed:
+            return 1
+        size = self.max_page_size
+        if self.requested_size is not None:
+            size = min(size, self.requested_size)
+        if self.window_room is not None:
+            size = min(size, self.window_room)
+        return size
+
+    def first_body(self) -> dict[str, Any]:
+        return {**self.initial, "from": self.start_from, "size": self.first_page_size}
+
+    def start(self, page: Any) -> tuple[Any, bool] | None:
+        """Read the first page. Returns ``(result, check_total_cap)`` when it settles
+        the fetch, ``None`` when more pages are needed (see plan())."""
+        page = _read_empty_list(page)
+        if not _is_paginated_response(page):
+            return _first_page_shape_drift(self.endpoint, page), False
+        warn_if_server_partial(page, self.endpoint.key)
+        self.first_page = page
+        self.total = total = page["total"]
+        available = max(total - self.start_from, 0)
+        self.wanted = (
+            available if self.requested_size is None else min(self.requested_size, available)
+        )
+        self.target = (
+            self.wanted if self.window_room is None else min(self.wanted, self.window_room)
+        )
+        self.collected = self._drop_repeats(page["list"])
+        first_page_size = self.first_page_size
+
+        # Last page reached on the first request. If `total` promises more rows than the
+        # short page delivered, the server's page cap may be lower than max_page_size —
+        # say so instead of silently returning a subset as "everything".
+        if len(page["list"]) < first_page_size:
+            out = self._result()
+            if len(self.collected) < self.target:
+                out["partial"] = True
+                warnings.warn(
+                    f"short first page for {self.endpoint.key}; results are partial — "
+                    f"got {len(out['list'])}/{total} rows",
+                    stacklevel=3,
+                )
+            return out, False
+
+        if len(self.collected) >= self.target:
+            # A fetch-all that STARTS INSIDE THE LAST PAGE (``from=9950`` against
+            # ``total=10000``) returns here rather than through the fan-out, and is just
+            # as exposed to a capped ``total``. ``total > first_page_size`` keeps the
+            # request count unchanged for a result that genuinely fits in one page from
+            # offset 0: only a late ``from`` can land here with a total larger than a
+            # page (TS v0.38.0).
+            check = (
+                self.requested_size is None
+                and total > first_page_size
+                and self.target == self.wanted
+            )
+            return self._result(), check
+        return None
+
+    # ── fan-out ──
+
+    def plan(self) -> list[dict[str, Any]]:
+        """The remaining page requests (capped at MAX_PAGES while generating them)."""
+        # A cheap guarded list reaches here with its first page in hand; the probe path
+        # has already checked, and passes again unless `total` grew past the guard in
+        # between.
+        self.refuse_if_costly(
+            self.total, len(self.collected) + (0 if self.probed else self.probe_rows)
+        )
+        self.requests, self.dropped_pages = _build_remaining_requests(
+            initial=self.initial,
+            next_from=self.start_from + len(self.first_page["list"]),
+            end_from=self.start_from + self.target,
+            max_page_size=self.max_page_size,
+            max_pages=MAX_PAGES,
+        )
+        return self.requests
+
+    def finish(
+        self, outcomes: list[Any], first_error: BaseException | None
+    ) -> tuple[dict[str, Any], bool]:
+        """Merge the fan-out pages (in page order) and tag the result ``partial``
+        whenever it is incomplete — fan-out pages failed, the ``MAX_PAGES`` cap dropped
+        pages, the server drifted (``total`` changed, or fewer rows came back than it
+        implied), a later page flagged itself partial. Each cause sets ``partial`` and
+        warns so scripts can machine-detect the gap and the default DataFrame path still
+        surfaces it. Returns ``(result, check_total_cap)``."""
+        key = self.endpoint.key
+        failed_pages: list[dict[str, Any]] = []
+        total_drift = False
+        later_partial = False
+        for request, page in zip(self.requests, outcomes, strict=True):
+            if page is _NOT_FETCHED:
+                failed_pages.append(request)
+                continue
+            # A later page that says total 0 is a total that drifted mid-fetch, not a
+            # broken page (TS v0.43.0).
+            page = _read_empty_list(page)
+            if not _is_paginated_response(page):
+                # 2xx but malformed (no total/list): record it so the result is tagged
+                # partial instead of silently dropping rows. Unlike a raised error it does
+                # not stop the fan-out.
+                failed_pages.append(request)
+                continue
+            if page["total"] != self.total:
+                total_drift = True
+            if page.get("partial") is True:
+                later_partial = True
+            self.collected.extend(self._drop_repeats(page["list"]))
+
+        count = len(self.collected)
+        short = count < self.target
+        # Every row arrived and some were dropped as repeats: the fetch otherwise reached
+        # `total`, so it is still checked against a capped total, and no page came back
+        # short (TS v0.43.0).
+        short_by_repeats_only = short and count + self.duplicate_rows >= self.target
+        out = self._result()
+        check = (
+            self.requested_size is None
+            and self.total > 0
+            and self.target == self.wanted
+            and (not short or short_by_repeats_only)
+            and not total_drift
+            and not self.dropped_pages
+            and not failed_pages
+        )
+
+        if later_partial:
+            # Only the FIRST page's metadata is spread into the merged result, so a later
+            # page that flagged itself partial would otherwise lose the marker and the
+            # merged result would read as complete (TS v0.38.0).
+            out["partial"] = True
+            warnings.warn(
+                f"a later page reported itself partial for {key}; "
+                "the merged result is marked partial",
+                stacklevel=3,
+            )
+        if total_drift:
+            # `total` changed between pages: data shifted under the fetch, so rows may be
+            # duplicated or missing even when the counts happen to line up.
+            out["partial"] = True
+            warnings.warn(
+                f"'total' changed across pages for {key} (data shifted during "
+                "fetch); rows may be duplicated or missing",
+                stacklevel=3,
+            )
+        if failed_pages:
+            out["partial"] = True
+            out["failedPages"] = [{"from": p["from"], "size": p["size"]} for p in failed_pages]
+            detail = f": {first_error}" if first_error is not None else ""
+            # Surface via warnings.warn (not logger) so the default DataFrame path —
+            # which drops the partial/failedPages dict keys — still signals the gap to
+            # callers who never set raw=True. The SDK's default logger is a NullHandler,
+            # so logger.warning would be silent.
+            warnings.warn(
+                f"{len(failed_pages)} page(s) not fetched for {key}{detail}; "
+                f"results are partial — got {len(out['list'])}/{self.total} rows "
+                "(see failedPages in raw output)",
+                stacklevel=3,
+            )
+        if self.dropped_pages:
+            # MAX_PAGES safety cap: pages beyond the limit were never requested, so the
+            # result is truncated. Flag it (not just warn) so it's machine-readable.
+            out["partial"] = True
+            _warn_capped(self.endpoint, self.dropped_pages)
+        elif not failed_pages and short:
+            # Total drift: the server reported a larger `total` than it actually returned
+            # (a short/empty mid page). Treat the smaller result as the end of data but
+            # flag it so callers don't mistake it for the full set. A shortfall that is
+            # only the dropped repeats already has its own warning.
+            out["partial"] = True
+            if not short_by_repeats_only:
+                warnings.warn(
+                    f"server reported total={self.total} but only {len(out['list'])} row(s) "
+                    f"came back for {key}; treating it as the end of data — results may "
+                    "be incomplete",
+                    stacklevel=3,
+                )
+        return out, check
+
+    # ── total-cap probe ──
+
+    def total_cap_probe(self, out: dict[str, Any]) -> dict[str, Any] | None:
+        """The request that checks ``total`` is the real row count, or ``None`` when no
+        request can tell (the result is then marked here).
+
+        ``total`` is not always the real row count. Three opinion endpoints reported a
+        fixed 10000 while ``from=30000`` still returned real rows with monotonically
+        older publish times (the shape of Elasticsearch's default track_total_hits). A
+        fetch-all then stops exactly at the cap with ``collected == total``, so every
+        completeness check passes and the truncated export LOOKS complete — the worst
+        failure mode there is.
+
+        Only run on a genuine fetch-all that otherwise looked complete (``start`` /
+        ``finish`` decide): when ``total`` is honest the probe comes back empty, and an
+        endpoint that prices per item charges nothing for an empty answer — so the probe
+        is free exactly when it finds nothing wrong.
+
+        ⚠️ **Do NOT gate this on ``retry == "no-replay"``.** That flag reads like a
+        per-call-billing marker; it is not one. ``no-replay``
+        means "never resend a request the server may already have executed" — REPLAY
+        safety — and the probe is a new request, never a resend, so the flag has
+        nothing to say about it. Billing-wise the one endpoint that gate excluded,
+        ``ai.hot-topic``, is priced per returned item (50 per 篇, where a 篇 is one whole
+        report), and the platform does not charge a per-item endpoint for a query that
+        finds nothing — so the gate saved no credits while costing that endpoint its
+        only truncation check.
+
+        Do NOT generalize that into "every paginated endpoint is per-item billed": this
+        client cannot measure billing at all (no quota/usage API), at least one
+        paginated endpoint has no published unit price, and several are free. What the
+        probe relies on is narrower — on the endpoints where a capped ``total`` has been
+        observed, an empty answer is not billed.
+        Raised by gangtise-mcp; the CLI reverted the same exclusion on 2026-08-18.
+
+        The probe asks for the row at offset ``total``; past a declared offset window
+        the server rejects it outright, so a ``total`` that reaches the window cannot be
+        probed: rows past it can be neither fetched nor counted, and the result is
+        treated as truncated, as when a probe finds rows (vault.wechat-message.list: the
+        unfiltered total stops at 10000 while its monthly totals add up to more — probed
+        2026-09-25; TS v0.43.0).
+        """
+        if self.max_window is None or self.total + 1 <= self.max_window:
+            return {**self.initial, "from": self.total, "size": 1}
+        _mark_total_capped(
+            out,
+            f"{self.endpoint.key} reported total={self.total}, which equals its "
+            f"{self.max_window}-row offset window: rows past it can be neither fetched "
+            "nor counted",
+            len(out["list"]),
+            self.max_window,
+        )
+        return None
+
+    def read_total_cap_probe(
+        self, out: dict[str, Any], probe: Any = None, error: BaseException | None = None
+    ) -> None:
+        key = self.endpoint.key
+        if error is not None:
+            # A failed probe must never fail an otherwise-complete fetch. But a probe the
+            # server REFUSED is not the same as one that never got through: the rows
+            # before `total` were served and the one at `total` was refused, which is how
+            # an offset window the endpoint did not declare answers (140002 is also the
+            # generic business failure, so this is the likely reading, not a proven one)
+            # — handled as the declared-window path is, the conservative way. Any other
+            # failure says nothing about the total and stays silent (TS v0.43.0).
+            if isinstance(error, ApiError) and error.code in OFFSET_REFUSAL_CODES:
+                _mark_total_capped(
+                    out,
+                    f"{key} reported total={self.total} and refused the row right after it "
+                    f"({error.code}) — most likely a server-side offset window at total, so "
+                    "rows past it may exist and can be neither fetched nor counted",
+                    len(out["list"]),
+                    self.total,
+                )
+            return
+        if _is_paginated_response(probe) and probe["list"]:
+            _mark_total_capped(
+                out,
+                f"{key} reported total={self.total} but rows exist past that offset — "
+                "'total' is a server-side cap, not the real count",
+                len(out["list"]),
+                self.total,
+            )
+
+    # ── rows ──
+
+    def _drop_repeats(self, rows: list[Any]) -> list[Any]:
+        """Drop a row already kept, seen again whole on a neighbouring page.
+
+        Lists sorted on a non-unique key (``msgTime``, ``publishTime``) reorder a
+        same-timestamp group between two page requests, so neighbouring pages both
+        return some of it and miss the rest — the row count still equals ``total``
+        (probed 2026-09-25, server P2-26). A row identical to ANY version kept under its
+        ``row_id`` (not just the first) is dropped and counted; only the id and a digest
+        per version are held, not the row itself (TS v0.43.0 / v0.43.1).
+
+        An id seen again with different content on a LATER page is a row that moved or
+        changed while paging, so its neighbours may have shifted too: both versions are
+        kept and counted. The same on ONE page — a single consistent response — means
+        the id does not identify a row on this list, and the count is then disregarded,
+        as it is for an id field not yet seen to be one (``row_id_unverified``). Rows
+        without the id are always kept.
+        """
+        row_id = self.endpoint.row_id
+        if row_id is None:
+            return list(rows)
+        on_this_page: dict[str, set[bytes]] = {}
+        kept: list[Any] = []
+        for row in rows:
+            value = row.get(row_id) if isinstance(row, dict) else None
+            if value is None:
+                kept.append(row)
+                continue
+            digest = _row_digest(row)
+            key = str(value)
+            page_versions = on_this_page.get(key)
+            if page_versions is None:
+                on_this_page[key] = {digest}
+            else:
+                if digest not in page_versions:
+                    self.id_is_row_key = False
+                page_versions.add(digest)
+            versions = self.seen.get(key)
+            if versions is None:
+                self.seen[key] = {digest}
+                kept.append(row)
+                continue
+            if digest in versions:
+                self.duplicate_rows += 1
+                continue
+            versions.add(digest)
+            if page_versions is None:
+                self.changed_rows += 1
+            kept.append(row)
+        return kept
+
+    def _result(self) -> dict[str, Any]:
+        """The merged result with the markers every return path shares: repeats
+        dropped, rows that changed while paging, rows cut off by the offset window."""
+        key = self.endpoint.key
+        rows = (
+            self.collected if self.requested_size is None else self.collected[: self.requested_size]
+        )
+        out: dict[str, Any] = {**self.first_page, "total": self.total, "list": rows}
+        if self.duplicate_rows:
+            # The count falls short by the same number, which marks the result partial
+            # on every path anyway; this names the cause, since "short page" alone points
+            # elsewhere.
+            warnings.warn(
+                f"{key} returned {self.duplicate_rows} row(s) more than once — its sort "
+                "order is not unique, so paging also missed as many rows. The duplicates "
+                "were dropped and the result is partial. Re-run over a shorter time range "
+                "to fetch the missing rows.",
+                stacklevel=4,
+            )
+            out["duplicateRows"] = self.duplicate_rows
+            out["partial"] = True
+        if self.changed_rows and self.id_is_row_key and not self.endpoint.row_id_unverified:
+            row_id = self.endpoint.row_id
+            warnings.warn(
+                f"{key} returned {self.changed_rows} row(s) whose {row_id} came back on a "
+                "later page with different content — the list changed while it was being "
+                "paged, so rows may also have been missed. Both versions were kept "
+                f"(deduplicating by {row_id} keeps one) and the result is partial. Re-run "
+                "to fetch a consistent result.",
+                stacklevel=4,
+            )
+            out["changedRows"] = self.changed_rows
+            out["partial"] = True
+        if self.target < self.wanted:
+            # Rows the caller asked for that sit past the offset window: nothing can fetch
+            # them, so the result is partial whatever else happens (TS v0.41.0 / v0.43.0).
+            warnings.warn(
+                f"{key} serves rows only up to offset {self.max_window} (from + size <= "
+                f"{self.max_window}); {self.wanted - self.target} of the {self.wanted} "
+                "requested rows lie past it and were not fetched. Narrow the query (e.g. a "
+                "shorter time range) and fetch in slices.",
+                stacklevel=4,
+            )
+            out["partial"] = True
+        return out
+
+
+def collect_paginated(
     endpoint: EndpointDef,
     *,
-    target: int,
-    dropped_pages: int = 0,
-    total_capped: bool = False,
-) -> dict[str, Any]:
-    """Assemble the paginated result, tagging it ``partial`` whenever it is
-    incomplete — fan-out pages failed, the ``MAX_PAGES`` cap dropped pages, or the
-    server drifted (fewer rows came back than the reported ``total`` implied). Each
-    cause sets ``partial`` and warns so scripts can machine-detect the gap and the
-    default DataFrame path still surfaces it. Shared by the sync and async collectors.
-    Mirrors the TS ``requestPaginated`` partial markers (core/client.ts)."""
-    result: dict[str, Any] = {**first_page, "total": total, "list": collected}
-    if total_capped:
-        result["partial"] = True
-        result["totalCapped"] = True
-    if state.get("later_partial"):
-        # Only the FIRST page's metadata is spread into the merged result, so a
-        # later page that flagged itself partial would otherwise lose the marker
-        # and the merged result would read as complete (TS v0.38.0).
-        result["partial"] = True
-        warnings.warn(
-            f"a later page reported itself partial for {endpoint.key}; "
-            "the merged result is marked partial",
-            stacklevel=2,
-        )
-    if state.get("total_drift"):
-        # `total` changed between pages: data shifted under the fetch, so rows may
-        # be duplicated or missing even when the counts happen to line up.
-        result["partial"] = True
-        warnings.warn(
-            f"'total' changed across pages for {endpoint.key} (data shifted during "
-            "fetch); rows may be duplicated or missing",
-            stacklevel=2,
-        )
-    if failed_pages:
-        result["partial"] = True
-        result["failedPages"] = [{"from": p["from"], "size": p["size"]} for p in failed_pages]
-        first_error = state.get("first_error")
-        detail = f": {first_error}" if first_error is not None else ""
-        # Surface via warnings.warn (not logger) so the default DataFrame path —
-        # which drops the partial/failedPages dict keys — still signals the gap to
-        # callers who never set raw=True. Mirrors the K-line shard path (quote.py);
-        # the SDK's default logger is a NullHandler, so logger.warning is silent.
-        warnings.warn(
-            f"{len(failed_pages)} page(s) not fetched for {endpoint.key}{detail}; "
-            f"results are partial — got {len(collected)}/{total} rows "
-            "(see failedPages in raw output)",
-            stacklevel=2,
-        )
-    if dropped_pages:
-        # MAX_PAGES safety cap: pages beyond the limit were never requested, so the
-        # result is truncated. Flag it (not just warn) so it's machine-readable.
-        result["partial"] = True
-        _warn_capped(endpoint, dropped_pages)
-    elif not failed_pages and len(collected) < target:
-        # Total drift: the server reported a larger `total` than it actually returned
-        # (a short/empty mid page). Treat the smaller result as the end of data but
-        # flag it so callers don't mistake it for the full set (TS client.ts:242).
-        result["partial"] = True
-        warnings.warn(
-            f"server reported total={total} but only {len(collected)} row(s) came back "
-            f"for {endpoint.key}; treating it as the end of data — results may be incomplete",
-            stacklevel=2,
-        )
-    return result
+    body: dict[str, Any],
+    fetch: PageFetcher,
+    concurrency: int,
+    allow_costly: bool = False,
+) -> Any:
+    """Fetch every page of a paginated list (or the ``size`` rows asked for) and merge
+    them. ``allow_costly`` is ``_call``'s ``confirm``: it lets a per-row billed fetch
+    past COSTLY_FETCH_CREDITS through. Decisions live in :class:`_PagedFetch`."""
+    if endpoint.pagination is None:
+        return fetch(body)
+    run = _PagedFetch(endpoint, body, allow_costly)
+    probe_body = run.probe_body()
+    if probe_body is not None:
+        run.take_probe(fetch(probe_body))
+    # First page: serial — `total` decides how many more requests to fan out.
+    settled = run.start(run.probe if run.probed else fetch(run.first_body()))
+    if settled is None:
+        settled = run.finish(*_fan_out(run.plan(), fetch, concurrency))
+    out, check_total_cap = settled
+    if check_total_cap:
+        probe = run.total_cap_probe(out)
+        if probe is not None:
+            try:
+                answer = fetch(probe)
+            except Exception as error:
+                run.read_total_cap_probe(out, error=error)
+            else:
+                run.read_total_cap_probe(out, answer)
+    return out
+
+
+def _fan_out(
+    requests: list[dict[str, Any]], fetch: PageFetcher, concurrency: int
+) -> tuple[list[Any], BaseException | None]:
+    """Fetch the remaining pages; returns each page (or ``_NOT_FETCHED``) in request
+    order, and the first error.
+
+    Fail-soft (TS parity): a hard page failure (rate limit, no-perm, retries exhausted)
+    must NOT discard the pages already fetched. Catch per page, record it, and stop
+    starting new requests so we don't keep burning quota into a rate limit. Every page
+    is queued up front, so one slow page never holds back the ones behind it.
+    """
+    outcomes: list[Any] = [_NOT_FETCHED] * len(requests)
+    errors: list[BaseException] = []
+    if not requests:
+        return outcomes, None
+    lock = threading.Lock()
+
+    def run_page(index: int) -> None:
+        with lock:
+            if errors:
+                return
+        try:
+            page = fetch(requests[index])
+        except Exception as error:  # fail-soft: record and keep prior pages
+            with lock:
+                errors.append(error)
+            return
+        outcomes[index] = page
+
+    with ThreadPoolExecutor(max_workers=max(1, min(concurrency, len(requests)))) as pool:
+        list(pool.map(run_page, range(len(requests))))
+    return outcomes, errors[0] if errors else None
 
 
 AsyncPageFetcher = Callable[[dict[str, Any]], Any]  # returns Awaitable
@@ -467,130 +776,53 @@ async def collect_paginated_async(
     endpoint: EndpointDef,
     *,
     body: dict[str, Any],
-    fetch: Callable[[dict[str, Any]], Any],
+    fetch: AsyncPageFetcher,
     concurrency: int,
+    allow_costly: bool = False,
 ) -> Any:
+    """Async mirror of :func:`collect_paginated`."""
     if endpoint.pagination is None:
         return await fetch(body)
-    initial = dict(body)
-    _validate_paging_args(initial)
-    raw_from = initial.get("from")
-    start_from = raw_from if isinstance(raw_from, int) else 0
-    raw_size = initial.get("size")
-    requested_size = raw_size if isinstance(raw_size, int) else None
-    max_page_size = endpoint.pagination.max_page_size
-    first_page_size = (
-        max_page_size if requested_size is None else min(max_page_size, requested_size)
-    )
-    first_body = {**initial, "from": start_from, "size": first_page_size}
-    first_page = await fetch(first_body)
-    if not _is_paginated_response(first_page):
-        return _first_page_shape_drift(endpoint, first_page)
-    warn_if_server_partial(first_page, endpoint.key)
-    total = first_page["total"]
-    collected: list[Any] = list(first_page["list"])
-    available = max(total - start_from, 0)
-    target = available if requested_size is None else min(requested_size, available)
-    if len(first_page["list"]) < first_page_size:
-        if requested_size is not None:
-            collected = collected[:requested_size]
-        return _finalize_short_first_page(first_page, total, collected, target, endpoint)
-    if len(collected) >= target:
-        if requested_size is not None:
-            collected = collected[:requested_size]
-        complete: dict[str, Any] = {**first_page, "total": total, "list": collected}
-        if _probe_first_page_complete(
-            endpoint,
-            requested_size=requested_size,
-            total=total,
-            first_page_size=first_page_size,
-        ):
+    run = _PagedFetch(endpoint, body, allow_costly)
+    probe_body = run.probe_body()
+    if probe_body is not None:
+        run.take_probe(await fetch(probe_body))
+    settled = run.start(run.probe if run.probed else await fetch(run.first_body()))
+    if settled is None:
+        settled = run.finish(*await _fan_out_async(run.plan(), fetch, concurrency))
+    out, check_total_cap = settled
+    if check_total_cap:
+        probe = run.total_cap_probe(out)
+        if probe is not None:
             try:
-                probe = await fetch({**initial, "from": total, "size": 1})
-            except Exception:
-                probe = None
-            if _probe_total_capped(endpoint, total, len(collected), probe):
-                complete["partial"] = True
-                complete["totalCapped"] = True
-        return complete
-    next_from = start_from + len(first_page["list"])
-    end_from = start_from + target
-    remaining_requests, dropped_pages = _build_remaining_requests(
-        initial=initial,
-        next_from=next_from,
-        end_from=end_from,
-        max_page_size=max_page_size,
-        max_pages=MAX_PAGES,
-    )
+                answer = await fetch(probe)
+            except Exception as error:
+                run.read_total_cap_probe(out, error=error)
+            else:
+                run.read_total_cap_probe(out, answer)
+    return out
 
-    missing = object()
-    pages: list[Any] = [missing] * len(remaining_requests)
-    # Fail-soft fan-out (TS parity): keep pages already fetched when a later page
-    # hits a non-retryable error; record the failures and stop starting new
-    # requests. See the sync sibling in collect_paginated.
-    failed_pages: list[dict[str, Any]] = []
-    state: dict[str, Any] = {"aborted": False, "first_error": None, "total_drift": False}
-    if remaining_requests:
-        semaphore = anyio.Semaphore(max(1, min(concurrency, len(remaining_requests))))
 
-        async def run_one(idx: int, req: dict[str, Any]) -> None:
-            async with semaphore:
-                if state["aborted"]:
-                    failed_pages.append(req)
-                    return
-                try:
-                    pages[idx] = await fetch(req)
-                except Exception as error:  # fail-soft: record and keep prior pages
-                    if state["first_error"] is None:
-                        state["first_error"] = error
-                    state["aborted"] = True
-                    failed_pages.append(req)
+async def _fan_out_async(
+    requests: list[dict[str, Any]], fetch: AsyncPageFetcher, concurrency: int
+) -> tuple[list[Any], BaseException | None]:
+    """Async mirror of :func:`_fan_out`."""
+    outcomes: list[Any] = [_NOT_FETCHED] * len(requests)
+    errors: list[BaseException] = []
+    if not requests:
+        return outcomes, None
+    semaphore = anyio.Semaphore(max(1, min(concurrency, len(requests))))
 
-        async with anyio.create_task_group() as tg:
-            for idx, req in enumerate(remaining_requests):
-                tg.start_soon(run_one, idx, req)
+    async def run_page(index: int) -> None:
+        async with semaphore:
+            if errors:
+                return
+            try:
+                outcomes[index] = await fetch(requests[index])
+            except Exception as error:  # fail-soft: record and keep prior pages
+                errors.append(error)
 
-    for idx, page in enumerate(pages):
-        if page is missing:
-            continue  # run_one already recorded this failure (the exception path)
-        if not _is_paginated_response(page):
-            # 2xx but malformed: record so it surfaces as partial, don't drop silently
-            # (mirrors the sync _run_page branch).
-            failed_pages.append(remaining_requests[idx])
-            continue
-        if page["total"] != total:
-            state["total_drift"] = True
-        if page.get("partial") is True:
-            state["later_partial"] = True
-        collected.extend(page["list"])  # may be [] — a legitimately empty page
-    total_capped = False
-    if _should_probe_total_cap(
-        endpoint=endpoint,
-        requested_size=requested_size,
-        total=total,
-        collected=len(collected),
-        target=target,
-        state=state,
-        failed_pages=failed_pages,
-        dropped_pages=dropped_pages,
-    ):
-        try:
-            probe = await fetch({**initial, "from": total, "size": 1})
-        except Exception:
-            # A failed probe must never fail an otherwise-complete fetch.
-            probe = None
-        total_capped = _probe_total_capped(endpoint, total, len(collected), probe)
-
-    if requested_size is not None:
-        collected = collected[:requested_size]
-    return _finalize_partial(
-        first_page,
-        total,
-        collected,
-        failed_pages,
-        state,
-        endpoint,
-        target=target,
-        dropped_pages=dropped_pages,
-        total_capped=total_capped,
-    )
+    async with anyio.create_task_group() as tg:
+        for index in range(len(requests)):
+            tg.start_soon(run_page, index)
+    return outcomes, errors[0] if errors else None

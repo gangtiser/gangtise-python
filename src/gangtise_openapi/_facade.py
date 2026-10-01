@@ -18,6 +18,8 @@ if TYPE_CHECKING:
         AsyncAI,
         AsyncAlternative,
         AsyncAuth,
+        AsyncBond,
+        AsyncFund,
         AsyncFundamental,
         AsyncIndicator,
         AsyncInsight,
@@ -27,6 +29,8 @@ if TYPE_CHECKING:
         AsyncTool,
         AsyncVault,
         Auth,
+        Bond,
+        Fund,
         Fundamental,
         Indicator,
         Insight,
@@ -67,6 +71,8 @@ class _Facade:
         "ai": "gangtise_openapi.domains.ai:AI",
         "alternative": "gangtise_openapi.domains.alternative:Alternative",
         "auth": "gangtise_openapi.domains.auth:Auth",
+        "bond": "gangtise_openapi.domains.bond:Bond",
+        "fund": "gangtise_openapi.domains.fund:Fund",
         "fundamental": "gangtise_openapi.domains.fundamental:Fundamental",
         "indicator": "gangtise_openapi.domains.indicator:Indicator",
         "insight": "gangtise_openapi.domains.insight:Insight",
@@ -82,6 +88,8 @@ class _Facade:
         ai: AI
         alternative: Alternative
         auth: Auth
+        bond: Bond
+        fund: Fund
         fundamental: Fundamental
         indicator: Indicator
         insight: Insight
@@ -198,12 +206,16 @@ class _AsyncFacade:
         "alternative": "gangtise_openapi.domains.alternative:AsyncAlternative",
         "indicator": "gangtise_openapi.domains.indicator:AsyncIndicator",
         "tool": "gangtise_openapi.domains.tool:AsyncTool",
+        "bond": "gangtise_openapi.domains.bond:AsyncBond",
+        "fund": "gangtise_openapi.domains.fund:AsyncFund",
     }
 
     if TYPE_CHECKING:
         ai: AsyncAI
         alternative: AsyncAlternative
         auth: AsyncAuth
+        bond: AsyncBond
+        fund: AsyncFund
         fundamental: AsyncFundamental
         indicator: AsyncIndicator
         insight: AsyncInsight

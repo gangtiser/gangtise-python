@@ -16,7 +16,7 @@ import anyio
 import httpx
 
 from gangtise_openapi._auth import normalize_token
-from gangtise_openapi._client import AUTH_RETRY_CODES, AsyncGangtiseClient, GangtiseClient
+from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient, _AuthRecovery
 from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import (
     FOLLOWED_TARGET_HINT,
@@ -26,12 +26,14 @@ from gangtise_openapi._errors import (
 )
 from gangtise_openapi._transport import (
     RETRYABLE_HTTP_STATUS,
+    TRANSFER_TOTAL_FACTOR,
     _apply_policy_hint,
     _effective_timeout,
     _retry_delay,
     is_envelope,
     is_retryable_error,
     parse_retry_after_ms,
+    request_deadline_seconds,
     unwrap_envelope,
 )
 
@@ -64,9 +66,24 @@ _MIME_EXTENSIONS = {
     "audio/mpeg": ".mp3",
     "text/html": ".html",
     "text/plain": ".txt",
+    "text/markdown": ".md",
     "application/octet-stream": "",
 }
-_KNOWN_EXTENSIONS = {ext for ext in _MIME_EXTENSIONS.values() if ext}
+# Extensions a signed download URL's path may name (TS v0.44.0 ``KNOWN_EXT``: the TS
+# MIME table's extensions plus .md/.jpeg/.htm). Listed from TS rather than derived from
+# _MIME_EXTENSIONS, whose table is narrower.
+_URL_EXTENSIONS = frozenset(
+    {
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".zip", ".rar", ".gz", ".7z", ".json", ".xml", ".txt", ".html", ".csv",
+        ".png", ".jpg", ".gif", ".webp", ".svg", ".mp3", ".mp4", ".bin",
+        ".md", ".jpeg", ".htm",
+    }
+)  # fmt: skip
+# What counts as "already has an extension" for a server filename or a title: the MIME
+# table's and TS's KNOWN_EXT together, so a Markdown file (research file_type=2) keeps
+# its ``.md`` instead of being named by a content type that maps to nothing.
+_KNOWN_EXTENSIONS = {ext for ext in _MIME_EXTENSIONS.values() if ext} | _URL_EXTENSIONS
 
 
 def _parse_content_disposition(header: str | None) -> str | None:
@@ -84,6 +101,38 @@ def _extension_for(content_type: str | None) -> str:
         return ""
     lower = content_type.split(";")[0].strip().lower()
     return _MIME_EXTENSIONS.get(lower, "")
+
+
+def _extension_from_url(url: str) -> str:
+    """The file extension a signed download URL names (``…/report.pdf?sig=…`` →
+    ``.pdf``), when it is a known file type; else ``""`` (TS v0.44.0 ``extFromUrl``)."""
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        return ""
+    ext = Path(unquote(path)).suffix.lower()
+    return ext if ext in _URL_EXTENSIONS else ""
+
+
+def _result_ext(
+    disposition_name: str | None, content_type: str | None, source_url: str | None
+) -> str:
+    """The extension an auto-named download gets (TS v0.44.0 ``resultExt``): the server's
+    filename, else — for a file the server handed over as a ``{url}`` answer — the
+    extension that URL names, else the content type.
+
+    ``content_type`` is always that of the response carrying the bytes. For a ``{url}``
+    answer that is the signed target's, never the JSON envelope that carried the URL,
+    so the file is never named ``.json`` after the envelope; the URL still wins over
+    it, because a signed target may answer a generic ``application/octet-stream``
+    (which maps to no extension) for a PDF, and the URL is what TS names it by."""
+    if disposition_name and _has_known_extension(disposition_name):
+        return Path(disposition_name).suffix
+    if source_url is not None:
+        ext = _extension_from_url(source_url)
+        if ext:
+            return ext
+    return _extension_for(content_type)
 
 
 def _redact_url(url: str) -> str:
@@ -186,6 +235,12 @@ def _sanitize_filename(name: str) -> str:
     # Control chars + NUL (\x00-\x1f) too: a server-supplied name could otherwise
     # break the file write or smuggle terminal escapes (CLI v0.21.0 parity).
     table.update(dict.fromkeys(range(0x20), "_"))
+    # Lone surrogates (a server title escaping ``\udc80``) cannot be encoded as a file
+    # name at all — failing here would lose a file whose download is already billed.
+    table.update(dict.fromkeys(range(0xD800, 0xE000), "_"))
+    # U+FFFD is what the title cache stores for such a character: mapped the same way,
+    # so one title names its file identically whichever path supplied it.
+    table[0xFFFD] = "_"
     return name.translate(table).strip()
 
 
@@ -295,8 +350,10 @@ def download_to_path(
     """Stream a download endpoint to disk.
 
     Retries transient failures (429/5xx, network errors, API code 999999) with
-    the same policy as the JSON request path, and force-refreshes the token
-    once on auth errors (8000014/8000015/0000001008). If the endpoint answers with a JSON
+    the same policy as the JSON request path, and recovers from an auth error
+    (``AUTH_RETRY_CODES``) the same way too: a token another request or process
+    already refreshed first, one login last (``client._recover_token``). If the
+    endpoint answers with a JSON
     envelope whose data carries a presigned `url`, that URL is fetched instead.
 
     Resolution order for the output filename when `output` is None:
@@ -306,7 +363,11 @@ def download_to_path(
          `resolve_title=True`; calls the list endpoint with
          `from=0, size=TITLE_LOOKUP_SIZE` and scans for `id_field == id_value`
       3. `Content-Disposition` filename
-      4. `<fallback_name><ext-from-mime>`
+      4. `<fallback_name><ext>`
+
+    The extension appended to a name that lacks one is the server filename's, else
+    (for a ``{url}`` answer) the one the URL path names, else the content type's —
+    see :func:`_result_ext`.
     """
     endpoint = lookup(endpoint_key)
     if endpoint.kind != "download":
@@ -315,7 +376,7 @@ def download_to_path(
 
     token = client._get_token()
     attempt = 0
-    auth_retried = False
+    auth_state = _AuthRecovery()
     while True:
         try:
             return _download_once(
@@ -340,17 +401,13 @@ def download_to_path(
                 # already the billing-safe FOLLOWED_TARGET_HINT (set at the mint site),
                 # so no _apply_policy_hint here (it would overwrite it).
                 raise
-            if (
-                not auth_retried
-                and error.code in AUTH_RETRY_CODES
-                and client._config.access_key
-                and client._config.secret_key
-            ):
-                auth_retried = True
-                if token == client._config.token:
-                    client._env_token_rejected = True
-                token = client._get_token(force_refresh=True, stale_token=token)
-                continue
+            if client._auth_recoverable(error):
+                # Same recovery as a JSON request: a token someone else refreshed
+                # first, one login last; outside the transient-retry budget.
+                recovered = client._recover_token(token, auth_state)
+                if recovered is not None:
+                    token = recovered
+                    continue
             # Download endpoints carry per-篇 billing too (summary / foreign-report /
             # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
@@ -391,6 +448,10 @@ def _download_once(
     # outgrows 30s), so this closes a landmine rather than a live bug, and it never
     # lowers a higher user-configured timeout (TS v0.37.0).
     timeout = _effective_timeout(http, endpoint)
+    # One total deadline for this billed attempt, taken before the request goes out
+    # (TS v0.44.0): the idle timeouts alone let a trickling server hold it open forever.
+    # Hitting it raises DownloadError, which the retry loop does not replay.
+    deadline = time.monotonic() + request_deadline_seconds(http, endpoint, transfer=True)
     with http.stream(
         endpoint.method,
         endpoint.path,
@@ -445,6 +506,7 @@ def _download_once(
             output=output,
             fallback_name=fallback_name,
             title_lookup=title_lookup,
+            deadline=deadline,
         )
 
 
@@ -514,36 +576,50 @@ def _claim_via_placeholder(tmp: Path, desired: Path) -> Path:
             fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             continue
-        # The fd exists ONLY to reserve the name atomically (O_EXCL); we write
-        # nothing through it. Close is best-effort: a close-time OSError (e.g. EIO on
-        # a flaky SMB/exFAT mount) must not abort the commit, or the complete .part
-        # would be lost to the outer finally and only this 0-byte placeholder would
-        # remain. The rename below is the load-bearing step and needs no live fd.
-        with suppress(OSError):
-            os.close(fd)
         try:
+            # The fd exists ONLY to reserve the name atomically (O_EXCL); we write
+            # nothing through it. Close is best-effort: a close-time OSError (e.g. EIO
+            # on a flaky SMB/exFAT mount) must not abort the commit, or the complete
+            # .part would be lost to the outer finally and only this 0-byte placeholder
+            # would remain. The rename below is the load-bearing step and needs no fd.
+            with suppress(OSError):
+                os.close(fd)
             # Replacing our OWN just-reserved placeholder — never someone else's file.
             tmp.replace(candidate)
-        except OSError:
-            # Best-effort cleanup of our placeholder; a failing unlink must not mask
-            # the original move error (which is what the bare `raise` re-raises).
+        except BaseException:
+            # The move failed, or an interrupt (KeyboardInterrupt) landed mid-claim.
+            # Drop the placeholder while it is still empty: it carries the final name,
+            # so left behind it reads as a finished download (TS v0.43.0 ⑨). A non-empty
+            # file there is the moved download itself — an interrupt that arrived just
+            # after the rename — and stays. Best-effort: a failing stat/unlink must not
+            # mask the original error (which is what the bare `raise` re-raises).
             with suppress(OSError):
-                candidate.unlink(missing_ok=True)
+                if candidate.stat().st_size == 0:
+                    candidate.unlink(missing_ok=True)
             raise
         return candidate
     _refuse_overwrite(desired)
 
 
 def _check_deadline(deadline: float | None) -> None:
-    """Overall transfer deadline for presigned-URL downloads. httpx read timeouts
-    are idle-type — a stream trickling one byte per interval resets them forever;
-    the generous total budget (10x the per-request timeout, TS v0.27.0) bounds the
-    whole transfer without killing large legitimate downloads."""
+    """Overall transfer deadline for a download body (the billed upstream's and each
+    presigned / followed attempt's). httpx read timeouts are idle-type — a stream
+    trickling one byte per interval resets them forever; the generous total budget
+    (``TRANSFER_TOTAL_FACTOR`` = 60x the request timeout, TS v0.44.0 — 30 min at the
+    default, still ~28 KB/s for 50 MB) bounds the whole transfer without killing large
+    legitimate downloads."""
     if deadline is not None and time.monotonic() > deadline:
-        raise DownloadError(
-            "download exceeded its overall deadline (10x request timeout); "
-            "the connection is trickling — retry or raise GANGTISE_TIMEOUT_MS"
-        )
+        raise _deadline_error()
+
+
+def _deadline_error() -> DownloadError:
+    # No "retry": the request went out, so the (billed) download may have executed —
+    # a blind rerun can bill it again.
+    return DownloadError(
+        f"download exceeded its overall deadline ({TRANSFER_TOTAL_FACTOR}x request "
+        "timeout); the request may already have been executed and billed — check "
+        "before downloading again, or raise GANGTISE_TIMEOUT_MS for a slow link"
+    )
 
 
 def _write_response_to_disk(
@@ -554,30 +630,39 @@ def _write_response_to_disk(
     fallback_name: str,
     title_lookup: TitleLookup | None,
     deadline: float | None = None,
+    source_url: str | None = None,
 ) -> Path:
     content_disposition = response.headers.get("content-disposition")
     content_type = response.headers.get("content-type")
-    target, auto_named = _decide_target(
-        client=client,
-        output=output,
-        fallback_name=fallback_name,
-        content_disposition=content_disposition,
-        content_type=content_type,
-        title_lookup=title_lookup,
-    )
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _part_path(target)
+    # Stream FIRST, name after: an auto name may need a title lookup (with
+    # resolve_title=True, four list requests), and the billed response must not sit
+    # unread meanwhile — a connection dropped while idle would lose (or, on a default-
+    # retry endpoint, re-bill) a file already paid for. Auto names always land in cwd,
+    # so the staging file sits where the claim will link it (TS writes, then resolves).
+    target = Path(output).expanduser() if output is not None else None
+    staging = target or _auto_target(_sanitize_filename(fallback_name) or "download")
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _part_path(staging)
     try:
         with tmp.open("wb") as fh:
             for chunk in response.iter_bytes():
                 _check_deadline(deadline)
                 fh.write(chunk)
-        if auto_named:
-            target = _claim_auto_named(tmp, target)
+        if target is None:
+            desired, _ = _decide_target(
+                client=client,
+                output=None,
+                fallback_name=fallback_name,
+                content_disposition=content_disposition,
+                content_type=content_type,
+                title_lookup=title_lookup,
+                source_url=source_url,
+            )
+            target = _claim_auto_named(tmp, desired)
         else:
             tmp.replace(target)
     except OSError as exc:
-        raise DownloadError(f"failed to write to {target}: {exc}") from exc
+        raise DownloadError(f"failed to write to {target or staging}: {exc}") from exc
     finally:
         # Best-effort .part cleanup. After a committed os.link/replace the file
         # already landed, so a cleanup failure (AV lock, read-only mount) must not
@@ -688,6 +773,7 @@ def _handle_json_download_response(
             fallback_name=fallback_name,
             title_lookup=title_lookup,
             hop=hop + 1,
+            from_url_answer=True,
         )
     raise DownloadError(f"download endpoint returned JSON, not a file: {response.text[:200]}")
 
@@ -701,6 +787,7 @@ def _download_presigned_url(
     fallback_name: str,
     title_lookup: TitleLookup | None,
     hop: int = 0,
+    from_url_answer: bool = False,
 ) -> Path:
     """Fetch the actual file bytes from a presigned object-store URL (or a followed
     redirect / ``{url}`` target).
@@ -711,11 +798,14 @@ def _download_presigned_url(
     non-retryable HTTP >= 400 (403/404 — an expired signature can't be un-expired)
     raises ``DownloadError``. A 2xx JSON body is an envelope/error, not file bytes,
     and is routed through the shared JSON handler. Each attempt gets its own hard
-    deadline (10x the request timeout) because the idle-type read timeouts reset on
-    every byte. The bearer is attached only when THIS target is on the API origin
-    (recomputed per hop — a cross-origin CDN never sees it). An ApiError surfaced
-    here comes from the followed target, past the billed upstream, so it is tagged
-    ``from_followed_target`` to stop download_to_path replaying the billed endpoint."""
+    deadline (``TRANSFER_TOTAL_FACTOR`` = 60x the request timeout, TS v0.44.0; was 10x)
+    because the idle-type read timeouts reset on every byte. The bearer is attached only
+    when THIS target is on the API origin (recomputed per hop — a cross-origin CDN never
+    sees it). An ApiError surfaced here comes from the followed target, past the billed
+    upstream, so it is tagged ``from_followed_target`` to stop download_to_path
+    replaying the billed endpoint. ``from_url_answer`` marks a ``url`` the server handed
+    over in a ``{url}`` answer (not a 3xx Location): its path then names the auto-named
+    file's extension (TS v0.44.0)."""
     _require_fetchable_url(url)
     http = client._http_client()
     headers = (
@@ -725,7 +815,7 @@ def _download_presigned_url(
     )
     attempt = 0
     while True:
-        deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
+        deadline = time.monotonic() + TRANSFER_TOTAL_FACTOR * (client._config.timeout_ms / 1000.0)
         try:
             with http.stream("GET", url, headers=headers, follow_redirects=True) as response:
                 if response.status_code >= 400:
@@ -756,6 +846,7 @@ def _download_presigned_url(
                     fallback_name=fallback_name,
                     title_lookup=title_lookup,
                     deadline=deadline,
+                    source_url=url if from_url_answer else None,
                 )
         except _RetryableStatus as retryable:
             time.sleep(_retry_delay(retryable, attempt))
@@ -786,28 +877,30 @@ def _decide_target(
     content_disposition: str | None,
     content_type: str | None,
     title_lookup: TitleLookup | None,
+    source_url: str | None = None,
 ) -> tuple[Path, bool]:
     """Resolve the on-disk target. Returns ``(path, auto_named)`` — auto-derived
     names commit via :func:`_claim_auto_named` (no-overwrite), explicit ``output``
-    keeps plain overwrite semantics."""
+    keeps plain overwrite semantics. ``source_url`` is the ``{url}`` answer the bytes
+    came from, if any (see :func:`_result_ext`)."""
     if output is not None:
         return Path(output).expanduser(), False
-    ext_from_mime = _extension_for(content_type)
+    disposition_name = _parse_content_disposition(content_disposition)
+    ext = _result_ext(disposition_name, content_type, source_url)
     if title_lookup is not None:
         list_key, id_field, id_value, allow_lookup = title_lookup
         title = client._resolve_title(list_key, id_field, id_value, allow_lookup=allow_lookup)
         if title:
             sanitized = _sanitize_filename(title)
             if sanitized:
-                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime)), True
-    disposition_name = _parse_content_disposition(content_disposition)
+                return _auto_target(_append_extension_if_needed(sanitized, ext)), True
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime)), True
+            return _auto_target(_append_extension_if_needed(safe_name, ext)), True
     safe_fallback = _sanitize_filename(fallback_name) or "download"
-    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime)), True
+    return _auto_target(_append_extension_if_needed(safe_fallback, ext)), True
 
 
 async def download_to_path_async(
@@ -830,7 +923,7 @@ async def download_to_path_async(
 
     token = await client._get_token()
     attempt = 0
-    auth_retried = False
+    auth_state = _AuthRecovery()
     while True:
         try:
             return await _download_once_async(
@@ -849,17 +942,13 @@ async def download_to_path_async(
                 # replay re-bills it — auth (0000001008), retryable 999999, or other.
                 # Hint is already the billing-safe FOLLOWED_TARGET_HINT (mint site).
                 raise
-            if (
-                not auth_retried
-                and error.code in AUTH_RETRY_CODES
-                and client._config.access_key
-                and client._config.secret_key
-            ):
-                auth_retried = True
-                if token == client._config.token:
-                    client._env_token_rejected = True
-                token = await client._get_token(force_refresh=True, stale_token=token)
-                continue
+            if client._auth_recoverable(error):
+                # Same recovery as a JSON request: a token someone else refreshed
+                # first, one login last; outside the transient-retry budget.
+                recovered = await client._recover_token(token, auth_state)
+                if recovered is not None:
+                    token = recovered
+                    continue
             # Download endpoints carry per-篇 billing too (summary / foreign-report /
             # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
@@ -894,20 +983,30 @@ async def _download_once_async(
         content = json.dumps(body or {}).encode("utf8")
 
     http = client._http_client()
-    # Endpoint timeout floor — see the sync sibling.
+    # Endpoint timeout floor and total deadline — see the sync sibling.
     timeout = _effective_timeout(http, endpoint)
-    async with http.stream(
+    deadline = time.monotonic() + request_deadline_seconds(http, endpoint, transfer=True)
+    request = http.build_request(
         endpoint.method,
         endpoint.path,
         params=query,
         headers=headers,
         content=content,
         timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
-        # See _download_once: upstream must not auto-follow, or a CDN-hop failure
-        # would replay this (possibly no-replay, billed) request. Hand the Location
-        # to the signed-URL fetcher instead.
-        follow_redirects=False,
-    ) as response:
+    )
+    # The total deadline covers the whole attempt here, as in the async JSON transport:
+    # waiting for the headers and reading a JSON / error body run under the time left,
+    # not only the file body (a server trickling its headers resets the idle timeout).
+    # Sync httpx has no such hook — see bug/python-open.md P11.
+    try:
+        with anyio.fail_after(max(0.0, deadline - time.monotonic())):
+            # See _download_once: upstream must not auto-follow, or a CDN-hop failure
+            # would replay this (possibly no-replay, billed) request. Hand the Location
+            # to the signed-URL fetcher instead.
+            response = await http.send(request, stream=True, follow_redirects=False)
+    except TimeoutError:
+        raise _deadline_error() from None
+    try:
         if 300 <= response.status_code < 400:
             return await _follow_download_redirect_async(
                 client=client,
@@ -916,9 +1015,10 @@ async def _download_once_async(
                 output=output,
                 fallback_name=fallback_name,
                 title_lookup=title_lookup,
+                deadline=deadline,
             )
         if response.status_code >= 400:
-            await response.aread()
+            await _aread_within(response, deadline)
             _raise_download_http_error(
                 response.status_code,
                 response.text,
@@ -928,7 +1028,7 @@ async def _download_once_async(
         # JSON 200 = envelope error, presigned-URL metadata, or non-file payload.
         content_type_header = response.headers.get("content-type", "")
         if "application/json" in content_type_header.lower():
-            await response.aread()
+            await _aread_within(response, deadline)
             return await _handle_json_download_response_async(
                 client=client,
                 response=response,
@@ -945,7 +1045,20 @@ async def _download_once_async(
             output=output,
             fallback_name=fallback_name,
             title_lookup=title_lookup,
+            deadline=deadline,
         )
+    finally:
+        with anyio.CancelScope(shield=True):
+            await response.aclose()
+
+
+async def _aread_within(response: httpx.Response, deadline: float) -> None:
+    """Read a (small) JSON / error body under the time left on ``deadline``."""
+    try:
+        with anyio.fail_after(max(0.0, deadline - time.monotonic())):
+            await response.aread()
+    except TimeoutError:
+        raise _deadline_error() from None
 
 
 async def _write_response_to_disk_async(
@@ -956,30 +1069,47 @@ async def _write_response_to_disk_async(
     fallback_name: str,
     title_lookup: TitleLookup | None,
     deadline: float | None = None,
+    source_url: str | None = None,
 ) -> Path:
     content_disposition = response.headers.get("content-disposition")
     content_type = response.headers.get("content-type")
-    target, auto_named = await _decide_target_async(
-        client=client,
-        output=output,
-        fallback_name=fallback_name,
-        content_disposition=content_disposition,
-        content_type=content_type,
-        title_lookup=title_lookup,
-    )
-    await anyio.to_thread.run_sync(partial(target.parent.mkdir, parents=True, exist_ok=True))
-    tmp = _part_path(target)
+    # Stream first, name after — see the sync twin.
+    target = Path(output).expanduser() if output is not None else None
+    staging = target or _auto_target(_sanitize_filename(fallback_name) or "download")
+    await anyio.to_thread.run_sync(partial(staging.parent.mkdir, parents=True, exist_ok=True))
+    tmp = _part_path(staging)
     try:
-        async with await anyio.open_file(tmp, "wb") as fh:
-            async for chunk in response.aiter_bytes():
-                _check_deadline(deadline)
-                await fh.write(chunk)
-        if auto_named:
-            target = await anyio.to_thread.run_sync(_claim_auto_named, tmp, target)
+        # The wait for each chunk counts too (a compressed body can keep arriving while
+        # the decoder yields nothing), so the whole read runs under the time left.
+        remaining = float("inf") if deadline is None else max(0.0, deadline - time.monotonic())
+        fh = await anyio.open_file(tmp, "wb")
+        try:
+            with anyio.fail_after(remaining):
+                async for chunk in response.aiter_bytes():
+                    _check_deadline(deadline)
+                    await fh.write(chunk)
+        except TimeoutError:
+            raise _deadline_error() from None
+        finally:
+            # Shielded: a cancelled scope fails the close's own checkpoint, which would
+            # leave the handle open until GC (and the .part undeletable on Windows).
+            with anyio.CancelScope(shield=True):
+                await fh.aclose()
+        if target is None:
+            desired, _ = await _decide_target_async(
+                client=client,
+                output=None,
+                fallback_name=fallback_name,
+                content_disposition=content_disposition,
+                content_type=content_type,
+                title_lookup=title_lookup,
+                source_url=source_url,
+            )
+            target = await anyio.to_thread.run_sync(_claim_auto_named, tmp, desired)
         else:
             await anyio.to_thread.run_sync(tmp.replace, target)
     except OSError as exc:
-        raise DownloadError(f"failed to write to {target}: {exc}") from exc
+        raise DownloadError(f"failed to write to {target or staging}: {exc}") from exc
     finally:
         # Best-effort .part cleanup. After a committed os.link/replace the file
         # already landed, so a cleanup failure (AV lock, read-only mount) must not
@@ -999,10 +1129,16 @@ async def _follow_download_redirect_async(
     output: str | Path | None,
     fallback_name: str,
     title_lookup: TitleLookup | None,
+    deadline: float | None = None,
 ) -> Path:
     """Async mirror of `_follow_download_redirect`."""
     target = _redirect_target(response)
-    await response.aread()  # drain the redirect body before opening the next stream
+    # Drain the redirect body before opening the next stream — within the upstream
+    # attempt's deadline, like every other read of that response.
+    if deadline is None:
+        await response.aread()
+    else:
+        await _aread_within(response, deadline)
     return await _download_presigned_url_async(
         client=client,
         url=target,
@@ -1049,6 +1185,7 @@ async def _handle_json_download_response_async(
             fallback_name=fallback_name,
             title_lookup=title_lookup,
             hop=hop + 1,
+            from_url_answer=True,
         )
     raise DownloadError(f"download endpoint returned JSON, not a file: {response.text[:200]}")
 
@@ -1062,9 +1199,11 @@ async def _download_presigned_url_async(
     fallback_name: str,
     title_lookup: TitleLookup | None,
     hop: int = 0,
+    from_url_answer: bool = False,
 ) -> Path:
     """Async mirror of `_download_presigned_url` (same retry / redaction / deadline /
-    JSON-envelope / per-hop same-origin-auth / hop-cap / followed-target-tag contract)."""
+    JSON-envelope / per-hop same-origin-auth / hop-cap / followed-target-tag /
+    ``{url}``-extension contract)."""
     _require_fetchable_url(url)
     http = client._http_client()
     headers = (
@@ -1074,11 +1213,19 @@ async def _download_presigned_url_async(
     )
     attempt = 0
     while True:
-        deadline = time.monotonic() + 10.0 * (client._config.timeout_ms / 1000.0)
+        deadline = time.monotonic() + TRANSFER_TOTAL_FACTOR * (client._config.timeout_ms / 1000.0)
         try:
-            async with http.stream("GET", url, headers=headers, follow_redirects=True) as response:
+            # Whole attempt under its deadline — headers and JSON / error bodies too, as
+            # on the upstream request (see _download_once_async).
+            request = http.build_request("GET", url, headers=headers)
+            try:
+                with anyio.fail_after(max(0.0, deadline - time.monotonic())):
+                    response = await http.send(request, stream=True, follow_redirects=True)
+            except TimeoutError:
+                raise _deadline_error() from None
+            try:
                 if response.status_code >= 400:
-                    await response.aread()
+                    await _aread_within(response, deadline)
                     if response.status_code in RETRYABLE_HTTP_STATUS and attempt < _MAX_RETRIES:
                         raise _RetryableStatus(
                             parse_retry_after_ms(response.headers.get("retry-after"), time.time())
@@ -1088,7 +1235,7 @@ async def _download_presigned_url_async(
                         f"({_redact_url(url)})"
                     )
                 if "application/json" in response.headers.get("content-type", "").lower():
-                    await response.aread()
+                    await _aread_within(response, deadline)
                     return await _handle_json_download_response_async(
                         client=client,
                         response=response,
@@ -1105,7 +1252,11 @@ async def _download_presigned_url_async(
                     fallback_name=fallback_name,
                     title_lookup=title_lookup,
                     deadline=deadline,
+                    source_url=url if from_url_answer else None,
                 )
+            finally:
+                with anyio.CancelScope(shield=True):
+                    await response.aclose()
         except _RetryableStatus as retryable:
             await anyio.sleep(_retry_delay(retryable, attempt))
             attempt += 1
@@ -1131,23 +1282,24 @@ async def _decide_target_async(
     content_disposition: str | None,
     content_type: str | None,
     title_lookup: TitleLookup | None,
+    source_url: str | None = None,
 ) -> tuple[Path, bool]:
     """Async mirror of `_decide_target` (same ``(path, auto_named)`` contract)."""
     if output is not None:
         return Path(output).expanduser(), False
-    ext_from_mime = _extension_for(content_type)
+    disposition_name = _parse_content_disposition(content_disposition)
+    ext = _result_ext(disposition_name, content_type, source_url)
     if title_lookup is not None:
         list_key, id_field, id_value, allow_lookup = title_lookup
         title = await client._resolve_title(list_key, id_field, id_value, allow_lookup=allow_lookup)
         if title:
             sanitized = _sanitize_filename(title)
             if sanitized:
-                return _auto_target(_append_extension_if_needed(sanitized, ext_from_mime)), True
-    disposition_name = _parse_content_disposition(content_disposition)
+                return _auto_target(_append_extension_if_needed(sanitized, ext)), True
     if disposition_name:
         # Use only the basename and sanitize - prevent path traversal from the server.
         safe_name = _sanitize_filename(Path(disposition_name).name)
         if safe_name:
-            return _auto_target(_append_extension_if_needed(safe_name, ext_from_mime)), True
+            return _auto_target(_append_extension_if_needed(safe_name, ext)), True
     safe_fallback = _sanitize_filename(fallback_name) or "download"
-    return _auto_target(_append_extension_if_needed(safe_fallback, ext_from_mime)), True
+    return _auto_target(_append_extension_if_needed(safe_fallback, ext)), True

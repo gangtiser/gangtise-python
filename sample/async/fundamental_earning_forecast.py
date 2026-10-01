@@ -2,7 +2,7 @@
 
 服务端返回按 (更新日期 x 预测年度) 嵌套的数据, wrapper 已展平为一行一条;
 latest=True（默认）仅保留最新一次更新。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.fundamental.earning_forecast(...)。
 """
 
@@ -29,9 +29,12 @@ async def main():
         await gangtise.async_.fundamental.earning_forecast(
             security_code="600519.SH",  # 单个证券代码, 如 000001.SZ/600519.SH
             start_date="2025-01-01",  # 起始日期 YYYY-MM-DD（省略时默认 end_date 前 1 年）
-            end_date="2026-05-28",  # 结束日期 YYYY-MM-DD（省略时默认当天）
+            end_date="2026-05-28",  # 结束日期 YYYY-MM-DD（省略时默认北京时间当天）
             consensus=["netIncome", "eps"],  # 一致预期指标, 支持单值或列表; 见下方枚举
             latest=False,  # False=保留全部更新日期; True（默认）=仅最新一次
+            # 0.5 积分/条, 按「工作日数 × 3 条 × 0.5」估算, 超过 1000 积分（约两年半）
+            # 不发请求直接报错; 确认要取长区间才传 True（本例约 550 积分, 不需要）
+            confirm=False,
         ),
         __file__,
     )
@@ -45,7 +48,7 @@ async def main():
         ),
         __file__,
     )
-    # consensus 一致预期指标可选值（取自 cli.ts）:
+    # consensus 一致预期指标可选值:
     #   netIncome=净利润  netIncomeYoy=净利润同比  eps=每股收益  pe=市盈率
     #   bps=每股净资产    pb=市净率              peg=PEG       roe=净资产收益率  ps=市销率
 

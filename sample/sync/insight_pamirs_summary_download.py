@@ -19,10 +19,10 @@ def main():
     # 步骤 1 · 先取一条可下载的记录（list 免费）
     items = gangtise.insight.pamirs_summary_list(size=1)
     if items.empty:
-        raise SystemExit("No source item found for insight.pamirs_summary_download.")
+        raise SystemExit("没有找到可用于 insight.pamirs_summary_download 的条目。")
     item_id = items.iloc[0].get("summaryId")
     if not item_id:
-        raise SystemExit("Could not find a summaryId column in the list response.")
+        raise SystemExit("列表返回里找不到 summaryId 列。")
 
     # 步骤 2 · chdir 到 sample_downloads 后下载, 结束再 chdir 回去
     previous_cwd = Path.cwd()

@@ -1,7 +1,7 @@
 """indicator.time_series — EDE 时序数据: 多指标 × 单证券 或 单指标 × 多证券（返回 DataFrame）。
 
 每行一个日期。指标码用 indicator.search 查询。
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.indicator.time_series(...)。
 """
 
@@ -20,6 +20,8 @@ def main():
             end_date="2025-06-30",  # 结束日期 YYYY-MM-DD（必填）
             indicator=["qte_close", "qte_pre_close"],  # 指标码, 支持单值或列表
             security="600519.SH",  # 单证券 -> 列为各指标
+            # 未传 calendar_type: SDK 先用免费的 indicator.search 读 parameterList,
+            # 两个指标都只吃 tradeDate, 所以按 TD（交易日）取, 省掉周末的 null 行
         ),
         __file__,
     )
@@ -31,7 +33,7 @@ def main():
             end_date="2025-06-30",
             indicator="qte_close",  # 单指标 -> 列为各证券
             security=["600519.SH", "000001.SZ"],
-            calendar_type="TD",  # 日历: ND=自然日 TD=交易日 WD=工作日（默认 TD）
+            calendar_type="TD",  # 日历: ND=自然日 TD=交易日 WD=工作日; 服务端默认 ND, 省略时 SDK 自动判定
             currency="CNY",  # 币种: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）
             scale="0",  # 数量级: 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）
             indicator_param={"qte_close": {"adjustType": "2"}},  # 单指标参数, 此处 2=前复权

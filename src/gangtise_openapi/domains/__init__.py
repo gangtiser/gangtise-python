@@ -1,6 +1,8 @@
 from gangtise_openapi.domains.ai import AI, AsyncAI
 from gangtise_openapi.domains.alternative import Alternative, AsyncAlternative
 from gangtise_openapi.domains.auth import AsyncAuth, Auth
+from gangtise_openapi.domains.bond import AsyncBond, Bond
+from gangtise_openapi.domains.fund import AsyncFund, Fund
 from gangtise_openapi.domains.fundamental import AsyncFundamental, Fundamental
 from gangtise_openapi.domains.indicator import AsyncIndicator, Indicator
 from gangtise_openapi.domains.insight import AsyncInsight, Insight
@@ -16,6 +18,8 @@ __all__ = [
     "AsyncAI",
     "AsyncAlternative",
     "AsyncAuth",
+    "AsyncBond",
+    "AsyncFund",
     "AsyncFundamental",
     "AsyncIndicator",
     "AsyncInsight",
@@ -25,6 +29,8 @@ __all__ = [
     "AsyncTool",
     "AsyncVault",
     "Auth",
+    "Bond",
+    "Fund",
     "Fundamental",
     "Indicator",
     "Insight",

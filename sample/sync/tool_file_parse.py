@@ -24,8 +24,8 @@ SOURCE_PDF = Path("sample_downloads/example.pdf")
 def main():
     if not SOURCE_PDF.is_file():
         raise SystemExit(
-            f"Set SOURCE_PDF to a real PDF first (missing: {SOURCE_PDF}). "
-            "This sample bills 0.8 credits per page at submit time."
+            f"请先把 SOURCE_PDF 指向一个真实的 PDF（找不到：{SOURCE_PDF}）。"
+            "本示例提交时按每页 0.8 积分计费。"
         )
 
     # 提交后拿到 task_id, 交给 tool.file_parse_check 取结果 ZIP。

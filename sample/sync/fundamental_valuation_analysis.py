@@ -1,6 +1,6 @@
 """fundamental.valuation_analysis — 估值分析（历史分位等），返回 DataFrame。
 
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.fundamental.valuation_analysis(...)。
 """
 
@@ -28,7 +28,7 @@ def main():
             indicator="pbMrq",  # pbMrq=市净率(最新季)
             start_date="2025-01-01",  # 起始日期 YYYY-MM-DD
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
-            limit=20,  # 返回条数上限
+            limit=600,  # 返回条数上限（默认 2000）; 序列逐自然日一行（含周末）, 设到不小于区间天数（366 × 年数）
             skip_null=True,  # 客户端过滤 value/percentileRank 为空的行
         ),
         __file__,
@@ -39,7 +39,8 @@ def main():
         gangtise.fundamental.valuation_analysis(
             security_code="000001.SZ",
             indicator="psTtm",  # psTtm=市销率TTM（其余: peg/pcfTtm=市现率TTM、em=企业倍数）
-            field=["value", "percentileRank"],  # 返回字段; tradeDate 由接口自动前置, 不要再传
+            # 返回字段, 至少含一个数值列; tradeDate 由接口自动前置（写了也会被去掉）
+            field=["value", "percentileRank"],
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

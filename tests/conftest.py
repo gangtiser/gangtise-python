@@ -44,6 +44,7 @@ def seeded_config(config: Config) -> Config:
                 "expiresIn": 3600,
                 "time": 0,
                 "expiresAt": 9999999999,
+                "issuedFor": "3ec07b4be220b9de",  # credential_fingerprint("ak", base_url)
             }
         )
     )

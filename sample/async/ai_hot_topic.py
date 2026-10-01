@@ -1,6 +1,6 @@
 """ai.hot_topic — AI 热点主题报告列表（分页, 端点最大页 20, 返回 DataFrame）。
 
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.ai.hot_topic(...)。
 """
 
@@ -22,8 +22,8 @@ async def main():
         await gangtise.async_.ai.hot_topic(
             from_=0,  # 分页起始偏移(映射为请求字段 from)
             size=10,  # 分页大小; 省略则按最大页 20 自动翻页
-            start_date="2026-05-01",  # 开始日期 YYYY-MM-DD
-            end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
+            start_date="2026-09-15",  # 开始日期 YYYY-MM-DD（试用档只回溯约 1 个月）
+            end_date="2026-09-28",  # 结束日期 YYYY-MM-DD
             category="morningBriefing",  # 报告类型: morningBriefing=早报
             with_related_securities=True,  # 是否返回关联证券, 默认 True
             with_close_reading=True,  # 是否返回精读内容, 默认 True
@@ -37,7 +37,7 @@ async def main():
             size=5,
             # 报告类型, 支持单值或列表:
             #   morningBriefing=早报 / noonBriefing=午报
-            #   afternoonFlash=午后快讯 / eveningBriefing=晚报
+            #   afternoonFlash=盘中快报 / eveningBriefing=晚报
             category=["morningBriefing", "eveningBriefing"],
             with_related_securities=False,  # False=不返回关联证券
             with_close_reading=False,  # False=不返回精读内容

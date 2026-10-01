@@ -1,4 +1,4 @@
-"""auth.login — 强制登录（或复用本地缓存 token）并返回 Bearer 鉴权头（返回 dict）。
+"""auth.login — 报告后续请求实际使用的身份：设了 GANGTISE_TOKEN 就是它（不联网），否则用 AK/SK 真登录一次（不复用缓存），返回 Bearer 鉴权头与 source（返回 dict）。
 
 该方法无业务参数：凭据取自环境变量 GANGTISE_ACCESS_KEY / GANGTISE_SECRET_KEY，
 token 缓存落盘于 ~/.config/gangtise/token.json（与 npm CLI 共享）。

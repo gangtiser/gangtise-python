@@ -59,6 +59,15 @@ _CASES = [
     ("insight.research_list", lambda c: Insight(c).research_list(start_time=_AMBIGUOUS)),
     ("insight.announcement_list", lambda c: Insight(c).announcement_list(start_time=_AMBIGUOUS)),
     (
+        "insight.announcement_list end_time",
+        lambda c: Insight(c).announcement_list(end_time=_AMBIGUOUS),
+    ),
+    ("insight.highlight_list", lambda c: Insight(c).highlight_list(end_time=_AMBIGUOUS)),
+    (
+        "ai.knowledge_batch end_time",
+        lambda c: AI(c).knowledge_batch(query="q", end_time=_AMBIGUOUS),
+    ),
+    (
         "alternative.edb_data",
         lambda c: Alternative(c).edb_data(
             indicator_id="1", start_date=_AMBIGUOUS, end_date="2026-07-02"
@@ -120,6 +129,15 @@ _ASYNC_CASES = [
     (
         "insight.announcement_list",
         lambda c: AsyncInsight(c).announcement_list(start_time=_AMBIGUOUS),
+    ),
+    (
+        "insight.announcement_list end_time",
+        lambda c: AsyncInsight(c).announcement_list(end_time=_AMBIGUOUS),
+    ),
+    ("insight.highlight_list", lambda c: AsyncInsight(c).highlight_list(start_time=_AMBIGUOUS)),
+    (
+        "ai.knowledge_batch end_time",
+        lambda c: AsyncAI(c).knowledge_batch(query="q", end_time=_AMBIGUOUS),
     ),
     (
         "indicator.cross_section",

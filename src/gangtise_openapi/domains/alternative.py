@@ -20,14 +20,15 @@ from gangtise_openapi.domains._common import (
 # Stable columns for the flattened concept-securities frame. Used only to shape
 # the *empty* result (a concept with no constituents) so the columns match the
 # non-empty case; the non-empty path stays schema=None to pass through any
-# field the API adds later.
-_CONCEPT_SECURITIES_COLUMNS = [
-    "groupName",
-    "securityCode",
-    "securityName",
-    "isKey",
-    "inclusionReason",
-]
+# field the API adds later. The v2 endpoint (default, 50 credits/call) dropped
+# ``isKey`` / ``inclusionReason``; only ``full=True`` (the v1 endpoint, 500/call)
+# still returns them (TS v0.41.0).
+_CONCEPT_SECURITIES_COLUMNS = ["groupName", "securityCode", "securityName"]
+_CONCEPT_SECURITIES_FULL_COLUMNS = [*_CONCEPT_SECURITIES_COLUMNS, "isKey", "inclusionReason"]
+
+
+def _concept_endpoint(name: str, full: bool) -> str:
+    return f"alternative.{name}-full" if full else f"alternative.{name}"
 
 
 def _flatten_concept_securities(result: Any) -> list[dict[str, Any]] | None:
@@ -35,8 +36,9 @@ def _flatten_concept_securities(result: Any) -> list[dict[str, Any]] | None:
 
     The API returns ``{securityDetail: [{groupName, securityList: [{...}]}]}``.
     Each constituent dict is emitted with its ``groupName`` injected as the
-    leading field (``groupName, securityCode, securityName, isKey,
-    inclusionReason``).
+    leading field (``groupName, securityCode, securityName``, plus ``isKey,
+    inclusionReason`` from the ``full=True`` endpoint). A group whose
+    ``securityList`` is ``null`` (no constituents in it) contributes no rows.
 
     A concept with no constituents returns a successful payload whose
     ``securityDetail`` is ``null`` (or absent) — a valid empty result, so it
@@ -96,7 +98,7 @@ class Alternative:
         """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
         body = _request_body(
             {
-                "indicatorIdList": _as_list(indicator_id),
+                "indicatorIdList": _as_list(indicator_id, "indicator_id"),
                 "startDate": start_date,
                 "endDate": end_date,
             }
@@ -129,26 +131,44 @@ class Alternative:
         # Fallback: shape doesn't match — return raw.
         return result  # type: ignore[no-any-return]
 
-    def concept_info(self, *, concept_id: str, raw: bool = False) -> dict[str, Any]:
-        """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局/keyEvents（alternative.concept-info）。
+    def concept_info(
+        self, *, concept_id: str, full: bool = False, raw: bool = False
+    ) -> dict[str, Any]:
+        """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局（alternative.concept-info）。
 
         concept_id 与题材 ID 共用体系，可用 reference.concept_search() 按名查询（机器人=121000130）。
-        返回最新截面对象 dict（raw 仅为签名统一，返回相同）。
+        返回最新截面对象 dict（raw 仅为签名统一，返回相同），仅最新截面、不支持历史回溯；
+        文本字段未配置为 null。
+
+        计费：默认 **50 积分/次**（v2 接口），按次计费、不论返回内容多少；v2 不含
+        keyEvents（催化事件）。full=True 走旧版接口（alternative.concept-info-full），
+        **500 积分/次**，只多一列 keyEvents（[{date, content}]，过去 1 年 + 未来预期，最多
+        10 条，按时间倒序；无事件为 null）——不需要催化事件就别开。超时 / 5xx 不自动重发。
         """
         return self._client._call(  # type: ignore[no-any-return]
-            "alternative.concept-info", body={"conceptId": concept_id}
+            _concept_endpoint("concept-info", full), body={"conceptId": concept_id}
         )
 
     def concept_securities(
-        self, *, concept_id: str, raw: bool = False
+        self, *, concept_id: str, full: bool = False, raw: bool = False
     ) -> pd.DataFrame | dict[str, Any]:
         """查询概念（题材指数）成分股，按分组返回（alternative.concept-securities）。
 
-        默认扁平化为每行一只成分股的 DataFrame（含 groupName/isKey/inclusionReason 列）；
-        raw=True 返回嵌套分组原始 payload。concept_id 见 reference.concept_search()。
+        默认扁平化为每行一只成分股的 DataFrame（列 groupName/securityCode/securityName，
+        full=True 另有 isKey/inclusionReason）；raw=True 返回嵌套分组原始 payload。
+        concept_id 见 reference.concept_search()。仅最新截面，不支持历史回溯。
+
+        计费：默认 **50 积分/次**（v2 接口；没有内容与报错不扣）。full=True 走旧版接口
+        （alternative.concept-securities-full），**500 积分/次**，每只成分股多两列 isKey
+        （重点个股）与 inclusionReason（纳入理由，未配置为 null）。超时 / 5xx 不自动重发。
+
+        securityCount 是**去重后**的成分股数：一只股票可同时属于多个分组，逐组累加会多于它。
+        排序：组按 groupName 字母序；组内按 securityCode 升序（full=True 下 isKey=True 优先）。
+        题材无成分股时 securityDetail 为 null（返回空 DataFrame）；某分组下无成分股时其
+        securityList 为 null。
         """
         result = self._client._call(
-            "alternative.concept-securities", body={"conceptId": concept_id}
+            _concept_endpoint("concept-securities", full), body={"conceptId": concept_id}
         )
         if raw:
             return result  # type: ignore[no-any-return]
@@ -158,7 +178,10 @@ class Alternative:
         if not rows:
             # Valid empty concept — keep the documented columns so downstream
             # access stays stable across empty/non-empty results.
-            return to_dataframe([], schema=_CONCEPT_SECURITIES_COLUMNS)
+            return to_dataframe(
+                [],
+                schema=_CONCEPT_SECURITIES_FULL_COLUMNS if full else _CONCEPT_SECURITIES_COLUMNS,
+            )
         return to_dataframe(rows, schema=None)
 
 
@@ -193,7 +216,7 @@ class AsyncAlternative:
         """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
         body = _request_body(
             {
-                "indicatorIdList": _as_list(indicator_id),
+                "indicatorIdList": _as_list(indicator_id, "indicator_id"),
                 "startDate": start_date,
                 "endDate": end_date,
             }
@@ -225,26 +248,44 @@ class AsyncAlternative:
             return to_dataframe(rows, schema=fields)
         return result  # type: ignore[no-any-return]
 
-    async def concept_info(self, *, concept_id: str, raw: bool = False) -> dict[str, Any]:
-        """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局/keyEvents（alternative.concept-info）。
+    async def concept_info(
+        self, *, concept_id: str, full: bool = False, raw: bool = False
+    ) -> dict[str, Any]:
+        """查询概念（题材指数）最新画像：定义/投资逻辑/行业空间/竞争格局（alternative.concept-info）。
 
         concept_id 与题材 ID 共用体系，可用 reference.concept_search() 按名查询（机器人=121000130）。
-        返回最新截面对象 dict（raw 仅为签名统一，返回相同）。
+        返回最新截面对象 dict（raw 仅为签名统一，返回相同），仅最新截面、不支持历史回溯；
+        文本字段未配置为 null。
+
+        计费：默认 **50 积分/次**（v2 接口），按次计费、不论返回内容多少；v2 不含
+        keyEvents（催化事件）。full=True 走旧版接口（alternative.concept-info-full），
+        **500 积分/次**，只多一列 keyEvents（[{date, content}]，过去 1 年 + 未来预期，最多
+        10 条，按时间倒序；无事件为 null）——不需要催化事件就别开。超时 / 5xx 不自动重发。
         """
         return await self._client._call(  # type: ignore[no-any-return]
-            "alternative.concept-info", body={"conceptId": concept_id}
+            _concept_endpoint("concept-info", full), body={"conceptId": concept_id}
         )
 
     async def concept_securities(
-        self, *, concept_id: str, raw: bool = False
+        self, *, concept_id: str, full: bool = False, raw: bool = False
     ) -> pd.DataFrame | dict[str, Any]:
         """查询概念（题材指数）成分股，按分组返回（alternative.concept-securities）。
 
-        默认扁平化为每行一只成分股的 DataFrame（含 groupName/isKey/inclusionReason 列）；
-        raw=True 返回嵌套分组原始 payload。concept_id 见 reference.concept_search()。
+        默认扁平化为每行一只成分股的 DataFrame（列 groupName/securityCode/securityName，
+        full=True 另有 isKey/inclusionReason）；raw=True 返回嵌套分组原始 payload。
+        concept_id 见 reference.concept_search()。仅最新截面，不支持历史回溯。
+
+        计费：默认 **50 积分/次**（v2 接口；没有内容与报错不扣）。full=True 走旧版接口
+        （alternative.concept-securities-full），**500 积分/次**，每只成分股多两列 isKey
+        （重点个股）与 inclusionReason（纳入理由，未配置为 null）。超时 / 5xx 不自动重发。
+
+        securityCount 是**去重后**的成分股数：一只股票可同时属于多个分组，逐组累加会多于它。
+        排序：组按 groupName 字母序；组内按 securityCode 升序（full=True 下 isKey=True 优先）。
+        题材无成分股时 securityDetail 为 null（返回空 DataFrame）；某分组下无成分股时其
+        securityList 为 null。
         """
         result = await self._client._call(
-            "alternative.concept-securities", body={"conceptId": concept_id}
+            _concept_endpoint("concept-securities", full), body={"conceptId": concept_id}
         )
         if raw:
             return result  # type: ignore[no-any-return]
@@ -254,5 +295,8 @@ class AsyncAlternative:
         if not rows:
             # Valid empty concept — keep the documented columns so downstream
             # access stays stable across empty/non-empty results.
-            return to_dataframe([], schema=_CONCEPT_SECURITIES_COLUMNS)
+            return to_dataframe(
+                [],
+                schema=_CONCEPT_SECURITIES_FULL_COLUMNS if full else _CONCEPT_SECURITIES_COLUMNS,
+            )
         return to_dataframe(rows, schema=None)

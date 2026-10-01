@@ -24,7 +24,7 @@ TASK_ID = ""
 
 async def main():
     if not TASK_ID:
-        raise SystemExit("Set TASK_ID to a task_id returned by tool.file_parse first.")
+        raise SystemExit("请先把 TASK_ID 设为 tool.file_parse 返回的 task_id。")
 
     previous_cwd = Path.cwd()
     output_dir = (previous_cwd / "sample_downloads").resolve()

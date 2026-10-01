@@ -16,7 +16,12 @@ class Auth:
         self._client = client
 
     def login(self) -> dict[str, Any]:
-        """登录获取 access token（有缓存则复用），返回 bearer 请求头（auth.login）。"""
+        """报告后续请求实际会用的身份，返回 bearer 请求头与来源（auth.login）。
+
+        设了 GANGTISE_TOKEN 时就是它（``source="env-token"``，不联网、``cache`` 为 None）；
+        否则有 AK/SK 就**真的登录一次**（``source="login"``，不复用缓存——换了凭证后缓存里
+        可能还是上一个账号），``cache`` 是这次登录本身的结果。
+        """
         return self._client.login()
 
     def status(self) -> dict[str, Any]:
@@ -45,7 +50,12 @@ class AsyncAuth:
         self._client = client
 
     async def login(self) -> dict[str, Any]:
-        """登录获取 access token（有缓存则复用），返回 bearer 请求头（auth.login）。"""
+        """报告后续请求实际会用的身份，返回 bearer 请求头与来源（auth.login）。
+
+        设了 GANGTISE_TOKEN 时就是它（``source="env-token"``，不联网、``cache`` 为 None）；
+        否则有 AK/SK 就**真的登录一次**（``source="login"``，不复用缓存——换了凭证后缓存里
+        可能还是上一个账号），``cache`` 是这次登录本身的结果。
+        """
         return await self._client.login()
 
     async def status(self) -> dict[str, Any]:

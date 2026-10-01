@@ -2,6 +2,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,6 +17,7 @@ from gangtise_openapi._config import Config
 from gangtise_openapi._download import (
     _parse_content_disposition,
     _sanitize_filename,
+    _truncate_filename,
     _write_response_to_disk,
     _write_response_to_disk_async,
     download_to_path,
@@ -53,6 +55,7 @@ def _cache(token: str) -> TokenCache:
         expires_in=3600,
         time=int(time.time()),
         expires_at=int(time.time()) + 3600,
+        issued_for="3ec07b4be220b9de",  # credential_fingerprint("ak", "https://api.test")
     )
 
 
@@ -2165,7 +2168,7 @@ async def test_redirect_target_auth_error_does_not_replay_billed_upstream_async(
 def test_report_image_followed_target_999999_does_not_replay_billed_upstream(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # P1 regression (round 3): report-image is default-retry AND per-张 billed
+    # report-image is default-retry AND per-张 billed
     # (0.1 积分/张). A followed target answering 200 + JSON code=999999 is retryable
     # under the DEFAULT policy, so the outer loop would replay _download_once and
     # re-send the billed upstream (3x). from_followed_target must block EVERY outer
@@ -2470,3 +2473,621 @@ def test_download_honours_an_endpoints_declared_timeout_floor(
             )
     assert seen and isinstance(seen[0], httpx.Timeout)
     assert seen[0].read == 120.0
+
+
+# ---- CLI v0.39.0..v0.44.0 port ---------------------------------------------------
+
+_SIGNED_PDF = "https://cdn.test/a/f.pdf?sig=abc"
+
+
+def _url_answer(url: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"code": "000000", "status": True, "data": {"url": url}},
+        headers={"content-type": "application/json"},
+    )
+
+
+def _octet(content: bytes = b"%PDF") -> httpx.Response:
+    # Object stores commonly answer a generic type (no Content-Disposition) for a PDF.
+    return httpx.Response(
+        200, content=content, headers={"content-type": "application/octet-stream"}
+    )
+
+
+def test_extension_from_url_names_only_known_types() -> None:
+    from gangtise_openapi._download import _extension_from_url
+
+    assert _extension_from_url("https://signed.example.com/x/y.pdf?sig=1") == ".pdf"
+    assert _extension_from_url("https://cdn.test/a/REPORT.PDF") == ".pdf"
+    assert _extension_from_url("https://cdn.test/a/%E5%B9%B4%E6%8A%A5.docx?x=1") == ".docx"
+    assert _extension_from_url("https://cdn.test/a/notes.md") == ".md"
+    assert _extension_from_url("https://cdn.test/a/pic.jpeg") == ".jpeg"
+    assert _extension_from_url("https://cdn.test/a/tool.exe") == ""  # not a known type
+    assert _extension_from_url("https://cdn.test/a/noext") == ""
+    assert _extension_from_url("https://cdn.test/dl?name=f.pdf") == ""  # query is not the path
+
+
+def test_url_answer_on_title_hit_takes_the_url_extension(tmp_path: Path, monkeypatch) -> None:
+    # TS v0.44.0 ⑪: a {url} answer's file is named after the URL's extension, including
+    # on a title-cache hit. The SDK never used the envelope's application/json (it names
+    # the file from the signed target's response), but a target answering the generic
+    # application/octet-stream left the title with no extension at all.
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=_url_answer(_SIGNED_PDF)
+        )
+        router.get(_SIGNED_PDF).mock(return_value=_octet())
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            client._record_list_titles(
+                list_endpoint_key="insight.research.list",
+                id_field="reportId",
+                title_field="title",
+                rows=[{"reportId": "r1", "title": "Cached Q3 Report"}],
+            )
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+                title_lookup=("insight.research.list", "reportId", "r1", False),
+            )
+    assert path.name == "Cached Q3 Report.pdf"
+    assert path.read_bytes() == b"%PDF"
+
+
+@pytest.mark.anyio
+async def test_url_answer_on_title_hit_takes_the_url_extension_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=_url_answer(_SIGNED_PDF)
+        )
+        router.get(_SIGNED_PDF).mock(return_value=_octet())
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await client._record_list_titles(
+                list_endpoint_key="insight.research.list",
+                id_field="reportId",
+                title_field="title",
+                rows=[{"reportId": "r1", "title": "Cached Q3 Report"}],
+            )
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+                title_lookup=("insight.research.list", "reportId", "r1", False),
+            )
+    assert path.name == "Cached Q3 Report.pdf"
+
+
+def test_url_answer_without_title_is_fallback_plus_url_extension(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=_url_answer(_SIGNED_PDF)
+        )
+        router.get(_SIGNED_PDF).mock(return_value=_octet())
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+    assert path.name == "report-r1.pdf"
+
+
+@pytest.mark.anyio
+async def test_url_answer_without_title_is_fallback_plus_url_extension_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=_url_answer(_SIGNED_PDF)
+        )
+        router.get(_SIGNED_PDF).mock(return_value=_octet())
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+    assert path.name == "report-r1.pdf"
+
+
+def test_url_answer_without_a_url_extension_falls_back_to_the_targets_type(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # A signed URL whose path names no known type: the target's own content type still
+    # names the file (never the envelope's application/json).
+    monkeypatch.chdir(tmp_path)
+    signed = "https://cdn.test/obj/abc123?sig=1"
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=_url_answer(signed)
+        )
+        router.get(signed).mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF", headers={"content-type": "application/pdf"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+    assert path.name == "report-r1.pdf"
+
+
+def test_title_hit_takes_the_server_filenames_extension(tmp_path: Path, monkeypatch) -> None:
+    # TS resultExt leads with the server's filename: a title-cache hit on a response
+    # naming "x.pdf" under a generic content type gets ".pdf".
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"%PDF",
+                headers={
+                    "content-type": "application/octet-stream",
+                    "content-disposition": 'attachment; filename="x.pdf"',
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            client._record_list_titles(
+                list_endpoint_key="insight.research.list",
+                id_field="reportId",
+                title_field="title",
+                rows=[{"reportId": "r1", "title": "Alpha"}],
+            )
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+                title_lookup=("insight.research.list", "reportId", "r1", False),
+            )
+    assert path.name == "Alpha.pdf"
+
+
+def test_download_deadlines_are_sixty_times_the_timeout(tmp_path: Path, monkeypatch) -> None:
+    # TS v0.44.0 ⑫ TRANSFER_TOTAL_FACTOR: the billed upstream's body is now bounded too
+    # (it had no total deadline), and a presigned fetch's allowance goes from 10x to 60x.
+    import gangtise_openapi._download as dl
+
+    monkeypatch.chdir(tmp_path)
+    seen: list[float] = []
+    real_check = dl._check_deadline
+
+    def spy(deadline: float | None) -> None:
+        if deadline is not None and not seen:
+            seen.append(deadline - time.monotonic())
+        real_check(deadline)
+
+    monkeypatch.setattr(dl, "_check_deadline", spy)
+    allowance = dl.TRANSFER_TOTAL_FACTOR * 30.0  # default GANGTISE_TIMEOUT_MS = 30s
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/broker-report/download/file")
+        route.mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF", headers={"content-type": "application/pdf"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "direct.pdf",
+                fallback_name="report-r1",
+            )
+            assert seen and allowance - 5 < seen[0] <= allowance  # upstream body
+            seen.clear()
+            route.mock(return_value=_url_answer(_SIGNED_PDF))
+            router.get(_SIGNED_PDF).mock(return_value=_octet())
+            download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "signed.pdf",
+                fallback_name="report-r1",
+            )
+            assert seen and allowance - 5 < seen[0] <= allowance  # presigned target
+
+
+def test_upstream_body_past_its_deadline_fails_without_replay(tmp_path: Path, monkeypatch) -> None:
+    # A trickling billed upstream ends at the total deadline as a DownloadError — not
+    # replayed (that would re-bill), and no staging file or partial output left behind.
+    monkeypatch.setattr("gangtise_openapi._download.request_deadline_seconds", lambda *a, **k: -1.0)
+    out = tmp_path / "out.pdf"
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF", headers={"content-type": "application/pdf"}
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(DownloadError, match=r"overall deadline \(60x"),
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=out,
+                fallback_name="report-r1",
+            )
+    assert route.call_count == 1
+    assert not out.exists()
+    assert not [p for p in tmp_path.iterdir() if ".part-" in p.name]
+
+
+@pytest.mark.anyio
+async def test_upstream_body_past_its_deadline_fails_without_replay_async(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr("gangtise_openapi._download.request_deadline_seconds", lambda *a, **k: -1.0)
+    out = tmp_path / "out.pdf"
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF", headers={"content-type": "application/pdf"}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(DownloadError, match=r"overall deadline \(60x"):
+                await download_to_path_async(
+                    client=client,
+                    endpoint_key="insight.research.download",
+                    query={"reportId": "r1"},
+                    output=out,
+                    fallback_name="report-r1",
+                )
+    assert route.call_count == 1
+    assert not out.exists()
+    assert not [p for p in tmp_path.iterdir() if ".part-" in p.name]
+
+
+def test_claim_via_placeholder_interrupt_leaves_no_empty_placeholder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # TS v0.43.0 ⑨: an interrupt must not leave an empty file under the final name —
+    # it reads as a finished download. Here KeyboardInterrupt lands before the move.
+    import gangtise_openapi._download as dl
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")  # force the placeholder path
+
+    def interrupted_replace(self: Path, other: object) -> object:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    monkeypatch.setattr(Path, "replace", interrupted_replace)
+    target = tmp_path / "x.pdf"
+    tmp = tmp_path / "x.pdf.part-q"
+    tmp.write_bytes(b"DATA")
+    with pytest.raises(KeyboardInterrupt):
+        dl._claim_auto_named(tmp, target)
+    assert not target.exists()
+
+
+def test_claim_via_placeholder_interrupt_after_the_move_keeps_the_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The cleanup only drops a placeholder that is still EMPTY: an interrupt arriving
+    # just after the rename must not delete the download that already landed.
+    import gangtise_openapi._download as dl
+
+    real_replace = Path.replace
+
+    def no_link(src: object, dst: object) -> None:
+        raise OSError(45, "operation not supported")
+
+    def replace_then_interrupt(self: Path, other: object) -> object:
+        real_replace(self, other)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(dl.os, "link", no_link)
+    monkeypatch.setattr(Path, "replace", replace_then_interrupt)
+    target = tmp_path / "x.pdf"
+    tmp = tmp_path / "x.pdf.part-q"
+    tmp.write_bytes(b"DATA")
+    with pytest.raises(KeyboardInterrupt):
+        dl._claim_auto_named(tmp, target)
+    assert target.read_bytes() == b"DATA"
+
+
+def test_sanitize_filename_replaces_lone_surrogates():
+    """A title decoded from ``\\udc80`` cannot be a file name; it must not crash naming
+    after the download was billed."""
+    assert _sanitize_filename("年报\udc80.pdf") == "年报_.pdf"
+    assert _truncate_filename(_sanitize_filename("x\ud800" * 300)).encode()
+
+
+def test_title_lookup_runs_only_after_the_billed_body_is_on_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The (resolve_title=True) list lookup runs AFTER the download body is on disk:
+    run before it, it would hold a billed response open across four list requests."""
+    monkeypatch.chdir(tmp_path)
+    consumed = {"done": False}
+
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"%PDF-"
+            yield b"body"
+            consumed["done"] = True
+
+    def listing(request: httpx.Request) -> httpx.Response:
+        assert consumed["done"], "title lookup ran before the download body was read"
+        return httpx.Response(
+            200,
+            json={
+                "code": "000000",
+                "status": True,
+                "data": {"total": 1, "list": [{"summaryId": "s1", "title": "Named Later"}]},
+            },
+        )
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-insight/summary/v2/getList").mock(side_effect=listing)
+        router.get("/application/open-insight/summary/v2/download/file").mock(
+            side_effect=lambda request: httpx.Response(
+                200, stream=Body(), headers={"content-type": "application/pdf"}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.summary.download",
+                query={"summaryId": "s1"},
+                output=None,
+                fallback_name="summary-s1",
+                title_lookup=("insight.summary.list", "summaryId", "s1", True),
+            )
+    assert path.name == "Named Later.pdf"
+    assert path.read_bytes() == b"%PDF-body"
+    assert list(tmp_path.glob("*.part*")) == []
+
+
+def test_markdown_keeps_its_extension():
+    """.md is a known extension: a Markdown download named from the server's filename or
+    a title keeps it (TS KNOWN_EXT has .md/.jpeg/.htm)."""
+    from gangtise_openapi._download import _extension_for, _result_ext
+
+    assert _result_ext("研报.md", "text/markdown; charset=utf-8", None) == ".md"
+    assert _result_ext("研报.md", "application/octet-stream", None) == ".md"
+    assert _extension_for("text/markdown") == ".md"
+
+
+@pytest.mark.anyio
+async def test_async_download_deadline_covers_waiting_for_the_headers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Waiting for the headers counts against the async download's total deadline — the
+    whole attempt is bounded — and the error does not invite a retry."""
+    import anyio
+
+    monkeypatch.setattr("gangtise_openapi._download.request_deadline_seconds", lambda *a, **k: 0.2)
+
+    async def stall(request: httpx.Request) -> httpx.Response:
+        await anyio.sleep(5)
+        return httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"})
+
+    client = AsyncGangtiseClient(_config=_cfg(tmp_path))
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(stall), base_url="https://api.test"
+    )
+    started = anyio.current_time()
+    try:
+        with pytest.raises(DownloadError, match="may already have been executed"):
+            await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    finally:
+        await client.aclose()
+    assert anyio.current_time() - started < 2
+
+
+def test_one_bad_title_names_its_file_the_same_on_every_path():
+    """A surrogate straight from the server and the U+FFFD the title cache stores for
+    it both become ``_``."""
+    assert _sanitize_filename("标题\udc80") == _sanitize_filename("标题�") == "标题_"
+
+
+class _SlowAsyncBody(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        import anyio
+
+        for _ in range(50):
+            await anyio.sleep(0.1)
+            yield b" "
+
+
+@pytest.mark.anyio
+async def test_async_redirect_body_is_drained_within_the_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 3xx body is drained within the total deadline."""
+    import anyio
+
+    monkeypatch.setattr("gangtise_openapi._download.request_deadline_seconds", lambda *a, **k: 0.2)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            302, headers={"location": "https://cdn.test/r1.pdf"}, stream=_SlowAsyncBody()
+        )
+
+    client = AsyncGangtiseClient(_config=_cfg(tmp_path))
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.test"
+    )
+    started = anyio.current_time()
+    try:
+        with pytest.raises(DownloadError, match="overall deadline"):
+            await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    finally:
+        await client.aclose()
+    assert anyio.current_time() - started < 2
+
+
+@pytest.mark.anyio
+async def test_async_presigned_headers_are_awaited_within_the_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The signed-URL request waits for its headers within the deadline."""
+    import anyio
+
+    monkeypatch.setattr("gangtise_openapi._download.TRANSFER_TOTAL_FACTOR", 0.2 / 30)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.test":
+            return httpx.Response(302, headers={"location": "https://cdn.test/r1.pdf"})
+        await anyio.sleep(5)  # the CDN never answers in time
+        return httpx.Response(200, content=b"%PDF", headers={"content-type": "application/pdf"})
+
+    client = AsyncGangtiseClient(_config=_cfg(tmp_path))
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.test"
+    )
+    started = anyio.current_time()
+    try:
+        with pytest.raises(DownloadError, match="overall deadline"):
+            await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    finally:
+        await client.aclose()
+    assert anyio.current_time() - started < 2
+    assert not (tmp_path / "out.pdf").exists()
+
+
+class _StalledAsyncBody(httpx.AsyncByteStream):
+    """Headers arrive, then nothing comes out of the body for a long time (as when
+    compressed bytes keep arriving but the decoder has yielded nothing yet)."""
+
+    async def __aiter__(self):
+        import anyio
+
+        await anyio.sleep(5)
+        yield b"%PDF"
+
+
+@pytest.mark.anyio
+async def test_async_download_waiting_for_a_body_chunk_counts_against_the_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anyio
+
+    monkeypatch.setattr("gangtise_openapi._download.request_deadline_seconds", lambda *a, **k: 0.2)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-type": "application/pdf"}, stream=_StalledAsyncBody()
+        )
+
+    client = AsyncGangtiseClient(_config=_cfg(tmp_path))
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.test"
+    )
+    started = anyio.current_time()
+    try:
+        with pytest.raises(DownloadError, match="overall deadline"):
+            await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=tmp_path / "out.pdf",
+                fallback_name="report-r1",
+            )
+    finally:
+        await client.aclose()
+    assert anyio.current_time() - started < 2
+    assert list(tmp_path.glob("*.part*")) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stop", ["deadline", "caller-cancel"])
+async def test_async_download_closes_the_part_file_when_stopped_mid_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop: str
+) -> None:
+    # Neither the deadline nor the caller's own cancellation may reach the file's close:
+    # a handle left to GC piles up across a batch and keeps the .part undeletable on
+    # Windows.
+    import anyio
+
+    if stop == "deadline":
+        monkeypatch.setattr(
+            "gangtise_openapi._download.request_deadline_seconds", lambda *a, **k: 0.2
+        )
+    opened: list = []
+    real_open = anyio.open_file
+
+    async def recording_open(*args, **kwargs):
+        fh = await real_open(*args, **kwargs)
+        opened.append(fh)
+        return fh
+
+    monkeypatch.setattr(anyio, "open_file", recording_open)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"content-type": "application/pdf"}, stream=_StalledAsyncBody()
+        )
+
+    client = AsyncGangtiseClient(_config=_cfg(tmp_path))
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.test"
+    )
+    download = partial(
+        download_to_path_async,
+        client=client,
+        endpoint_key="insight.research.download",
+        query={"reportId": "r1"},
+        output=tmp_path / "out.pdf",
+        fallback_name="report-r1",
+    )
+    try:
+        if stop == "deadline":
+            with pytest.raises(DownloadError, match="overall deadline"):
+                await download()
+        else:
+            with anyio.move_on_after(0.2) as scope:
+                await download()
+            assert scope.cancelled_caught
+    finally:
+        await client.aclose()
+    assert len(opened) == 1
+    assert opened[0].wrapped.closed
+    assert list(tmp_path.glob("*.part*")) == []

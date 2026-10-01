@@ -1,6 +1,6 @@
 """fundamental.balance_sheet — A股资产负债表（累计口径），返回 DataFrame。
 
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.fundamental.balance_sheet(...)。
 """
 
@@ -42,7 +42,7 @@ async def main():
         __file__,
     )
     # 其余可选参数:
-    #   report_type=<报告类型>   报告类型过滤, 支持单值或列表（cli.ts 未列举具体取值）
+    #   report_type=<报告类型>   报表类型: consolidated 合并(默认) / consolidatedRestated 合并(调整) / standalone 母公司 / standaloneRestated 母公司(调整); 支持单值或列表
 
 
 if __name__ == "__main__":

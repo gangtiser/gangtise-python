@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import types
 
 import httpx
 import pandas as pd
@@ -10,7 +11,16 @@ import respx
 
 from gangtise_openapi._client import AsyncGangtiseClient
 from gangtise_openapi._config import Config
+from gangtise_openapi._errors import ValidationError
+from gangtise_openapi.domains import fundamental as fundamental_module
 from gangtise_openapi.domains.fundamental import AsyncFundamental
+
+_BEIJING = dt.timezone(dt.timedelta(hours=8))
+
+
+def _beijing_today() -> dt.date:
+    """The wrapper's default end date: Beijing's day, whatever the machine's zone."""
+    return dt.datetime.now(_BEIJING).date()
 
 
 def _cfg(tmp_path) -> Config:
@@ -72,7 +82,7 @@ async def test_async_valuation_analysis_skip_null(tmp_path):
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             df = await AsyncFundamental(client).valuation_analysis(
                 security_code="000001.SZ",
-                indicator="PE",
+                indicator="peTtm",
                 skip_null=True,
             )
     assert isinstance(df, pd.DataFrame)
@@ -82,7 +92,7 @@ async def test_async_valuation_analysis_skip_null(tmp_path):
 
 @pytest.mark.anyio
 async def test_async_earning_forecast_injects_default_dates(tmp_path):
-    # TS CLI parity: endDate defaults to today, startDate to 365 days back.
+    # TS CLI parity: endDate defaults to BEIJING's today, startDate to 365 days back.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-fundamental/earning-forecast").mock(
             return_value=httpx.Response(
@@ -98,10 +108,10 @@ async def test_async_earning_forecast_injects_default_dates(tmp_path):
                 },
             )
         )
-        before = dt.date.today()
+        before = _beijing_today()
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             await AsyncFundamental(client).earning_forecast(security_code="000001.SZ")
-        after = dt.date.today()
+        after = _beijing_today()
         body = json.loads(route.calls.last.request.read())
     assert body["endDate"] in {before.isoformat(), after.isoformat()}
     assert body["startDate"] in {
@@ -435,3 +445,195 @@ async def test_async_cash_flow_us(tmp_path):
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             df = await AsyncFundamental(client).cash_flow_us(security_code="TSLA.O")
     assert df.iloc[0]["operatingCashFlow"] == 77.0
+
+
+# ─────────────── valuation-analysis completeness (TS v0.39.0-v0.42.0) ───────────────
+
+_VALUATION = "/application/open-fundamental/valuation-analysis"
+_EARNING = "/application/open-fundamental/earning-forecast"
+_KNOWN = ["tradeDate", "value", "percentileRank", "average", "median", "upper1Std", "lower1Std"]
+
+
+def _valuation_stub(days: int = 2, *, rows_anyway: bool = False):
+    """Same live-shaped stub as the sync suite: echoed fields de-duplicated with unknown
+    names kept, one value per requested known name (an explicit tradeDate adds one), no
+    rows without a value column, `limit` keeps the most recent rows."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        req = json.loads(request.read())
+        requested = req.get("fieldList")
+        fields = (
+            ["tradeDate", *dict.fromkeys(f for f in requested if f != "tradeDate")]
+            if requested
+            else _KNOWN
+        )
+        rows = [[f"2026-09-{i + 1:02d}", 21.5 + i, 0.42, 20, 20, 30, 10] for i in range(days)]
+        has_value = not requested or any(f in _KNOWN[1:] for f in requested)
+        kept = rows[-req["limit"] :] if (has_value or rows_anyway) else []
+        if rows_anyway:
+            out = [[row[_KNOWN.index(f)] if f in _KNOWN else None for f in fields] for row in kept]
+        elif requested:
+            out = [
+                [row[0], *(row[_KNOWN.index(f)] for f in requested if f in _KNOWN)] for row in kept
+            ]
+        else:
+            out = kept
+        data = {"indicator": req.get("indicator"), "fieldList": fields, "list": out}
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+    return handler
+
+
+async def _valuation(tmp_path, stub, **kwargs):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_VALUATION).mock(side_effect=stub)
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = await AsyncFundamental(client).valuation_analysis(
+                security_code="600519.SH", indicator="peTtm", **kwargs
+            )
+        sent = json.loads(route.calls.last.request.read())
+    return out, sent
+
+
+@pytest.mark.anyio
+async def test_async_valuation_sends_the_default_limit_when_omitted(tmp_path):
+    _, sent = await _valuation(tmp_path, _valuation_stub())
+    assert sent["limit"] == 2000
+
+
+@pytest.mark.anyio
+async def test_async_valuation_rejects_a_non_positive_limit_before_any_request(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_VALUATION).mock(side_effect=_valuation_stub())
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match="limit"):
+                await AsyncFundamental(client).valuation_analysis(
+                    security_code="600519.SH", indicator="peTtm", limit=0
+                )
+    assert not route.called
+
+
+@pytest.mark.anyio
+async def test_async_valuation_full_page_is_partial_and_says_the_start_is_missing(tmp_path):
+    with pytest.warns(UserWarning, match="START of the range"):
+        out, _ = await _valuation(tmp_path, _valuation_stub(5), limit=3, raw=True)
+    assert out["partial"] is True
+    with pytest.warns(UserWarning, match="START of the range"):
+        df, _ = await _valuation(tmp_path, _valuation_stub(5), limit=3, skip_null=True)
+    assert len(df) == 3
+
+
+@pytest.mark.anyio
+async def test_async_valuation_first_row_decides_truncation_and_late_start(tmp_path):
+    # Range of exactly `limit` days: the first row IS the start, nothing was cut.
+    out, _ = await _valuation(
+        tmp_path, _valuation_stub(5), start_date="2026-09-03", limit=3, raw=True
+    )
+    assert "partial" not in out
+    # A full page starting after start_date: flagged, and no second note.
+    with pytest.warns(UserWarning) as record:
+        out, _ = await _valuation(
+            tmp_path, _valuation_stub(5), start_date="2026-09-01", limit=3, raw=True
+        )
+    assert out["partial"] is True
+    assert not any("later than start_date" in str(w.message) for w in record)
+    # A short page starting late: noted, not partial.
+    with pytest.warns(UserWarning, match="later than start_date 2026-08-01"):
+        out, _ = await _valuation(tmp_path, _valuation_stub(5), start_date="2026-08-01", raw=True)
+    assert "partial" not in out
+
+
+@pytest.mark.anyio
+async def test_async_valuation_field_is_deduped_without_trade_date(tmp_path):
+    df, sent = await _valuation(tmp_path, _valuation_stub(), field=["tradeDate", "value", "value"])
+    assert sent["fieldList"] == ["value"]
+    assert df.iloc[0].to_dict() == {"tradeDate": "2026-09-01", "value": 21.5}
+    with pytest.warns(UserWarning, match="names no value column"):
+        df, sent = await _valuation(tmp_path, _valuation_stub(), field="tradeDate")
+    assert sent["fieldList"] == ["tradeDate"]
+    assert df.empty
+    # Rows anyway: no note.
+    await _valuation(tmp_path, _valuation_stub(rows_anyway=True), field="tradeDate")
+
+
+@pytest.mark.anyio
+async def test_async_valuation_refuses_a_field_list_that_would_shift_every_value(tmp_path):
+    with pytest.raises(ValidationError, match="fieldList"):
+        await _valuation(
+            tmp_path, _valuation_stub(), field=["tradeDate", "value", "percentileRank", "foo"]
+        )
+
+
+@pytest.mark.anyio
+async def test_async_valuation_skip_null_fetches_the_columns_it_filters_on(tmp_path):
+    df, sent = await _valuation(tmp_path, _valuation_stub(), field="value", skip_null=True)
+    assert sent["fieldList"] == ["value", "percentileRank"]
+    assert list(df.columns) == ["tradeDate", "value"]
+    assert len(df) == 2
+    _, sent = await _valuation(tmp_path, _valuation_stub(), field="value", skip_null=True, raw=True)
+    assert sent["fieldList"] == ["value"]
+
+
+# ─────────────── earning-forecast: Beijing default + credit guard ───────────────
+
+
+def _forecast_ok() -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "code": "000000",
+            "status": True,
+            "data": {"securityCode": "600519.SH", "securityName": "贵州茅台", "updateList": []},
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_async_earning_forecast_defaults_the_end_date_to_beijing(tmp_path, monkeypatch):
+    class _Frozen(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = dt.datetime(2026, 7, 5, 23, 30, tzinfo=dt.timezone.utc)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    fake_dt = types.SimpleNamespace(datetime=_Frozen, date=dt.date, timedelta=dt.timedelta)
+    monkeypatch.setattr(fundamental_module, "dt", fake_dt)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EARNING).mock(return_value=_forecast_ok())
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncFundamental(client).earning_forecast(security_code="600519.SH")
+        body = json.loads(route.calls.last.request.read())
+    assert (body["startDate"], body["endDate"]) == ("2025-07-06", "2026-07-06")
+
+
+@pytest.mark.anyio
+async def test_async_earning_forecast_slash_end_date_anchors_the_default_start(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EARNING).mock(return_value=_forecast_ok())
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncFundamental(client).earning_forecast(
+                security_code="600519.SH", end_date="2026/09/30"
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert (body["startDate"], body["endDate"]) == ("2025-09-30", "2026-09-30")
+
+
+@pytest.mark.anyio
+async def test_async_earning_forecast_costly_range_needs_confirm(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_EARNING).mock(return_value=_forecast_ok())
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match=r"about \d+ credits"):
+                await AsyncFundamental(client).earning_forecast(
+                    security_code="600519.SH", start_date="2016-01-01", end_date="2026-09-30"
+                )
+            assert not route.called
+            await AsyncFundamental(client).earning_forecast(
+                security_code="600519.SH",
+                start_date="2016-01-01",
+                end_date="2026-09-30",
+                confirm=True,
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert body["startDate"] == "2016-01-01"
+    assert "confirm" not in body

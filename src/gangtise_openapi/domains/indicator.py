@@ -3,10 +3,13 @@
 # that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import anyio
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
@@ -21,6 +24,7 @@ from gangtise_openapi._indicator_matrix import (
     require_indicator_matrix,
     screener_expression_fields,
 )
+from gangtise_openapi._logging import get_logger
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
@@ -30,7 +34,31 @@ from gangtise_openapi.domains._common import (
     _validate_top,
 )
 
+logger = get_logger()
+
 _KEY_BY_CHOICES = ("name", "code")
+
+# A parameter whose KEY ends in "date" (any case — reportDate, tradeDate, sDate,
+# baseDate …) gets the same check as ``date``: the three year-first layouts are
+# normalized to YYYY-MM-DD and a year-last one is refused, because the API reads
+# "01-07-2026" as 7 January (TS v0.44.0 ⑧, ``/date$/i`` in parseParamSpecs).
+_DATE_PARAM_SUFFIX = re.compile(r"date\Z", re.IGNORECASE)
+
+# ── time-series calendar auto-selection (TS v0.40.0 ⑬-⑮, core/calendarType.ts) ──
+# `tradeDate` is the only key that makes a trading-day axis correct; the other two
+# mark an indicator whose values land on dates the trading calendar may not contain.
+# `fiscalYear` stays although it names a forecast year, not a date: the indicators
+# that take it with `tradeDate` (frcst_*) carry values on every calendar day, holidays
+# included, and those values move (CLI probe 2026-09-30: frcst_pe, 600519.SH,
+# 2025-09-25..10-15 — ND 21 of 21 cells filled; TD keeps 11 and drops the changes).
+_TRADE_DATE_KEY = "tradeDate"
+_PERIOD_DATE_KEYS = frozenset({"reportDate", "fiscalYear"})
+# How many `indicator.search` probes run at once. They are free and read-only, and a
+# time series takes at most a handful of indicators, so this only bounds the burst.
+_PROBE_CONCURRENCY = 5
+# `indicator.search` matches on a keyword, so the code itself is the query and the
+# answer is picked out of the hits by exact code (near-matches come back too).
+_PROBE_LIMIT = 100
 
 # Date parameters an indicator may already carry: if the caller named the period
 # themselves, the query date must not be injected on top.
@@ -70,8 +98,8 @@ def _require_scope(indicator: Any, security: Any) -> tuple[list[str], list[str]]
     """Both axes are required by every matrix endpoint. Omitting one costs a round
     trip to be told ``100001``, whose message points at the API's own parameter
     names rather than the kwargs the caller typed."""
-    indicators = _as_list(indicator) or []
-    securities = _as_list(security) or []
+    indicators = _as_list(indicator, "indicator") or []
+    securities = _as_list(security, "security") or []
     missing = [
         name for name, values in (("indicator", indicators), ("security", securities)) if not values
     ]
@@ -141,12 +169,12 @@ def _wants_injected_date(
     ``_request_body`` → ``_strip_none`` does for every optional kwarg. This is the
     same convention one level down, which is why it beats inventing a sentinel.
 
-    ⚠️ **Known blind spot**: a misspelled PARAM KEY is silently inert —
-    ``{"tradDate": None}`` neither suppresses nor errors, and the injection happens
-    as usual. Param keys are per-indicator (whatever ``parameterList`` declares),
-    so there is no local whitelist to check against; the server treats a
-    misspelled param name the same way. Recorded rather than fixed — see
-    bug/python-open.md P6. (A misspelled INDICATOR CODE — the outer key — IS caught:
+    ⚠️ **Known blind spot**: a misspelled PARAM KEY in a suppression marker is
+    silently inert — ``{"tradDate": None}`` neither suppresses nor errors locally,
+    and the injection happens as usual. Param keys are per-indicator (whatever
+    ``parameterList`` declares), so there is no local whitelist to check against;
+    a ``None`` never reaches the server, which would otherwise name a misspelled key
+    in a 100003. Recorded rather than fixed — see bug/python-open.md P6. (A misspelled INDICATOR CODE — the outer key — IS caught:
     see :func:`_assert_param_codes_bound`.)
     """
     if any(p["paramKey"] in _DATE_PARAM_KEYS for p in group["parameters"]):
@@ -187,6 +215,37 @@ def _assert_param_codes_bound(spec: dict[str, dict[str, Any]] | None, codes: Seq
             )
 
 
+def _normalize_param_dates(
+    spec: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]] | None:
+    """``indicator_param`` with every date-keyed value checked like ``date``.
+
+    Param values travel nested inside ``indicatorParamList`` / ``indicatorList``, so
+    ``_request_body``'s date guard never sees them — without this a year-last
+    ``{"reportDate": "12-31-2025"}`` reached a server that reads it month-first (a
+    different day for half the callers, answered with HTTP 200). Keyed on the KEY, like
+    the CLI: any ``*Date`` parameter, whichever indicator it belongs to. A ``None``
+    suppression marker is left alone — it never reaches the wire (TS v0.44.0 ⑧).
+    """
+    if not spec:
+        return spec
+    normalized: dict[str, dict[str, Any]] = {}
+    for code, params in spec.items():
+        if not isinstance(params, dict):
+            normalized[code] = params
+            continue
+        fixed: dict[str, Any] = {}
+        for key, value in params.items():
+            if value is not None and isinstance(key, str) and _DATE_PARAM_SUFFIX.search(key):
+                try:
+                    value = _validate_date(str(value), key)
+                except ValidationError as error:
+                    raise ValidationError(f"indicator_param[{code!r}][{key!r}]: {error}") from None
+            fixed[key] = value
+        normalized[code] = fixed
+    return normalized
+
+
 def _with_query_date(
     spec: dict[str, dict[str, Any]] | None, codes: list[str], date: str
 ) -> list[dict[str, Any]]:
@@ -209,8 +268,9 @@ def _with_query_date(
     # The query date no longer travels as a body field, so ``_request_body``'s
     # guard never sees it — validate here or an ambiguous layout like "07/01/2026"
     # reaches the server, which reads it as a different day depending on the
-    # separator, with nothing in the response saying which.
-    _validate_date(date, "date")
+    # separator, with nothing in the response saying which. Keep the NORMALIZED
+    # value: validating and then injecting the original sent "2026/03/31" verbatim.
+    date = _validate_date(date, "date")
     merged = _param_groups(spec)
     explicit = spec or {}
     for code in codes:
@@ -244,7 +304,7 @@ def _screener_indicator_list(
     like — these indicators answer ``100003 不支持参数 tradeDate`` for the WHOLE
     request, so it makes them unreachable from the other side.
     """
-    _validate_date(date, "date")
+    date = _validate_date(date, "date")
     indicators = parse_screener_indicators(bindings, params, expression)
     explicit = params or {}
     for item in indicators:
@@ -257,18 +317,17 @@ def _screener_indicator_list(
 
 
 def _note_empty_matrix(data: Any) -> None:
-    """An all-empty matrix no longer means "no data".
+    """An all-empty matrix is not a known answer.
 
-    Since 2026-08-07 a real coverage gap comes back as a null cell with its row
-    and column intact, so an empty answer means nothing in the request RESOLVED —
-    every security code or every indicator code was unrecognised — or a parameter
-    name is wrong."""
+    Since 2026-08-07 a real coverage gap comes back as a null cell with its row and
+    column intact, and an unrecognised code or parameter name as an error (100003,
+    re-probed by the CLI 2026-09-25) — so an empty answer is neither (TS v0.43.0 ⑩)."""
     warnings.warn(
-        "the indicator query returned no data at all. Since a real coverage gap now "
-        "comes back as a null cell rather than an empty table, this usually means "
-        "NOTHING in the request resolved — every security code or every indicator code "
-        "was unrecognised — or a parameter name is wrong. Cross-check codes against "
-        "gangtise.indicator.search(...) and gangtise.reference.securities_search(...).",
+        "the indicator query returned no data at all. A missing value comes back as a "
+        "null cell and an unrecognised code or parameter name as an error (100003), so an "
+        "empty answer is neither. Cross-check the codes against "
+        "gangtise.indicator.search(...) and gangtise.reference.securities_search(...); if "
+        "they are right, report it with the call.",
         stacklevel=3,
     )
 
@@ -322,17 +381,20 @@ def _flag_screener(
     failed the expression, which is the whole point of the endpoint.
     """
     unbound = check_screener_bindings(data, bindings, expression)
-    # Same ambiguity as the other matrix endpoints: an empty screen is a normal
-    # answer AND what a wrong parameter name produces. Keyed on "nothing matched"
-    # rather than the strict canonical-empty shape — a response returning zero
-    # securities while still echoing `indicatorList` is just as empty to the
-    # caller, and just as ambiguous, but would slip past ``is_empty_matrix``.
+    # An empty screen is a normal answer AND what a report-period indicator gives on
+    # a date off the period end (all null, so nothing passes) or an indicator that
+    # does not cover these securities (a wrong code or parameter name is a 100003
+    # error now, not an empty screen). Keyed on "nothing matched" rather than the
+    # strict canonical-empty shape — a response returning zero securities while
+    # still echoing `indicatorList` is just as empty to the caller, and just as
+    # ambiguous, but would slip past ``is_empty_matrix``.
     if not data.get("securityCodeList"):
         warnings.warn(
-            "nothing matched the expression. That is a normal answer — but an empty "
-            "result is ALSO what an unrecognised code or a wrong parameter name "
-            "produces. Cross-check the indicator codes and parameters against "
-            "gangtise.indicator.search(...).",
+            "nothing matched the expression. That is a normal answer — but it is ALSO "
+            "what a report-period indicator (is_* etc.) gives on a date that is not a "
+            "period end (every value null, so nothing passes), or an indicator that does "
+            "not cover these securities. Check the date (reportDate for report-period "
+            "indicators) and the coverage (scopeList) in gangtise.indicator.search(...).",
             stacklevel=3,
         )
     if not unbound:
@@ -386,6 +448,113 @@ def _matrix_payload(result: Any) -> dict[str, Any]:
         raise
 
 
+def _probe_codes(indicators: Sequence[str]) -> list[str]:
+    """Each distinct, non-empty indicator code once, in request order."""
+    return list(dict.fromkeys(code for code in indicators if isinstance(code, str) and code))
+
+
+def _is_trading_day_typed(result: Any, code: str) -> bool:
+    """One indicator's verdict from its ``indicator.search`` answer.
+
+    ``False`` covers every form of "not proven": the code missing from the hits, an
+    empty ``parameterList`` (the static-attribute families report one, and so does
+    ``cdr_conv_ratio``, which takes a date anyway), any ``reportDate`` / ``fiscalYear``
+    key — ``div_cash_yld`` declares BOTH reportDate and tradeDate, so a check that
+    merely looked for tradeDate would pick TD and lose every value.
+    """
+    data = _search_result(result)
+    rows = data.get("list") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return False
+    entry = next(
+        (row for row in rows if isinstance(row, dict) and row.get("indicatorCode") == code), None
+    )
+    if entry is None:
+        return False
+    params = entry.get("parameterList")
+    keys = (
+        [
+            p["paramKey"]
+            for p in params
+            if isinstance(p, dict) and isinstance(p.get("paramKey"), str)
+        ]
+        if isinstance(params, list)
+        else []
+    )
+    if not keys or any(key in _PERIOD_DATE_KEYS for key in keys):
+        return False
+    return _TRADE_DATE_KEY in keys
+
+
+def _probe_body(code: str) -> dict[str, Any]:
+    return {"keyword": code, "limit": _PROBE_LIMIT}
+
+
+def _note_calendar_choice() -> None:
+    logger.info(
+        "[gangtise] indicator.time_series: every requested indicator takes tradeDate, so the "
+        "series is fetched on the trading-day calendar (calendarType=TD) instead of the "
+        "server default ND — no all-null non-trading rows, and fewer cells against the "
+        "30000 cap. Pass calendar_type='ND' to override."
+    )
+
+
+def _resolve_calendar_type(client: GangtiseClient, indicators: Sequence[str]) -> str | None:
+    """The ``calendarType`` for a time series the caller left unset: ``"TD"`` when EVERY
+    indicator is provably trading-day typed, otherwise ``None`` (send nothing and let the
+    server apply its default ``ND``).
+
+    The server default is deliberately the SAFE one: report-period indicators carry
+    values on dates like 2024-03-31 and 2024-06-30, both Sundays, which a trading-day
+    axis does not contain — ``TD`` there answers 200 with a full grid of ``null`` (CLI
+    probe 2026-09-19: ``is_op_rev`` 2024-03-25..07-05 gives 72 all-null columns under
+    ``TD``). But ``ND`` on a pure quote series is waste: a year is 366 columns against
+    248 (``qte_close``), a third of them weekend nulls billed and counted against the
+    30000-cell cap. Guessing ``ND`` wrong only wastes cells, guessing ``TD`` wrong
+    silently empties the result — so an empty ``parameterList``, an unresolvable code
+    or a failed probe all land on ``ND``: a search outage must not change the axis.
+    """
+    codes = _probe_codes(indicators)
+    if not codes:
+        return None
+
+    def verdict(code: str) -> bool:
+        try:
+            return _is_trading_day_typed(
+                client._call("indicator.search", body=_probe_body(code)), code
+            )
+        except Exception:
+            return False
+
+    with ThreadPoolExecutor(max_workers=min(_PROBE_CONCURRENCY, len(codes))) as pool:
+        verdicts = list(pool.map(verdict, codes))
+    return "TD" if all(verdicts) else None
+
+
+async def _resolve_calendar_type_async(
+    client: AsyncGangtiseClient, indicators: Sequence[str]
+) -> str | None:
+    """Async mirror of :func:`_resolve_calendar_type` (same verdicts, same concurrency cap)."""
+    codes = _probe_codes(indicators)
+    if not codes:
+        return None
+    semaphore = anyio.Semaphore(_PROBE_CONCURRENCY)
+    verdicts = [False] * len(codes)
+
+    async def run_one(index: int, code: str) -> None:
+        async with semaphore:
+            try:
+                result = await client._call("indicator.search", body=_probe_body(code))
+                verdicts[index] = _is_trading_day_typed(result, code)
+            except Exception:
+                verdicts[index] = False
+
+    async with anyio.create_task_group() as tg:
+        for index, code in enumerate(codes):
+            tg.start_soon(run_one, index, code)
+    return "TD" if all(verdicts) else None
+
+
 class Indicator:
     """`gangtise.indicator.*` — 证券级数据指标 (EDE): 搜索指标码、截面、时序、条件选股。"""
 
@@ -404,7 +573,7 @@ class Indicator:
         keyword 传指标词如 "收盘价" "成交量" "营业收入"（不是自然语言问题）;
         limit 默认 50、上限 100。返回 indicatorCode 供 cross_section / time_series /
         screener 使用。**参数名一律以返回里的 parameterList 为准**, 不要照抄文档示例——
-        服务端会改参数名, 而传错是静默失效。
+        服务端会改参数名; 传错名报 100003 并点名是哪个指标的哪个参数, 按报错改即可。
         """
         body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=100)}
         result = self._client._call("indicator.search", body=body)
@@ -427,15 +596,24 @@ class Indicator:
         """获取截面数据（indicator.cross-section）: 多指标 × 多证券, 单日期。
 
         每行一只证券, 每列一个指标。security 也接受板块 ID（reference.sector_search 返回的
-        10 位 sectorId, 与证券代码混传取并集）。currency 取值 DFT/CNY/HKD/USD/...（默认 DFT）;
-        scale 取值 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0, 且根级 scale 会污染不声明
-        scale 的指标, 价格与金额混查请改用 indicator_param）。
+        10 位 sectorId, 与证券代码混传取并集）——⚠️ 服务端会把板块展开成**全部成分股**, 实际
+        证券数远大于传入的条数。currency 取值 DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD
+        （默认 DFT）; scale 取值 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。根级 scale
+        只作用于支持该参数的指标, 价格类与金额类可以混查; 精确到单个指标用 indicator_param。
+
+        🔴 **单次 30000 单元格上限**: 证券数 × 指标数超过 30000 报 100006, 不返回部分结果、
+        不截断; 按这个乘积拆批（拆证券或拆指标）后自己合并。
 
         date 作为每个指标各自的 tradeDate 下发（根级 date 已于 2026-08-01 废弃）。
-        ⚠️ 报告期类指标（is_* 等）自 2026-08-14 起**拒收 tradeDate**, 须用
+        ⚠️ 报告期类指标（is_* 等）**拒收 tradeDate**（只给 date 报 100003）, 须用
         indicator_param={"is_xxx": {"reportDate": "2025-12-31"}}; 哪个指标吃哪个日期不能按
-        code 前缀推断, 以 search 的 parameterList 为准。前复权参数名是 **adjustType**
-        （不是 adjustmentType, 传错会静默退回不复权）。
+        code 前缀推断, 以 search 的 parameterList 为准。例: finc_roe_avg_avg（平均 ROE N 期
+        均值）属报告期类, 要 {"finc_roe_avg_avg": {"periodNum": "4", "reportDate":
+        "2025-12-31"}}。tradeDate 与 reportDate 都必填的（如 div_cash_yld）两个都用
+        indicator_param 显式给——只给 reportDate 时 SDK 不再注入 date, 服务端报 100001。
+        indicator_param 里键名以 Date 结尾的值（reportDate / tradeDate / sDate …）与 date
+        同样校验: 年在前的三种写法统一成 YYYY-MM-DD, 年在后的本地拒绝。前复权参数名是
+        **adjustType**（不是 adjustmentType）。
 
         ⚠️ **判据只看一个键**: 注入的 tradeDate 会被拒（100003 不支持参数 tradeDate）,
         当且仅当该指标的 parameterList 里**没有 tradeDate**。按 search() 返回的
@@ -453,19 +631,28 @@ class Indicator:
         第 3 种最容易写错成第 4 种: `pty_shr_reg` 看着像「静态属性」, 但它有
         currency / scale, 传 {} 会把这两个参数一起丢掉且没有任何提示。
 
+        🔴 **fiscalYear 漏传不报错**: parameterList 标必填的 fiscalYear 漏传时, 服务端按它
+        自定的默认年度取数（不随 date 变）——该年度有数就返回它, 看着完全正常但未必是你要的
+        那一年; 没有就是 null。预测类（frcst_*, 与 tradeDate 同时必填）与分红类
+        （div_cash_yr / div_cash_paid_ratio）都受影响, 一律显式传 fiscalYear。
+
+        报错与缺数: code 或参数名写错报 100003 并点名, 缺其余必填参数报 100001 并点名;
+        无数据是保留行列的 null 单元格（不是空表, 也不报错）。
+
         key_by 取 name（默认, 列头用服务端给的指标显示名）或 code（列头就是你传进去的
         indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠; 批量按 code 回填用 code 模式。
         """
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
         _assert_param_codes_bound(indicator_param, indicators)
+        params = _normalize_param_dates(indicator_param)
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
                 "universe": securities,
                 "currency": currency,
                 "scale": scale,
-                "indicatorParamList": _with_query_date(indicator_param, indicators, date),
+                "indicatorParamList": _with_query_date(params, indicators, date),
             }
         )
         result = self._client._call("indicator.cross-section", body=body)
@@ -492,9 +679,23 @@ class Indicator:
     ) -> pd.DataFrame | dict[str, Any]:
         """获取时序数据（indicator.time-series）: 多指标 × 单证券 或 单指标 × 多证券。
 
-        每行一个日期。security 也接受板块 ID（单个 sectorId 会被服务端展开成 N 只成分股,
-        此时列头按证券出）。calendar_type 取值 ND=自然日 TD=交易日 WD=工作日（默认 TD）;
-        currency / scale / indicator_param 同 cross_section。
+        每行一个日期。security 也接受板块 ID（仅单指标时; 服务端把它展开成全部成分股,
+        此时列头按证券出）。currency / scale / indicator_param 同 cross_section（参数日期
+        校验、fiscalYear 漏传不报错、100003 / 100001 / null 的含义都相同）; 时序的区间由
+        start_date / end_date 统管, 不要再用 indicator_param 传 tradeDate。
+
+        calendar_type 取值 ND=自然日 TD=交易日 WD=工作日, **服务端默认 ND**; TD 且跨市场时
+        日期列是各市场交易日的并集。**不传时 SDK 自动选**: 先用免费的 indicator.search 读
+        各指标的 parameterList（去重后每个指标码查一次, 并发 ≤ 5）——**全部**声明 tradeDate
+        且**都不**声明 reportDate / fiscalYear 才发 TD（行情 / 日频估值序列, 省掉非交易日的
+        null 行与单元格）; 任一指标声明 reportDate 或 fiscalYear、parameterList 为空、
+        查不到该 code 或这次查询失败, 都不发（服务端按 ND）。报告期末常落在非交易日, TD 会
+        让报告期类指标整行全 null 且不报错, 所以只往 ND 一边兜底。**显式传了就原样发送,
+        不查询也不改。**
+
+        🔴 **单次 30000 单元格上限**: 序列数 × 日期数（序列 = 单指标时的证券数, 或单证券
+        时的指标数）超过 30000 报 100006, 不返回部分结果、不截断; 缩短区间或拆证券分批取。
+        ND 的日期列约是 TD 的 1.5 倍, 同一查询在 ND 下更容易超限。
 
         key_by 取 name（默认）或 code（列头就是你传进去的 indicatorCode / securityCode;
         服务端按自己的顺序返回列, 位置索引不可靠）。
@@ -502,6 +703,9 @@ class Indicator:
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
         _assert_param_codes_bound(indicator_param, indicators)
+        params = _normalize_param_dates(indicator_param)
+        # Build first: every local check has to fire before ANY request goes out —
+        # including the free calendar probe below.
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -512,9 +716,14 @@ class Indicator:
                 "currency": currency,
                 "scale": scale,
                 # The endpoint requires the key even with nothing to configure.
-                "indicatorParamList": list(_param_groups(indicator_param).values()),
+                "indicatorParamList": list(_param_groups(params).values()),
             }
         )
+        # Then pick the date axis, and only when the caller left it unset: an explicit
+        # value is an instruction, not a default to improve on.
+        if calendar_type is None and _resolve_calendar_type(self._client, indicators) == "TD":
+            body["calendarType"] = "TD"
+            _note_calendar_choice()
         result = self._client._call("indicator.time-series", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -545,10 +754,15 @@ class Indicator:
         为 string 的指标）。同一个指标可以绑到两个变量取不同参数（如比较两个日期的收盘价）——
         所以 indicator_param **按变量索引**, 如 {"F1": {"scale": "8"}}, 不是按 code。
 
-        date 作为每个变量的 tradeDate 下发; 漏传会让吃日期的指标不被过滤并静默返回空结果,
-        因此它是必填的。报告期类指标同 cross_section, 用 indicator_param 传 reportDate。
+        date 作为每个变量的 tradeDate 下发（已带 tradeDate / reportDate 的不覆盖）; 绝大多数
+        指标必填 tradeDate, 漏传服务端报 100001, 因此它是必填的。报告期类指标同
+        cross_section, 用 indicator_param 传 reportDate; indicator_param 里 *Date 键的值同样
+        校验并统一成 YYYY-MM-DD。fiscalYear 漏传不报错（按服务端默认年度取数）, 同
+        cross_section, 一律显式传。security 传板块 ID 时服务端展开成全部成分股。
 
-        输出同 cross_section 的宽表（每行一只命中的证券）。
+        输出同 cross_section 的宽表（每行一只命中的证券）。空结果是正常答案, 但也可能是
+        报告期类指标的日期不在报告期末（全为 null, 无一通过）或指标不覆盖这些证券——
+        对照 search 的 parameterList 与 scopeList 核对日期与覆盖。
 
         ⚠️ 同 cross_section 的四种情形, 只是**按变量索引**: 判据是该指标的 parameterList
         里有没有 tradeDate。无 tradeDate、有别的参数时传那些参数再加 "tradeDate": None
@@ -562,7 +776,8 @@ class Indicator:
                 'e.g. {"F1": "qte_mkt_cptl"}'
             )
         _, securities = _require_scope(list(indicator.values()), security)
-        bindings = _screener_indicator_list(indicator, indicator_param, expression, date)
+        params = _normalize_param_dates(indicator_param)
+        bindings = _screener_indicator_list(indicator, params, expression, date)
         body = _request_body(
             {
                 "universe": securities,
@@ -601,7 +816,7 @@ class AsyncIndicator:
         keyword 传指标词如 "收盘价" "成交量" "营业收入"（不是自然语言问题）;
         limit 默认 50、上限 100。返回 indicatorCode 供 cross_section / time_series /
         screener 使用。**参数名一律以返回里的 parameterList 为准**, 不要照抄文档示例——
-        服务端会改参数名, 而传错是静默失效。
+        服务端会改参数名; 传错名报 100003 并点名是哪个指标的哪个参数, 按报错改即可。
         """
         body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=100)}
         result = await self._client._call("indicator.search", body=body)
@@ -624,15 +839,24 @@ class AsyncIndicator:
         """获取截面数据（indicator.cross-section）: 多指标 × 多证券, 单日期。
 
         每行一只证券, 每列一个指标。security 也接受板块 ID（reference.sector_search 返回的
-        10 位 sectorId, 与证券代码混传取并集）。currency 取值 DFT/CNY/HKD/USD/...（默认 DFT）;
-        scale 取值 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0, 且根级 scale 会污染不声明
-        scale 的指标, 价格与金额混查请改用 indicator_param）。
+        10 位 sectorId, 与证券代码混传取并集）——⚠️ 服务端会把板块展开成**全部成分股**, 实际
+        证券数远大于传入的条数。currency 取值 DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD
+        （默认 DFT）; scale 取值 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。根级 scale
+        只作用于支持该参数的指标, 价格类与金额类可以混查; 精确到单个指标用 indicator_param。
+
+        🔴 **单次 30000 单元格上限**: 证券数 × 指标数超过 30000 报 100006, 不返回部分结果、
+        不截断; 按这个乘积拆批（拆证券或拆指标）后自己合并。
 
         date 作为每个指标各自的 tradeDate 下发（根级 date 已于 2026-08-01 废弃）。
-        ⚠️ 报告期类指标（is_* 等）自 2026-08-14 起**拒收 tradeDate**, 须用
+        ⚠️ 报告期类指标（is_* 等）**拒收 tradeDate**（只给 date 报 100003）, 须用
         indicator_param={"is_xxx": {"reportDate": "2025-12-31"}}; 哪个指标吃哪个日期不能按
-        code 前缀推断, 以 search 的 parameterList 为准。前复权参数名是 **adjustType**
-        （不是 adjustmentType, 传错会静默退回不复权）。
+        code 前缀推断, 以 search 的 parameterList 为准。例: finc_roe_avg_avg（平均 ROE N 期
+        均值）属报告期类, 要 {"finc_roe_avg_avg": {"periodNum": "4", "reportDate":
+        "2025-12-31"}}。tradeDate 与 reportDate 都必填的（如 div_cash_yld）两个都用
+        indicator_param 显式给——只给 reportDate 时 SDK 不再注入 date, 服务端报 100001。
+        indicator_param 里键名以 Date 结尾的值（reportDate / tradeDate / sDate …）与 date
+        同样校验: 年在前的三种写法统一成 YYYY-MM-DD, 年在后的本地拒绝。前复权参数名是
+        **adjustType**（不是 adjustmentType）。
 
         ⚠️ **判据只看一个键**: 注入的 tradeDate 会被拒（100003 不支持参数 tradeDate）,
         当且仅当该指标的 parameterList 里**没有 tradeDate**。按 search() 返回的
@@ -650,19 +874,28 @@ class AsyncIndicator:
         第 3 种最容易写错成第 4 种: `pty_shr_reg` 看着像「静态属性」, 但它有
         currency / scale, 传 {} 会把这两个参数一起丢掉且没有任何提示。
 
+        🔴 **fiscalYear 漏传不报错**: parameterList 标必填的 fiscalYear 漏传时, 服务端按它
+        自定的默认年度取数（不随 date 变）——该年度有数就返回它, 看着完全正常但未必是你要的
+        那一年; 没有就是 null。预测类（frcst_*, 与 tradeDate 同时必填）与分红类
+        （div_cash_yr / div_cash_paid_ratio）都受影响, 一律显式传 fiscalYear。
+
+        报错与缺数: code 或参数名写错报 100003 并点名, 缺其余必填参数报 100001 并点名;
+        无数据是保留行列的 null 单元格（不是空表, 也不报错）。
+
         key_by 取 name（默认, 列头用服务端给的指标显示名）或 code（列头就是你传进去的
         indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠; 批量按 code 回填用 code 模式。
         """
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
         _assert_param_codes_bound(indicator_param, indicators)
+        params = _normalize_param_dates(indicator_param)
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
                 "universe": securities,
                 "currency": currency,
                 "scale": scale,
-                "indicatorParamList": _with_query_date(indicator_param, indicators, date),
+                "indicatorParamList": _with_query_date(params, indicators, date),
             }
         )
         result = await self._client._call("indicator.cross-section", body=body)
@@ -689,9 +922,23 @@ class AsyncIndicator:
     ) -> pd.DataFrame | dict[str, Any]:
         """获取时序数据（indicator.time-series）: 多指标 × 单证券 或 单指标 × 多证券。
 
-        每行一个日期。security 也接受板块 ID（单个 sectorId 会被服务端展开成 N 只成分股,
-        此时列头按证券出）。calendar_type 取值 ND=自然日 TD=交易日 WD=工作日（默认 TD）;
-        currency / scale / indicator_param 同 cross_section。
+        每行一个日期。security 也接受板块 ID（仅单指标时; 服务端把它展开成全部成分股,
+        此时列头按证券出）。currency / scale / indicator_param 同 cross_section（参数日期
+        校验、fiscalYear 漏传不报错、100003 / 100001 / null 的含义都相同）; 时序的区间由
+        start_date / end_date 统管, 不要再用 indicator_param 传 tradeDate。
+
+        calendar_type 取值 ND=自然日 TD=交易日 WD=工作日, **服务端默认 ND**; TD 且跨市场时
+        日期列是各市场交易日的并集。**不传时 SDK 自动选**: 先用免费的 indicator.search 读
+        各指标的 parameterList（去重后每个指标码查一次, 并发 ≤ 5）——**全部**声明 tradeDate
+        且**都不**声明 reportDate / fiscalYear 才发 TD（行情 / 日频估值序列, 省掉非交易日的
+        null 行与单元格）; 任一指标声明 reportDate 或 fiscalYear、parameterList 为空、
+        查不到该 code 或这次查询失败, 都不发（服务端按 ND）。报告期末常落在非交易日, TD 会
+        让报告期类指标整行全 null 且不报错, 所以只往 ND 一边兜底。**显式传了就原样发送,
+        不查询也不改。**
+
+        🔴 **单次 30000 单元格上限**: 序列数 × 日期数（序列 = 单指标时的证券数, 或单证券
+        时的指标数）超过 30000 报 100006, 不返回部分结果、不截断; 缩短区间或拆证券分批取。
+        ND 的日期列约是 TD 的 1.5 倍, 同一查询在 ND 下更容易超限。
 
         key_by 取 name（默认）或 code（列头就是你传进去的 indicatorCode / securityCode;
         服务端按自己的顺序返回列, 位置索引不可靠）。
@@ -699,6 +946,9 @@ class AsyncIndicator:
         _check_key_by(key_by)
         indicators, securities = _require_scope(indicator, security)
         _assert_param_codes_bound(indicator_param, indicators)
+        params = _normalize_param_dates(indicator_param)
+        # Build first: every local check has to fire before ANY request goes out —
+        # including the free calendar probe below.
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -709,9 +959,17 @@ class AsyncIndicator:
                 "currency": currency,
                 "scale": scale,
                 # The endpoint requires the key even with nothing to configure.
-                "indicatorParamList": list(_param_groups(indicator_param).values()),
+                "indicatorParamList": list(_param_groups(params).values()),
             }
         )
+        # Then pick the date axis, and only when the caller left it unset: an explicit
+        # value is an instruction, not a default to improve on.
+        if (
+            calendar_type is None
+            and await _resolve_calendar_type_async(self._client, indicators) == "TD"
+        ):
+            body["calendarType"] = "TD"
+            _note_calendar_choice()
         result = await self._client._call("indicator.time-series", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -742,10 +1000,15 @@ class AsyncIndicator:
         为 string 的指标）。同一个指标可以绑到两个变量取不同参数（如比较两个日期的收盘价）——
         所以 indicator_param **按变量索引**, 如 {"F1": {"scale": "8"}}, 不是按 code。
 
-        date 作为每个变量的 tradeDate 下发; 漏传会让吃日期的指标不被过滤并静默返回空结果,
-        因此它是必填的。报告期类指标同 cross_section, 用 indicator_param 传 reportDate。
+        date 作为每个变量的 tradeDate 下发（已带 tradeDate / reportDate 的不覆盖）; 绝大多数
+        指标必填 tradeDate, 漏传服务端报 100001, 因此它是必填的。报告期类指标同
+        cross_section, 用 indicator_param 传 reportDate; indicator_param 里 *Date 键的值同样
+        校验并统一成 YYYY-MM-DD。fiscalYear 漏传不报错（按服务端默认年度取数）, 同
+        cross_section, 一律显式传。security 传板块 ID 时服务端展开成全部成分股。
 
-        输出同 cross_section 的宽表（每行一只命中的证券）。
+        输出同 cross_section 的宽表（每行一只命中的证券）。空结果是正常答案, 但也可能是
+        报告期类指标的日期不在报告期末（全为 null, 无一通过）或指标不覆盖这些证券——
+        对照 search 的 parameterList 与 scopeList 核对日期与覆盖。
 
         ⚠️ 同 cross_section 的四种情形, 只是**按变量索引**: 判据是该指标的 parameterList
         里有没有 tradeDate。无 tradeDate、有别的参数时传那些参数再加 "tradeDate": None
@@ -759,7 +1022,8 @@ class AsyncIndicator:
                 'e.g. {"F1": "qte_mkt_cptl"}'
             )
         _, securities = _require_scope(list(indicator.values()), security)
-        bindings = _screener_indicator_list(indicator, indicator_param, expression, date)
+        params = _normalize_param_dates(indicator_param)
+        bindings = _screener_indicator_list(indicator, params, expression, date)
         body = _request_body(
             {
                 "universe": securities,

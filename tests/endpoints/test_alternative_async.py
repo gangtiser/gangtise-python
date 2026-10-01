@@ -56,7 +56,7 @@ async def test_async_edb_data_transposes_matrix(tmp_path):
 @pytest.mark.anyio
 async def test_async_concept_info_returns_profile_dict(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-alternative/concept/info").mock(
+        router.post("/application/open-alternative/concept/v2/info").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -66,7 +66,6 @@ async def test_async_concept_info_returns_profile_dict(tmp_path):
                         "conceptId": "121000130",
                         "conceptName": "机器人",
                         "definition": "机器人是人工替代与具身智能的核心载体",
-                        "keyEvents": [{"date": "2026-12-01", "content": "量产"}],
                     },
                 },
             )
@@ -78,7 +77,46 @@ async def test_async_concept_info_returns_profile_dict(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_concept_securities_flattens_groups(tmp_path):
+async def test_async_concept_info_full_hits_the_v1_endpoint(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-alternative/concept/info").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": {"conceptId": "121000130", "keyEvents": [{"date": "2026-12-01"}]},
+                },
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            result = await AsyncAlternative(client).concept_info(concept_id="121000130", full=True)
+    assert result["keyEvents"][0]["date"] == "2026-12-01"
+
+
+@pytest.mark.anyio
+async def test_async_concept_securities_default_is_v2_without_key_columns(tmp_path):
+    v2 = {
+        "conceptId": "121000130",
+        "securityCount": 1,
+        "securityDetail": [
+            {
+                "groupName": "丝杠",
+                "securityList": [{"securityCode": "603009.SH", "securityName": "北特科技"}],
+            }
+        ],
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-alternative/concept/v2/securities").mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": v2})
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncAlternative(client).concept_securities(concept_id="121000130")
+    assert list(df.columns) == ["groupName", "securityCode", "securityName"]
+
+
+@pytest.mark.anyio
+async def test_async_concept_securities_full_flattens_groups(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post("/application/open-alternative/concept/securities").mock(
             return_value=httpx.Response(
@@ -108,7 +146,9 @@ async def test_async_concept_securities_flattens_groups(tmp_path):
             )
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = await AsyncAlternative(client).concept_securities(concept_id="121000130")
+            df = await AsyncAlternative(client).concept_securities(
+                concept_id="121000130", full=True
+            )
     assert isinstance(df, pd.DataFrame)
     assert list(df.columns) == [
         "groupName",
@@ -124,7 +164,7 @@ async def test_async_concept_securities_flattens_groups(tmp_path):
 @pytest.mark.anyio
 async def test_async_concept_securities_empty_returns_empty_dataframe(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post("/application/open-alternative/concept/securities").mock(
+        router.post("/application/open-alternative/concept/v2/securities").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -142,10 +182,4 @@ async def test_async_concept_securities_empty_returns_empty_dataframe(tmp_path):
             df = await AsyncAlternative(client).concept_securities(concept_id="121000999")
     assert isinstance(df, pd.DataFrame)
     assert len(df) == 0
-    assert list(df.columns) == [
-        "groupName",
-        "securityCode",
-        "securityName",
-        "isKey",
-        "inclusionReason",
-    ]
+    assert list(df.columns) == ["groupName", "securityCode", "securityName"]

@@ -1,6 +1,6 @@
 """insight.summary_list — 纪要列表（分页, 端点最大页 50, 返回 DataFrame）。
 
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.insight.summary_list(...)。
 """
 
@@ -25,8 +25,8 @@ async def main():
             start_time="2026-05-01",  # 起始时间
             end_time="2026-05-28",  # 结束时间
             keyword="平安银行",  # 关键词
-            search_type=1,  # 搜索类型代码（默认 1; cli.ts 未列枚举, 取值见接口文档）
-            rank_type=1,  # 排序方式代码（默认 1; cli.ts 未列枚举, 取值见接口文档）
+            search_type=1,  # 搜索范围: 1=标题（默认）/ 2=全文
+            rank_type=1,  # 排序: 1=综合（默认）/ 2=时间倒序
             security="000001.SZ",  # 证券代码, 支持单值或列表
             market="aShares",  # 市场, 支持单值或列表; aShares / hkStocks / usStocks / usChinaConcept
         ),
@@ -40,6 +40,7 @@ async def main():
             category=[
                 "companyAnalysis"
             ],  # 分类, 支持单值或列表; companyAnalysis / industryAnalysis / earningsCall 等
+            size=20,  # 按条计费: 省略 size 会按 total × 单价估算全量, 超过 1000 积分拒绝
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

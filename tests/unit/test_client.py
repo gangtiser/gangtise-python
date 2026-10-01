@@ -93,6 +93,7 @@ def test_call_auth_code_8000014_triggers_one_refresh(client_config, tmp_path):
                 "expiresIn": 1,
                 "time": 0,
                 "expiresAt": 9999999999,
+                "issuedFor": "3ec07b4be220b9de",  # credential_fingerprint("ak", base_url)
             }
         )
     )
@@ -142,6 +143,7 @@ def test_call_auth_code_0000001008_triggers_one_refresh(client_config, tmp_path)
                 "expiresIn": 1,
                 "time": 0,
                 "expiresAt": 9999999999,
+                "issuedFor": "3ec07b4be220b9de",  # credential_fingerprint("ak", base_url)
             }
         )
     )
@@ -218,7 +220,15 @@ def test_concurrent_stale_token_refresh_logs_in_once(client_config):
     # parity) — late lock acquirers reuse the freshly refreshed memo token.
     client_config.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
     client_config.token_cache_path.write_text(
-        json.dumps({"accessToken": "stale", "expiresIn": 1, "time": 0, "expiresAt": 9999999999})
+        json.dumps(
+            {
+                "accessToken": "stale",
+                "expiresIn": 1,
+                "time": 0,
+                "expiresAt": 9999999999,
+                "issuedFor": "3ec07b4be220b9de",
+            }
+        )
     )
     barrier = threading.Barrier(5, timeout=10)
 

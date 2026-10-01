@@ -1,6 +1,6 @@
 """vault.my_conference_list — 我的会议列表（分页, 端点最大页 50）。
 
-通过多组示例覆盖全部参数；可选参数的枚举值已在注释中标注（取自 gangtise CLI 文档, 未杜撰）。
+通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.vault.my_conference_list(...)。
 """
 
@@ -38,6 +38,7 @@ async def main():
         await gangtise.async_.vault.my_conference_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
             category=["companyAnalysis", "industryAnalysis"],  # 会议分类, 支持单值或列表
+            size=20,  # 按条计费: 省略 size 会按 total × 单价估算全量, 超过 1000 积分拒绝
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,
@@ -46,6 +47,8 @@ async def main():
     #   research_area=<研究领域ID>   见 reference.constant_list(category="citicIndustry")
     #   institution=<机构ID>         见 reference.institution_search(keyword=...)
     #   source=1 或 [1, 2]           录制来源: 1=企微会议助理 2=会议服务微信群
+    # 按条计费 0.1 积分/条: 省略 size 时按 total × 单价估算, 超过 1000 积分会被拒;
+    #   传 size 取一部分, 或 confirm=True 确认全量
 
 
 if __name__ == "__main__":

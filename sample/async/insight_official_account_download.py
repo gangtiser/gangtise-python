@@ -20,11 +20,11 @@ async def main():
     # 步骤 1 · 先取列表拿到一个可下载的 articleId
     items = await gangtise.async_.insight.official_account_list(size=1)
     if items.empty:
-        raise SystemExit("No source item found for insight.official_account_download.")
+        raise SystemExit("没有找到可用于 insight.official_account_download 的条目。")
     row = items.iloc[0]
     item_id = row.get("articleId") or row.get("id")
     if not item_id:
-        raise SystemExit("Could not find an ID column in the list response.")
+        raise SystemExit("列表返回里找不到 ID 列。")
 
     # 步骤 2 · chdir 到 sample_downloads 后下载, 结束再 chdir 回去
     previous_cwd = Path.cwd()

@@ -210,3 +210,115 @@ def test_concurrent_writers_all_survive(tmp_path):
     cache.flush()
     titles = json.loads((tmp_path / "titles.json").read_text(encoding="utf8"))["ep"]["titles"]
     assert titles == {f"id{i}": f"标题{i}" for i in range(32)}
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def test_flush_keeps_titles_another_process_wrote_meanwhile(tmp_path):
+    # TS v0.44.0 mergeFromDisk. Another process (a second SDK run, or the npm CLI that
+    # shares this file) rewrites it from its own snapshot after this one loaded: a
+    # title this one already has, one it lacks, and an endpoint it never listed. This
+    # process's next flush must not put its older snapshot back over them.
+    path = tmp_path / "titles.json"
+    cache = TitleCache(path)
+    cache.set_titles("ep", {"1": "one"})
+    cache.flush()
+    path.write_text(
+        json.dumps(
+            {
+                "ep": {"ts": _now_ms(), "titles": {"1": "another title", "2": "two"}},
+                "other": {"ts": _now_ms(), "titles": {"a": "A"}},
+            }
+        ),
+        encoding="utf8",
+    )
+    cache.set_titles("ep", {"3": "three"})
+    cache.flush()
+
+    data = TitleCache(path)._data
+    # This process wins the clash on "1"; the other process's "2" and "other" survive.
+    assert data["ep"]["titles"] == {"1": "one", "2": "two", "3": "three"}
+    assert data["other"]["titles"] == {"a": "A"}
+
+
+def test_flush_merge_over_the_cap_keeps_this_processs_titles(tmp_path):
+    # Small integer-like ids written here must survive a merge with a full endpoint
+    # written elsewhere: the cap evicts the other process's ids, never ours.
+    path = tmp_path / "titles.json"
+    cache = TitleCache(path)
+    cache.set_titles("ep", {"1": "mine one", "2": "mine two"})
+    cache.flush()
+    n = TITLE_CACHE_MAX_PER_ENDPOINT
+    others = {str(1000 + i): f"other {i}" for i in range(n)}
+    path.write_text(json.dumps({"ep": {"ts": _now_ms(), "titles": others}}), encoding="utf8")
+    cache.set_titles("ep", {"3": "mine three"})
+    cache.flush()
+
+    titles = TitleCache(path)._data["ep"]["titles"]
+    assert len(titles) == n
+    assert [titles.get("1"), titles.get("2"), titles.get("3")] == [
+        "mine one",
+        "mine two",
+        "mine three",
+    ]
+
+
+def test_flush_merge_skips_expired_and_malformed_disk_entries(tmp_path):
+    path = tmp_path / "titles.json"
+    cache = TitleCache(path)
+    stale_ts = _now_ms() - TITLE_CACHE_TTL_MS - 1000
+    path.write_text(
+        json.dumps(
+            {
+                "stale": {"ts": stale_ts, "titles": {"x": "old"}},
+                "broken": {"ts": _now_ms(), "titles": ["not", "a", "dict"]},
+            }
+        ),
+        encoding="utf8",
+    )
+    cache.set_titles("ep", {"1": "one"})
+    cache.flush()
+    assert set(json.loads(path.read_text(encoding="utf8"))) == {"ep"}
+
+
+def test_a_title_with_a_lone_surrogate_does_not_stop_the_cache_persisting(tmp_path):
+    """A title that cannot be encoded must not stay in memory: it would make every later
+    flush fail, and the cache would silently never reach disk again in that process."""
+    from gangtise_openapi._title_cache import TitleCache
+
+    path = tmp_path / "title.json"
+    cache = TitleCache(path)
+    cache.set_titles("insight.research.list", {"1": "坏\udc80标题"})
+    cache.flush()
+    cache.set_titles("insight.research.list", {"2": "正常标题"})
+    cache.flush()
+    fresh = TitleCache(path)
+    assert fresh.lookup("insight.research.list", "2") == "正常标题"
+    assert fresh.lookup("insight.research.list", "1") == "坏�标题"
+
+
+def test_a_lone_surrogate_loaded_from_the_shared_file_does_not_block_flushes(tmp_path):
+    """The CLI writes a lone surrogate as a valid JSON escape; loaded
+    back (or merged in at flush) it made every flush fail, so no new title persisted."""
+    import json
+    import time
+
+    from gangtise_openapi._title_cache import TitleCache
+
+    path = tmp_path / "title.json"
+    now = int(time.time() * 1000)
+    raw = {"insight.research.list": {"titles": {"1": "坏\udc80"}, "ts": now}}
+    path.write_text(json.dumps(raw))  # ensure_ascii: written as the \\udc80 escape
+    cache = TitleCache(path)
+    cache.set_titles("insight.research.list", {"2": "正常"})
+    cache.flush()
+    # And the merge path: another writer drops the same escape in before our next flush.
+    path.write_text(json.dumps({"insight.summary.list": {"titles": {"9": "x\udc81"}, "ts": now}}))
+    cache.set_titles("insight.research.list", {"3": "又一个"})
+    cache.flush()
+    fresh = TitleCache(path)
+    assert fresh.lookup("insight.research.list", "2") == "正常"
+    assert fresh.lookup("insight.research.list", "3") == "又一个"
+    assert fresh.lookup("insight.summary.list", "9") == "x�"

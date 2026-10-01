@@ -1,7 +1,7 @@
 """alternative.edb_data — 按指标 ID 拉取行业经济指标(EDB)时间序列数据。
 
 indicator_id 需先用 alternative.edb_search 按关键词搜出真实 ID, 这里沿用该取数链路。
-通过示例与注释覆盖全部参数;可选参数的枚举值已在注释中标注(取自 gangtise CLI 文档, 未杜撰)。
+通过示例与注释演示各参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步用法相同, 路径为 gangtise.async_.alternative.edb_data(...)。
 """
 
@@ -16,7 +16,7 @@ def main():
     # 先用 edb_search 拿到一个真实指标 ID(required 参数必须为真实值)
     indicators = gangtise.alternative.edb_search(keyword="空调", limit=1)
     if indicators.empty:
-        raise SystemExit("No EDB indicator found for keyword '空调'.")
+        raise SystemExit("关键词「空调」没有搜到 EDB 指标。")
     indicator_id = str(indicators.iloc[0].get("indicatorId") or indicators.iloc[0].get("id"))
 
     # 示例 · 单个指标的时间序列

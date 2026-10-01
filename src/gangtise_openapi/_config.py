@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -41,25 +43,73 @@ def _positive_int(value: str | None, default: int, maximum: int | None = None) -
     return min(parsed, maximum) if maximum is not None else parsed
 
 
+# Bounds for GANGTISE_TIMEOUT_MS. Below a second every request times out before the
+# server can answer; past an hour a hung request is indistinguishable from none.
+MIN_TIMEOUT_MS = 1_000
+MAX_TIMEOUT_MS = 3_600_000
+
+_timeout_warned = False
+
+
+def resolve_timeout_env(raw: str | None) -> int:
+    """GANGTISE_TIMEOUT_MS as whole milliseconds (TS v0.42.0).
+
+    Anything that is not a plain decimal integer (``0.5``, ``1e12``, ``30s``) falls
+    back to the default, the same way an invalid GANGTISE_PAGE_CONCURRENCY does; so
+    does a value under a second, which is almost always seconds written where
+    milliseconds were meant (``30``) and would time every request out. A value past
+    the upper bound is capped to it."""
+    if not raw or not re.fullmatch(r"\d+", raw.strip(), re.ASCII):
+        return DEFAULT_TIMEOUT_MS
+    ms = int(raw)
+    return DEFAULT_TIMEOUT_MS if ms < MIN_TIMEOUT_MS else min(MAX_TIMEOUT_MS, ms)
+
+
+def _env(name: str) -> str | None:
+    """An environment variable, with an empty or blank value treated as unset.
+    ``export GANGTISE_BASE_URL=`` (a common way to "clear" one) otherwise sends every
+    request to an empty base URL, and an empty GANGTISE_TOKEN shadows working AK/SK
+    credentials (TS v0.44.0)."""
+    value = os.environ.get(name, "").strip()
+    return value or None
+
+
 def _truthy(value: str | None) -> bool:
     return value in {"1", "true", "True", "yes", "YES"}
 
 
 def load_config() -> Config:
-    token_cache_env = os.environ.get("GANGTISE_TOKEN_CACHE_PATH")
-    title_cache_env = os.environ.get("GANGTISE_TITLE_CACHE_PATH")
+    global _timeout_warned
+    raw_timeout = _env("GANGTISE_TIMEOUT_MS")
+    timeout_ms = resolve_timeout_env(raw_timeout)
+    # Said once per process: the AI generation methods are the ones this variable is
+    # set for, they are not replayed on a timeout, and a rerun bills again — so a value
+    # that quietly fell back to 30 s must not go unnoticed.
+    in_effect = raw_timeout is None or (
+        re.fullmatch(r"\d+", raw_timeout, re.ASCII) is not None and int(raw_timeout) == timeout_ms
+    )
+    if not in_effect and not _timeout_warned:
+        _timeout_warned = True
+        warnings.warn(
+            f"GANGTISE_TIMEOUT_MS={raw_timeout} is not in effect, using {timeout_ms} ms: "
+            f"expected whole milliseconds from {MIN_TIMEOUT_MS} to {MAX_TIMEOUT_MS}",
+            UserWarning,
+            stacklevel=2,
+        )
+    token_cache_env = _env("GANGTISE_TOKEN_CACHE_PATH")
+    title_cache_env = _env("GANGTISE_TITLE_CACHE_PATH")
     return Config(
-        base_url=os.environ.get("GANGTISE_BASE_URL", DEFAULT_BASE_URL),
-        access_key=os.environ.get("GANGTISE_ACCESS_KEY"),
-        secret_key=os.environ.get("GANGTISE_SECRET_KEY"),
-        token=os.environ.get("GANGTISE_TOKEN"),
+        base_url=_env("GANGTISE_BASE_URL") or DEFAULT_BASE_URL,
+        access_key=_env("GANGTISE_ACCESS_KEY"),
+        secret_key=_env("GANGTISE_SECRET_KEY"),
+        token=_env("GANGTISE_TOKEN"),
         token_cache_path=Path(token_cache_env) if token_cache_env else DEFAULT_TOKEN_CACHE_PATH,
         title_cache_path=Path(title_cache_env) if title_cache_env else DEFAULT_TITLE_CACHE_PATH,
-        timeout_ms=_positive_int(os.environ.get("GANGTISE_TIMEOUT_MS"), DEFAULT_TIMEOUT_MS),
+        timeout_ms=timeout_ms,
         page_concurrency=_positive_int(
-            os.environ.get("GANGTISE_PAGE_CONCURRENCY"),
+            _env("GANGTISE_PAGE_CONCURRENCY"),
             DEFAULT_PAGE_CONCURRENCY,
             maximum=MAX_PAGE_CONCURRENCY,
         ),
-        verbose=_truthy(os.environ.get("GANGTISE_VERBOSE")),
+        verbose=_truthy(_env("GANGTISE_VERBOSE")),
     )

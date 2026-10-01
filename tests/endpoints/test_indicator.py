@@ -301,9 +301,10 @@ def test_cross_section_sector_id_is_not_reported_as_dropped(tmp_path):
 
 
 def test_cross_section_empty_matrix_notes_ambiguity_without_partial(tmp_path):
-    # An all-empty matrix is no longer "no data": since 2026-08-07 a real coverage
-    # gap keeps its row and column, so nothing in the request resolved. Calling
-    # every requested code "omitted" would be false metadata.
+    # An all-empty matrix is not a known answer: a real coverage gap keeps its row
+    # and column (null cell), and an unrecognised code or parameter name is a 100003
+    # error (TS v0.43.0 ⑩). Calling every requested code "omitted" would be false
+    # metadata.
     matrix = {
         "indicatorList": [],
         "securityCodeList": [],
@@ -313,7 +314,7 @@ def test_cross_section_empty_matrix_notes_ambiguity_without_partial(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post(_CROSS).mock(return_value=_ede_response(matrix))
         with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
-            with pytest.warns(UserWarning, match="NOTHING in the request resolved"):
+            with pytest.warns(UserWarning, match="empty answer is neither"):
                 df = Indicator(client).cross_section(
                     date="2026-03-31", indicator="qte_close", security="999999.SH"
                 )
@@ -1123,3 +1124,225 @@ def test_a_correctly_spelled_indicator_param_still_travels(tmp_path):
             )
     body = json.loads(route.calls[0].request.content)
     assert body["indicatorParamList"][0]["indicatorCode"] == "is_op_rev"
+
+
+# ───────────── time-series calendar auto-selection (TS v0.40.0 ⑬-⑮) ─────────────
+#
+# tests/unit/test_calendar_type.py covers the decision itself against a stub; these
+# check that time_series still consults it and still puts the answer on the wire.
+
+_PARAMS = {
+    "qte_close": ["tradeDate", "adjustType"],
+    "qte_vol": ["tradeDate"],
+    "is_op_rev": ["reportDate", "reportType"],
+}
+
+
+def _search_by_keyword(request: httpx.Request) -> httpx.Response:
+    keyword = json.loads(request.read())["keyword"]
+    rows = [
+        {"indicatorCode": keyword, "parameterList": [{"paramKey": k} for k in _PARAMS[keyword]]}
+    ]
+    return _ede_response(rows)
+
+
+def _series_matrix(*codes: str) -> dict:
+    return {
+        "dates": ["2026-05-18"],
+        "securityCodeList": ["600519.SH"],
+        "indicatorList": [_ind(code, code) for code in codes],
+        "values": [[1.0] for _ in codes],
+    }
+
+
+def test_time_series_sends_td_when_every_indicator_takes_trade_date(tmp_path, caplog):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        search = router.post(_SEARCH).mock(side_effect=_search_by_keyword)
+        series = router.post(_TIME).mock(
+            return_value=_ede_response(_series_matrix("qte_close", "qte_vol"))
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client, caplog.at_level("INFO"):
+            Indicator(client).time_series(
+                start_date="2026-05-18",
+                end_date="2026-05-18",
+                indicator=["qte_close", "qte_vol"],
+                security="600519.SH",
+            )
+        body = json.loads(series.calls.last.request.read())
+        probed = sorted(json.loads(c.request.read())["keyword"] for c in search.calls)
+    assert body["calendarType"] == "TD"
+    assert probed == ["qte_close", "qte_vol"]
+    assert "calendarType=TD" in caplog.text
+
+
+def test_time_series_leaves_calendar_off_when_one_indicator_takes_a_report_period(tmp_path):
+    # TD would answer is_op_rev with an all-null grid and no error; staying off lets
+    # the server apply ND and keeps the report-period rows.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_SEARCH).mock(side_effect=_search_by_keyword)
+        series = router.post(_TIME).mock(
+            return_value=_ede_response(_series_matrix("qte_close", "is_op_rev"))
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).time_series(
+                start_date="2026-03-25",
+                end_date="2026-04-05",
+                indicator=["qte_close", "is_op_rev"],
+                security="600519.SH",
+                indicator_param={"is_op_rev": {"reportDate": "2026-03-31"}},
+            )
+        body = json.loads(series.calls.last.request.read())
+    assert "calendarType" not in body
+
+
+def test_time_series_explicit_calendar_type_is_sent_as_given_without_a_probe(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        search = router.post(_SEARCH).mock(side_effect=_search_by_keyword)
+        series = router.post(_TIME).mock(return_value=_ede_response(_series_matrix("qte_close")))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).time_series(
+                start_date="2026-05-18",
+                end_date="2026-05-18",
+                indicator="qte_close",
+                security="600519.SH",
+                calendar_type="ND",
+            )
+        body = json.loads(series.calls.last.request.read())
+    assert body["calendarType"] == "ND"
+    assert not search.called
+
+
+def test_time_series_probe_failure_falls_back_to_the_server_default(tmp_path):
+    failed = {"code": "000000", "status": True, "data": {"code": "100003", "msg": "x"}}
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_SEARCH).mock(return_value=httpx.Response(200, json=failed))
+        series = router.post(_TIME).mock(return_value=_ede_response(_series_matrix("qte_close")))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).time_series(
+                start_date="2026-05-18",
+                end_date="2026-05-18",
+                indicator="qte_close",
+                security="600519.SH",
+            )
+        body = json.loads(series.calls.last.request.read())
+    assert "calendarType" not in body
+
+
+def test_time_series_local_checks_fire_before_the_probe(tmp_path):
+    # A bad param date must not cost even the free search request.
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        search = router.post(_SEARCH).mock(side_effect=_search_by_keyword)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="reportDate"):
+                Indicator(client).time_series(
+                    start_date="2026-05-18",
+                    end_date="2026-05-18",
+                    indicator="is_op_rev",
+                    security="600519.SH",
+                    indicator_param={"is_op_rev": {"reportDate": "03-31-2026"}},
+                )
+    assert not search.called
+
+
+# ───────────── indicator_param date values (TS v0.44.0 ⑧) ─────────────
+
+
+def _param_values(body: dict, key: str = "indicatorParamList") -> dict:
+    return {
+        (g.get("field") or g["indicatorCode"]): {
+            p["paramKey"]: p["paramValue"] for p in g["parameters"]
+        }
+        for g in body[key]
+    }
+
+
+def test_cross_section_normalizes_date_keyed_param_values(tmp_path):
+    matrix = {
+        "securityCodeList": ["600519.SH"],
+        "indicatorList": [_ind("is_op_rev", "营业收入"), _ind("qte_vol_intvl", "区间成交量")],
+        "values": [[1.0, 2.0]],
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_CROSS).mock(return_value=_ede_response(matrix))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).cross_section(
+                date="2026/03/31",
+                indicator=["is_op_rev", "qte_vol_intvl"],
+                security="600519.SH",
+                indicator_param={
+                    "is_op_rev": {"reportDate": "2025/12/31"},
+                    "qte_vol_intvl": {"sDate": "20260102"},
+                },
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert _param_values(body) == {
+        "is_op_rev": {"reportDate": "2025-12-31"},
+        "qte_vol_intvl": {"sDate": "2026-01-02", "tradeDate": "2026-03-31"},
+    }
+
+
+def test_time_series_normalizes_date_keyed_param_values(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_TIME).mock(return_value=_ede_response(_series_matrix("qte_close")))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).time_series(
+                start_date="2026-05-18",
+                end_date="2026-05-18",
+                indicator="qte_close",
+                security="600519.SH",
+                calendar_type="TD",
+                indicator_param={"qte_close": {"adjustType": "4", "baseDate": "2024/01/02"}},
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert _param_values(body) == {"qte_close": {"adjustType": "4", "baseDate": "2024-01-02"}}
+
+
+def test_screener_normalizes_date_keyed_param_values(tmp_path):
+    matrix = {
+        "securityCodeList": ["600519.SH"],
+        "indicatorList": [
+            _ind("is_op_rev", "营业收入", field="F1"),
+            _ind("qte_close", "收盘价", field="F2"),
+        ],
+        "values": [[1.0, 2.0]],
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SCREENER).mock(return_value=_ede_response(matrix))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            Indicator(client).screener(
+                date="2026/03/31",
+                expression="F1 > 0 && F2 > 0",
+                indicator={"F1": "is_op_rev", "F2": "qte_close"},
+                security="600519.SH",
+                indicator_param={"F1": {"reportDate": "20251231"}},
+            )
+        body = json.loads(route.calls.last.request.read())
+    # The injected query date is normalized too, not just the explicit params.
+    assert _param_values(body, "indicatorList") == {
+        "F1": {"reportDate": "2025-12-31"},
+        "F2": {"tradeDate": "2026-03-31"},
+    }
+
+
+@pytest.mark.parametrize("method", ["cross_section", "screener"])
+def test_year_last_param_date_is_refused_before_any_request(tmp_path, method):
+    kwargs = {
+        "cross_section": {
+            "indicator": "is_op_rev",
+            "indicator_param": {"is_op_rev": {"reportDate": "12-31-2025"}},
+        },
+        "screener": {
+            "indicator": {"F1": "is_op_rev"},
+            "expression": "F1 > 0",
+            "indicator_param": {"F1": {"reportDate": "12/31/2025"}},
+        },
+    }[method]
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        cross = router.post(_CROSS)
+        screen = router.post(_SCREENER)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="year-last"):
+                getattr(Indicator(client), method)(
+                    date="2026-03-31", security="600519.SH", **kwargs
+                )
+    assert not cross.called and not screen.called

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import re
@@ -45,10 +46,11 @@ _MAX_RETRIES = 2
 # DownloadError instead of recursing to RecursionError + a request storm.
 _MAX_URL_HOPS = 5
 
-_DISPOSITION_RE = re.compile(
-    r"filename\*?\s*=\s*(?:(?:[^']*)''([^;]+)|\"?([^\";]+)\"?)",
-    re.IGNORECASE,
-)
+# RFC 6266: when both are sent, ``filename*`` (RFC 5987, ``charset'lang'value``) wins
+# over the plain ``filename``, which is usually an ASCII fallback — so they are matched
+# separately; one alternation would take whichever comes first (TS v0.45.0).
+_DISPOSITION_EXT_RE = re.compile(r"filename\*\s*=\s*([^']*)'[^']*'([^;]+)", re.IGNORECASE)
+_DISPOSITION_RE = re.compile(r"filename\s*=\s*\"?([^\";]+)\"?", re.IGNORECASE)
 _MIME_EXTENSIONS = {
     "application/pdf": ".pdf",
     "application/zip": ".zip",
@@ -89,11 +91,19 @@ _KNOWN_EXTENSIONS = {ext for ext in _MIME_EXTENSIONS.values() if ext} | _URL_EXT
 def _parse_content_disposition(header: str | None) -> str | None:
     if not header:
         return None
+    ext = _DISPOSITION_EXT_RE.search(header)
+    if ext:
+        # Decoded in the charset it declares (RFC 5987 allows ISO-8859-1 as well as
+        # UTF-8); one Python cannot decode with falls back to the plain filename. Some
+        # codecs (idna, punycode, undefined) raise UnicodeError even under
+        # errors="replace" — a name is never worth failing a received download over.
+        try:
+            codecs.lookup(ext.group(1))
+            return unquote(ext.group(2), encoding=ext.group(1))
+        except (LookupError, UnicodeError):
+            pass
     match = _DISPOSITION_RE.search(header)
-    if not match:
-        return None
-    raw = match.group(1) or match.group(2)
-    return unquote(raw)
+    return unquote(match.group(1)) if match else None
 
 
 def _extension_for(content_type: str | None) -> str:
@@ -997,7 +1007,7 @@ async def _download_once_async(
     # The total deadline covers the whole attempt here, as in the async JSON transport:
     # waiting for the headers and reading a JSON / error body run under the time left,
     # not only the file body (a server trickling its headers resets the idle timeout).
-    # Sync httpx has no such hook — see bug/python-open.md P11.
+    # Sync httpx has no such hook.
     try:
         with anyio.fail_after(max(0.0, deadline - time.monotonic())):
             # See _download_once: upstream must not auto-follow, or a CDN-hop failure

@@ -182,8 +182,8 @@ class EndpointDef:
     # drops a row identical to one it already kept under the same id: lists sorted on
     # a non-unique key (``msgTime``, ``publishTime``) reorder a same-timestamp group
     # between two page requests, so neighbouring pages both return some of it and
-    # miss the rest — the row count still equals ``total`` (probed 2026-09-25, server
-    # P2-26). Dropping the duplicate makes the count fall short, which marks the
+    # miss the rest — the row count still equals ``total`` (probed 2026-09-25).
+    # Dropping the duplicate makes the count fall short, which marks the
     # result partial. An id that comes back on a LATER page with different content
     # marks it partial too (``changedRows``) — unless one page carries it with two
     # contents, which shows the field is no row key for this list (TS v0.43.0).
@@ -1475,7 +1475,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "vault.drive.copy",
         "POST",
         "/application/open-vault/drive/copy",
-        "Copy drive files to the OTHER space (my drive <-> tenant drive)",
+        "Copy drive files or a folder to the OTHER space (my drive <-> tenant drive)",
         retry="no-replay",
         item_failures=True,
     ),

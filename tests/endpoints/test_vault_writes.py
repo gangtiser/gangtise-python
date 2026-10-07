@@ -214,7 +214,6 @@ def test_drive_move_file_and_copy_bodies_and_partial(seeded_config):
             with pytest.warns(UserWarning, match="BAD1（文件不存在）"):
                 copied = v.drive_copy(file_id=["49412", "BAD1"], target_folder_id="root")
     assert _body(move) == {"fileIdList": ["49412"], "targetFolderId": "101"}
-    # Files only: the folder copy answers 000000 but leaves the copy empty.
     assert _body(copy) == {
         "copyType": "file",
         "fileIdList": ["49412", "BAD1"],
@@ -223,6 +222,38 @@ def test_drive_move_file_and_copy_bodies_and_partial(seeded_config):
     assert "partial" not in moved
     assert copied["partial"] is True
     assert copied["successList"][0]["newFileId"] == "50001"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"file_id": "1", "target_parent_id": "root"}, "not both"),
+        ({"file_id": "1", "folder_id": "201"}, "not both"),
+        ({"file_id": "1"}, "needs both file_id and target_folder_id"),
+        ({"target_folder_id": "root"}, "needs both file_id and target_folder_id"),
+        ({"folder_id": "201"}, "needs both folder_id and target_parent_id"),
+        ({"target_parent_id": "root"}, "needs both folder_id and target_parent_id"),
+        ({}, "pass either"),
+        ({"file_id": [], "target_folder_id": "root"}, "file_id is an empty list"),
+    ],
+)
+def test_drive_copy_refuses_a_mixed_or_half_request_locally(seeded_config, kwargs, match):
+    # TS v0.45.0: copyType is picked from which pair is given. No respx route: any
+    # request would be an unmatched-route error.
+    with respx.mock(base_url=_BASE), GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+        with pytest.raises(ValidationError, match=match):
+            Vault(client).drive_copy(**kwargs)
+
+
+def test_drive_copy_folder_body(seeded_config):
+    with respx.mock(base_url=_BASE, assert_all_called=True) as router:
+        copy = router.post(f"{_DRIVE}/copy").mock(
+            return_value=_ok({"folderId": "201", "newFolderId": "301"})
+        )
+        with GangtiseClient(_config=seeded_config) as client:
+            copied = Vault(client).drive_copy(folder_id="201", target_parent_id="root")
+    assert _body(copy) == {"copyType": "folder", "folderId": "201", "targetParentId": "root"}
+    assert copied == {"folderId": "201", "newFolderId": "301"}
 
 
 def test_drive_deletes_need_confirm_before_any_request(seeded_config):

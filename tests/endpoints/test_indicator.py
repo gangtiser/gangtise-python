@@ -941,7 +941,7 @@ def test_matrix_shape_error_keeps_the_envelope_trace_id(tmp_path):
 def test_cross_section_empty_param_mapping_suppresses_the_date_injection(tmp_path):
     # A handful of indicators take NO date at all (an empty parameterList), and the
     # server rejects a stray tradeDate with 100003 — so injecting unconditionally
-    # makes them unreachable here, which is where the CLI and gangtise-mcp stand.
+    # makes them unreachable here, which is where the CLI stands too.
     # Opt-in: only an explicitly empty mapping suppresses it.
     matrix = {
         "indicatorList": [_ind("scr_exchg_mkt", "上市市场")],

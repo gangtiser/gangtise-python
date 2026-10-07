@@ -147,7 +147,8 @@ _NOT_FETCHED: Any = object()
 def _read_empty_list(page: Any) -> Any:
     """Several lists answer "nothing matched" with ``list: null`` instead of ``[]`` —
     hot-topic, summary, the A-share and HK announcement lists, performance-calendar
-    (probed 2026-09-25, server P2-27). A numeric total of exactly 0 says what an empty
+    (probed 2026-09-25), and the roadshow / site-visit / forum lists (probed by the CLI
+    2026-10-07). A numeric total of exactly 0 says what an empty
     list would, so it is read as one; a null list under any other total, a string total
     or a missing list is still a broken page and takes the unexpected-shape path
     (TS v0.43.0). Returns a copy: the caller's payload is never mutated."""
@@ -549,8 +550,8 @@ class _PagedFetch:
         client cannot measure billing at all (no quota/usage API), at least one
         paginated endpoint has no published unit price, and several are free. What the
         probe relies on is narrower — on the endpoints where a capped ``total`` has been
-        observed, an empty answer is not billed.
-        Raised by gangtise-mcp; the CLI reverted the same exclusion on 2026-08-18.
+        observed, an empty answer is not billed. The CLI reverted the same exclusion on
+        2026-08-18.
 
         The probe asks for the row at offset ``total``; past a declared offset window
         the server rejects it outright, so a ``total`` that reaches the window cannot be
@@ -610,7 +611,7 @@ class _PagedFetch:
         Lists sorted on a non-unique key (``msgTime``, ``publishTime``) reorder a
         same-timestamp group between two page requests, so neighbouring pages both
         return some of it and miss the rest — the row count still equals ``total``
-        (probed 2026-09-25, server P2-26). A row identical to ANY version kept under its
+        (probed 2026-09-25). A row identical to ANY version kept under its
         ``row_id`` (not just the first) is dropped and counted; only the id and a digest
         per version are held, not the row itself (TS v0.43.0 / v0.43.1).
 

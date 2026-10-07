@@ -162,6 +162,25 @@ async def test_async_drive_move_file_and_copy(seeded_config):
     assert "partial" not in copied
 
 
+async def test_async_drive_copy_folder_and_local_refusals(seeded_config):
+    with respx.mock(base_url=_BASE, assert_all_called=True) as router:
+        copy = router.post(f"{_DRIVE}/copy").mock(
+            return_value=_ok({"folderId": "201", "newFolderId": "301"})
+        )
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            v = AsyncVault(client)
+            with pytest.raises(ValidationError, match="not both"):
+                await v.drive_copy(file_id="1", target_parent_id="root")
+            with pytest.raises(ValidationError, match="needs both folder_id and target_parent_id"):
+                await v.drive_copy(folder_id="201")
+            with pytest.raises(ValidationError, match="pass either"):
+                await v.drive_copy()
+            copied = await v.drive_copy(folder_id="201", target_parent_id="root")
+    assert copy.call_count == 1
+    assert _body(copy) == {"copyType": "folder", "folderId": "201", "targetParentId": "root"}
+    assert copied == {"folderId": "201", "newFolderId": "301"}
+
+
 async def test_async_drive_deletes_need_confirm(seeded_config):
     with respx.mock(base_url=_BASE, assert_all_called=False) as router:
         delete_file = router.post(f"{_DRIVE}/deleteFile").mock(

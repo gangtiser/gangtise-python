@@ -138,3 +138,36 @@ def test_page_concurrency_defensive_parse(monkeypatch):
         monkeypatch.setenv("GANGTISE_PAGE_CONCURRENCY", raw)
         assert load_config().page_concurrency == expected, raw
     assert MAX_PAGE_CONCURRENCY == 32
+
+
+def test_plain_http_base_url_warns_once_for_a_remote_host(monkeypatch):
+    """TS v0.45.0: over plain http the AK/SK and token travel unencrypted. One warning
+    per process, wherever the base URL came from; loopback (a local proxy or stub) and
+    https stay quiet. ``127.`` only means loopback on an address."""
+    import warnings
+
+    import gangtise_openapi._config as config_module
+    from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
+
+    def warnings_for(make) -> list[str]:
+        monkeypatch.setattr(config_module, "_plain_http_warned", False)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            make()
+            make()
+        return [str(w.message) for w in caught]
+
+    monkeypatch.setenv("GANGTISE_BASE_URL", "http://proxy.example.com:8080/gw")
+    lines = warnings_for(GangtiseClient)
+    assert len(lines) == 1
+    assert "plain http (proxy.example.com:8080)" in lines[0]
+    lookalike = warnings_for(lambda: AsyncGangtiseClient(base_url="http://127.proxy.example.com"))
+    assert len(lookalike) == 1
+    assert "plain http (127.proxy.example.com)" in lookalike[0]
+    for url in (
+        "https://proxy.example.com",
+        "http://127.0.0.1:18765",
+        "http://localhost:3000",
+        "http://[::1]:8080",
+    ):
+        assert warnings_for(lambda url=url: GangtiseClient(base_url=url)) == [], url

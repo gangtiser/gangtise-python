@@ -133,11 +133,11 @@ ERROR_HINTS: dict[str, str] = {
 # JOINED sentence (「不支持参数 A; 缺少必填参数 B」, which pins down exactly which key
 # to swap) and a HALF sentence (only「不支持参数 A」, which proves the key was
 # rejected but says nothing about what to use instead). Asserting a replacement on
-# the half sentence sends the caller to a key that will also be rejected — found by
-# gangtise-mcp 2026-08-15 on `scr_exchg_mkt`, whose parameterList is EMPTY, where
-# the assertive hint told the user to pass `reportDate` and that failed too. The
-# CLI carried the single-alternation form through v0.34.1 and split it the same way
-# in v0.35.0 `errors.ts`; see bug/closed.md U1.
+# the half sentence sends the caller to a key that will also be rejected — as on
+# `scr_exchg_mkt`, whose parameterList is EMPTY, where the assertive hint told the
+# user to pass `reportDate` and that failed too. The CLI carried the
+# single-alternation form through v0.34.1 and split it the same way in v0.35.0
+# `errors.ts`.
 #
 # ⚠️ Do NOT restate any of this as a rule about code prefixes. Surveys say
 # otherwise: most indicators take reportDate only, many take tradeDate only,
@@ -149,8 +149,8 @@ ERROR_HINTS: dict[str, str] = {
 #
 # ⚠️ Counts are deliberately NOT stated here. Every sweep so far has been a keyword
 # sample, not an enumeration, and two of them disagreed on which static-attribute
-# indicators exist (see bug/closed.md U2) — a number written here would read
-# as exhaustive and be wrong the moment the catalogue changes.
+# indicators exist — a number written here would read as exhaustive and be wrong the
+# moment the catalogue changes.
 _MULTI_NOTE = "以 gangtise.indicator.search() 返回的 parameterList 为准，别按指标 code 前缀推断。"
 
 # Each entry is (codes, must-match patterns, must-NOT-match patterns, hint).

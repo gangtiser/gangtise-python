@@ -21,7 +21,13 @@ from gangtise_openapi._auth import (
     require_credentials,
     write_token_cache,
 )
-from gangtise_openapi._config import MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, Config, load_config
+from gangtise_openapi._config import (
+    MAX_TIMEOUT_MS,
+    MIN_TIMEOUT_MS,
+    Config,
+    load_config,
+    warn_if_plain_http,
+)
 from gangtise_openapi._endpoints import COSTLY_FETCH_CREDITS, EndpointDef, lookup
 from gangtise_openapi._errors import ApiError, ConfigError, ValidationError
 from gangtise_openapi._logging import configure_logging, get_logger
@@ -239,6 +245,7 @@ class GangtiseClient:
                 overrides["timeout_ms"] = _timeout_ms(timeout)
             if overrides:
                 cfg = Config(**{**asdict(cfg), **overrides})
+        warn_if_plain_http(cfg.base_url)
         self._config = cfg
         configure_logging(cfg.verbose)
         self._http: httpx.Client | None = None
@@ -586,6 +593,7 @@ class AsyncGangtiseClient:
                 overrides["timeout_ms"] = _timeout_ms(timeout)
             if overrides:
                 cfg = Config(**{**asdict(cfg), **overrides})
+        warn_if_plain_http(cfg.base_url)
         self._config = cfg
         configure_logging(cfg.verbose)
         self._http: httpx.AsyncClient | None = None

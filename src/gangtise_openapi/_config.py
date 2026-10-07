@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 DEFAULT_BASE_URL = "https://openapi.gangtise.com"
 DEFAULT_TIMEOUT_MS = 30_000
@@ -49,6 +51,7 @@ MIN_TIMEOUT_MS = 1_000
 MAX_TIMEOUT_MS = 3_600_000
 
 _timeout_warned = False
+_plain_http_warned = False
 
 
 def resolve_timeout_env(raw: str | None) -> int:
@@ -72,6 +75,39 @@ def _env(name: str) -> str | None:
     credentials (TS v0.44.0)."""
     value = os.environ.get(name, "").strip()
     return value or None
+
+
+def warn_if_plain_http(base_url: str) -> None:
+    """Said once per process: over plain http the login body carries the access key and
+    secret, and every request the token, all unencrypted (TS v0.45.0). Loopback is left
+    alone — that is where a local proxy or a test stub lives. Checked on the base URL in
+    effect, whether it came from GANGTISE_BASE_URL or ``base_url=``."""
+    global _plain_http_warned
+    if _plain_http_warned:
+        return
+    try:
+        url = urlsplit(base_url)
+        host = url.hostname or ""
+        port = url.port
+    except ValueError:
+        return
+    if url.scheme != "http" or host == "localhost":
+        return
+    try:
+        # The 127. prefix only means loopback on an address: 127.proxy.example.com is a
+        # remote name.
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass
+    _plain_http_warned = True
+    shown = f"{host}:{port}" if port is not None else host
+    warnings.warn(
+        f"base URL uses plain http ({shown}): the access key, secret and token are sent "
+        "unencrypted. Use https unless this is a trusted local proxy.",
+        UserWarning,
+        stacklevel=3,
+    )
 
 
 def _truthy(value: str | None) -> bool:

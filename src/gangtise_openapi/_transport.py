@@ -467,8 +467,7 @@ def _do_request(
     started = time.monotonic()
     # Sync httpx has no whole-request deadline: sending the body and waiting for the
     # headers stay bounded by the idle timeouts only, and the total is enforced from
-    # the first body chunk on (the async transport covers all three phases — see
-    # bug/python-open.md P11).
+    # the first body chunk on (the async transport covers all three phases).
     response = http.send(request, stream=True)
     try:
         chunks: list[bytes] = []

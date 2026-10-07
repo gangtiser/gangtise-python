@@ -395,7 +395,7 @@ def test_all_endpoint_keys_match_ts_source():
 
 
 def test_row_id_registry_matches_ts_source():
-    """TS v0.43.0: the id auto-pagination dedupes repeated rows by (server P2-26)."""
+    """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by."""
     assert {k: ep.row_id for k, ep in ENDPOINTS.items() if ep.row_id} == {
         "insight.opinion.list": "chiefOpinionId",
         "insight.summary.list": "summaryId",

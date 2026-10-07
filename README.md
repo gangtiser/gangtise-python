@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 149 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.44.0 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 149 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.45.0 功能对齐。
 
 - **覆盖面**：观点、研报、公告、纪要与会议、行情 K 线与资金流向、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容、个人云盘与股票池、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
@@ -12,6 +12,13 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.1 - 2026-10-07
+- 与 CLI **v0.45.0** 对齐，无新增接口。
+- `vault.drive_copy` 可复制整个文件夹：传 `folder_id` + `target_parent_id`，连同子文件夹与文件复制到另一空间，返回 `{folderId, newFolderId}`；复制文件的写法（`file_id` + `target_folder_id`）不变，两组参数二选一，混传或只传一半在本地报错。
+- 下载：响应同时给出编码文件名（`filename*`，通常为 UTF-8）与普通文件名时，用编码的那个，并按它声明的字符集解码。
+- 接口地址用明文 `http://` 且不是本机地址时告警一次：AK / SK 与 token 会明文传输。
+- 文档：`bond.daily_quote` / `bond.valuation` 的数据可能比账号窗口短，**取长序列时核对首行日期**；`bond.announcement` 按日期查询时有代码的行都带后缀；只知道基金名称时怎么换代码。
 
 ### 0.5.0 - 2026-10-01
 - 与 CLI **v0.44.0** 对齐，新增 52 个接口，共 **149 个**（此前 97）。**次版本号**：几类 0.4.0 会发出的调用改为在本地拒收，观点列表与题材两个接口的默认返回内容也变了。
@@ -38,10 +45,6 @@
 - 与 CLI **v0.28.3–v0.34.1** 对齐，新增条件选股、帕米尔专家纪要、财报日历、PDF 解析，共 97 个接口。**次版本号**。
 - 修复 `indicator.cross_section` / `time_series` 对接服务端新版 EDE 契约；复权参数名更正为 `adjustType`。
 - `quote.day_kline` 全市场关键字改为 `aShares` / `hkStocks` / `usStocks`，旧的 `all` 与关键字混传代码在本地拒收；`ai.stock_summary_list` 拒收市场关键字；`indicator.cross_section` / `time_series` 必须传 `indicator` 与 `security`；列式响应行长与 `fieldList` 不符改为报错；`search_type` / `rank_type` / `file_type` 改为本地白名单；新增 `total` 封顶探测与指标矩阵护栏。
-
-### 0.2.1 - 2026-07-24
-- indicator `cross_section` / `time_series` 新增 `key_by`（`code` 时用代码做列头）。
-- 修复指标没有显示名时列名变成 `None`；sdist 不再夹带 `sample/README.md`。
 
 ## 安装
 
@@ -70,7 +73,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | :-- | :-- |
 | `GANGTISE_ACCESS_KEY` / `GANGTISE_SECRET_KEY` | 账号凭证，SDK 用它们登录换取 token |
 | `GANGTISE_TOKEN` | 直接使用已有 token，优先于 AK/SK；失效时若同时配了 AK/SK 会自动重新登录 |
-| `GANGTISE_BASE_URL` | 接口地址，默认 `https://openapi.gangtise.com` |
+| `GANGTISE_BASE_URL` | 接口地址，默认 `https://openapi.gangtise.com`。用明文 `http://` 且不是本机地址时告警一次（凭证会明文传输） |
 | `GANGTISE_TIMEOUT_MS` | 单次请求的超时（整数毫秒，1000–3600000，默认 30000）。同步 AI 生成类接口与 `ai.stock_summary_list` 另有 120 秒下限，`tool.file_parse` 与 `vault.drive_upload` 两个上传接口为 300 秒 |
 | `GANGTISE_PAGE_CONCURRENCY` | 自动翻页与分片的并发数，默认 5，最大 32 |
 | `GANGTISE_VERBOSE` | 设为 `1` 时输出每个请求的耗时日志 |

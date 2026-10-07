@@ -91,7 +91,7 @@ def _strip_none(body: dict[str, Any]) -> dict[str, Any]:
 # 🔴 Every pattern here ends with ``\Z``, never ``$``. Python's ``$`` also matches
 # just BEFORE a trailing newline, so ``"2026-07-01\n"`` and ``"1234567890\n"``
 # cleared validation and were forwarded verbatim from 0.2.0 through 0.3.1 (v0.4.0
-# rejects them — bug/closed.md P9). ``\Z`` is end-of-string, full stop.
+# rejects them). ``\Z`` is end-of-string, full stop.
 _YEAR_FIRST_DATE = re.compile(r"^(\d{4})([-/]?)(\d{2})\2(\d{2})\Z", re.ASCII)
 # Same, plus an optional `` HH:mm[:ss]`` / ``THH:mm[:ss]`` tail.
 _LOCAL_DATETIME = re.compile(
@@ -132,7 +132,7 @@ def _normalize_year_first(value: str) -> str:
     under the old ``$`` a trailing newline matched with ``m.end() == 10 < len``, and
     an unbounded slice appended it a second time (``"2026-07-01\\n\\n"``). The bound is
     what makes this function correct for ANY anchor, and reverting the anchor without
-    it would silently re-open that. See bug/closed.md P9.
+    it would silently re-open that.
     """
     return _LOCAL_DATETIME.sub(
         lambda m: f"{m[1]}-{m[3]}-{m[4]}{value[m.end(4) : m.end()]}", value, count=1

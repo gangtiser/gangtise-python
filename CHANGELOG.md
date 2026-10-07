@@ -5,6 +5,36 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-10-07
+
+与 `gangtise-openapi-cli` **v0.45.0** 功能对齐，无新增接口。
+
+### 新增
+
+- **`vault.drive_copy` 可复制整个文件夹**：传 `folder_id` + `target_parent_id`，连同其中的子文件夹与文件
+  复制到另一空间（我的云盘 ↔ 租户云盘），返回 `{folderId, newFolderId}`。复制文件的写法
+  （`file_id` + `target_folder_id`）不变。两组参数二选一：混传、只传一半或都不传，在发请求前报
+  `ValidationError`。超时 / 5xx 仍不自动重发（重发会多出一份副本）。
+
+### 变更
+
+- **下载文件名**：响应的 `Content-Disposition` 同时给出编码文件名（`filename*`，通常为 UTF-8）与普通文件名时，
+  用编码的那个。此前按出现顺序取，普通文件名在前时用的是它（通常是 ASCII 的替代名）。`filename*` 按它声明的
+  字符集解码（如 `ISO-8859-1`），此前一律按 UTF-8 解码；字符集无法识别或按它解码失败时退回普通文件名，不会让已收到的下载失败。
+- **明文 http 告警**：生效的接口地址（`GANGTISE_BASE_URL` 或代码里传入的 `base_url`）指向非本机地址却用
+  `http://` 时，构造客户端时发一次 `UserWarning`——登录与请求里的 AK / SK / token 会明文传输。本机地址
+  （`localhost`、`127.x.x.x`、`::1`）不告警。
+
+### 文档
+
+- `bond.daily_quote` / `bond.valuation` 的数据可能比账号的可回溯窗口短：区间早于数据起点时报 `130001`，
+  跨过数据起点时从有数据的那天起返回、不报错。**按年份取长序列时核对返回的首行日期。**
+- `bond.announcement` 按日期区间查询时，有代码的行都带市场后缀，可直接传给其他 `bond` 方法；部分行（如不
+  对应已上市证券的公告）`securityCode` 为空。此前文档说按日期查询时不带后缀，有误。
+- `gangtise.fund` 只知道基金名称时：场内基金用 `reference.securities_search(keyword=<场内简称或 6 位代码>,
+  category="fund")` 换代码（基金全称常搜不到）；场外 `.OF` 代码搜不到，需要自备。
+- `quote.minute_kline` 的可查历史是随日期滚动的短窗口。
+
 ## [0.5.0] - 2026-10-01
 
 与 `gangtise-openapi-cli` **v0.44.0** 功能对齐。**新增 52 个接口，共 149 个上游接口 / 端点注册表
@@ -219,7 +249,7 @@
 
 因此这一排除什么也没省下，反而让 `ai.hot_topic` 失去了唯一的截断检查：被服务端封顶的全量拉取看起来是完整的，`collected == total`，各项一致性检查也全部通过。现在该接口和其他所有分页接口一样执行探测，若在报告的 `total` 之后仍发现数据，则以告警标记 `totalCapped` / `partial`。
 
-该接口的 `retry="no-replay"` 策略不变。这个标记的含义是*绝不重发服务端可能已执行过的请求*；探测是一个新请求，不是重发，两者无关——此前把该标记描述为「按次计费」的内部注释正是混淆的源头，现已更正。
+该接口的 `retry="no-replay"` 策略不变。这个标记的含义是*绝不重发服务端可能已执行过的请求*；探测是一个新请求，不是重发，两者无关。
 
 ### 文档
 
@@ -297,24 +327,17 @@
 - **`zip_field_row` 把 traceId 带入错误信息——四个调用点全部覆盖。** CLI 版本接受第三个参数 `source`，其 id 会附加到错误信息中；移植时丢掉了它，导致 SDK 中唯一实际使用所携带 id 的地方没有接上。四个调用点中最需要它的是 `quote.realtime`（该护栏自己的头号示例）和 `alternative.edb_data` 的两条路径（其错误信息会让调用方提交 bug 报告）。
 - **在按次计费的接口上跳过 `totalCapped` 探测。** `ai.hot-topic` 是唯一一个既分页又不自动重发（`no-replay`）的接口，在它上面「探测返回为空所以不花钱」根本不成立。这是与 CLI 的刻意差异，CLI 的探测条件没有这项排除。
 - **拒收 `file_type=True`。** `bool` 是 `int` 的子类，所以 `True in (1, 2)` 能通过成员检查，并以 JSON `true` 发出——标量枚举护栏本来就拒收 bool，现在两者一致了。
-- **为两个此前没有测试的护栏补上覆盖。** 此前把条件选股的布尔求值器改回旧的「是否包含 `||`」启发式，或删掉它的重复绑定检查，测试依然全绿——现有用例只有纯合取和纯析取，从未覆盖能区分两者的混合结构。新增 `tests/unit/test_screener_expression.py`。
-- **标题缓存的并发测试既不稳定又慢，根源是同一个。** 它在 flush 的临界区内部 join 竞争的写入线程，而在那里 join 只会超时，随后又在写入线程落盘之前就 flush——因此有时会对写了一半的文件做断言（约每 3 次出现 1 次，每次 5.4s）。现在改为在释放锁之后从主线程 join，并确认写入线程确实被阻塞。稳定 8/8，0.3s。
-
-### 已核实，无需改动
-- **CLI v0.34.1 的标题缓存并发修复不适用于本 SDK。** CLI 的 `flush` 先对数据做快照再 await 写入，所以在该 await 期间落下的写入会挂到已在 resolve 的 promise 上，永远不会持久化；它的 `loadInto` 会让并发调用方互相覆盖。Python 在整个读-改-写过程中持有同一把锁，并且只在 `__init__` 中加载一次，因此两个问题都不会出现。现在有两个回归测试把这一点固定下来，而不是靠假设。
-- **`null` 响应本来就产出零行**，而不是 CLI 在 v0.33.0 中不得不移除的那条虚假的 `{"value": null}` 记录。
 
 ### 文档与示例
 - 示例：同步、异步各 93 → **100** 个（条件选股、帕米尔 ×2、财报日历 ×2、文件解析 ×2），并按新契约重写了 EDE 和 K 线示例。
 - `sample/API_PARAMETERS.md`：新增 7 个方法小节，更正 `adjustType`，并在矩阵类接口上把 `indicator` / `security` 标为必填。
 - 财务报表类方法的文档注明了 **`earliestAnncDate`**（服务端 2026-08-14 新增）：做时点对齐请用它，因为部分证券四个季度的 `announcementDate` 填的都是年报的发布日期（五粮液 FY2025 四次都返回 20260430，而 `earliestAnncDate` 返回 20250426 / 20250828 / 20251031 / 20260430）。无代码改动——财务报表类方法没有固定 schema，两个字段都会原样透传。
-- 线上测试固定了只有线上 API 才能确认的内容：新的 EDE 契约（`universe`、结构化的 `indicatorList`、转置矩阵）、条件选股的绑定回显，以及本地的市场关键字规则仍与服务端一致。
 
 ## [0.2.1] - 2026-07-24
 
 与 `gangtise-openapi-cli` v0.28.1–v0.28.2 同步。v0.28.1 只改了文档（npm 包内置的 skill），无需移植；v0.28.2 新增 `key_by` 选项，并收窄了 EDE 无数据提示的适用范围。没有新接口（仍为网络接口 90 个 / 端点注册表 92 项）。
 
-**升 patch 而非 minor：** `key_by` 默认为 `name`（行为不变），其余是提示和测试的细化——上一版接受的入参，现在没有一个会被拒收。
+**升 patch 而非 minor：** `key_by` 默认为 `name`（行为不变），其余是提示的细化——上一版接受的入参，现在没有一个会被拒收。
 
 ### 新增
 - **`indicator.cross_section(key_by=…)` 和 `indicator.time_series(key_by=…)`**——取值 `"name"`（默认；列以指标的显示名称为键）或 `"code"`（列以 `indicatorCode` 为键，单指标 × 多证券的时序则以 `securityCode` 为键）。`key_by="code"` 让列头就是你传入的代码；默认的 `"name"` 则让列头是服务端自己起的名字。2026-07-24 实测：**服务端按自己的顺序返回列，而不是按请求的顺序**——`indicator=["cf_finc_exp", "cf_finc_exp_qtr"]` 返回为 `["cf_finc_exp_qtr", "cf_finc_exp"]`，`security=["600519.SH", "000858.SZ"]` 返回为 `["000858.SZ", "600519.SH"]`——所以按位置索引不安全；而在 `key_by="name"` 下，你拿到的列名是「财务费用(现金流量表)」，还得再调一次 `search` 才能映射回 `cf_finc_exp`。非法取值会在发送请求前抛 `ValidationError`。
@@ -328,7 +351,6 @@
 
 ### 文档
 - `sample/API_PARAMETERS.md` 和四个 `indicator` 示例脚本（同步 + 异步 × 截面 + 时序）记录并演示了 `key_by`；这些示例此前声称覆盖了每个参数。
-- 新功能的线上测试覆盖：`tests/integration/test_live.py` 新增三个 `indicator` 用例。其中一个固定了只有生产环境才能确认的假设——即使服务端重排了列，`indicatorCodeList` 仍与 `values` 的行一一平行。
 
 ## [0.2.0] - 2026-07-22
 
@@ -388,9 +410,6 @@
 - **被跟随目标抛出的任何错误都不再重放计费的上游，且 `{url}` 链有跳数上限。** 把被跟随目标的 JSON 信封作为 `ApiError` 抛出（见上文修复）从另一侧重新打开了重复计费的口子：来自已成功上游*之后*的错误，仍可能驱动 `download_to_path` 的外层循环重发上游请求。这类错误现在会被打上标记，并短路**所有**外层重放——既包括针对*认证*信封（`0000001008`/`8000014`/`8000015`）的 token 刷新路径，**也**包括针对可重试 `999999` 的默认策略重试路径（正是这种情况让 `insight.report-image.download`——一个 0.1 积分/张的默认重试接口——被重复计费了三次）。直接（非跟随）路径上的认证自愈和 `999999` 重试不变。自引用/循环的 `{url}` 链现在以有界的 `DownloadError` 失败（最多 5 跳），而不是递归到 `RecursionError` 并引发请求风暴；同源 bearer 转发在每一跳重新判定（第 2 个同源跳不再丢失它）；`_redact_url` 以 `httpx.URL` 的判定为准，所以非 ASCII / 格式错误的 authority（错误的 IDNA、无效的点分四段如 `1.2.3.999`）会折叠为 `redacted-url`，而不是被原样回显。
 - **被跟随目标的错误现在带有计费安全的提示，占位回退能扛住关闭时的故障，同源判断把显式 `:0` 视为不同端口。** (1) 打了标记的被跟随目标错误仍沿用通用的 `.hint`——`999999` 的「请稍后重试」和认证码的「会自动重新登录重试」——两者都会诱导手动重发，从而对已执行的上游再次计费（而且这里根本不会自动重新登录）；现在给出专门的提示，说明计费的上游已经执行，不可盲目重试。(2) 在无硬链接的占位提交中，对 `O_EXCL` 预留 fd 的 `os.close()` 没有保护：关闭时的 `OSError`（如不稳定的 SMB/exFAT 挂载上的 `EIO`——恰恰是本版所针对的文件系统）会在 rename 之前中止，于是完整的 `.part` 被外层 `finally` 删除，只留下一个 0 字节文件。关闭现在改为尽力而为——这个 fd 只用于占住文件名，真正关键的 rename 仍会把完整内容落盘。(3) `_same_origin` 用 `port or default` 计算实际端口，把显式的 `:0` 折叠为默认端口，从而把 `https://api.test:0` 判为与 `https://api.test` 同源；现在改用 `port if not None else default`，实现真正精确的 scheme+host+port 匹配。
 
-### 内部
-- 恢复 v0.1.17 diff 中丢掉的占位回退测试覆盖（移动失败时的清理、后缀扫描、后缀耗尽）；为自动命名的后缀扫描外壳去重；删除无用的 errno 防护脚手架。
-
 ## [0.1.17] - 2026-07-12
 
 下载路径的加固修复。接口与 API 表面均无变化（仍与 `gangtise-openapi-cli` v0.27.0 对齐，90 个接口）。
@@ -400,9 +419,6 @@
 - **签名 URL 脱敏现在 fail-closed。** `_redact_url` 只保留 `scheme://host/path`，但裸的 `alice:SECRET@host/p` 会被解析为 scheme 是 `alice`，所以旧的基于 netloc 的路径会泄露 `alice://SECRET@…`；无效端口也会以未包装的 `httpx.InvalidURL` 逃出，并携带原始值。现在凡不是带主机和有效端口的绝对 http(s) URL，一律折叠为 `redacted-url`；签名 URL 在请求前先校验，格式错误的会抛出已脱敏的 `DownloadError`，而不会泄露。
 - **自动命名的下载恢复原子发布，后缀也正确了。** v0.1.16 的 `O_CREAT|O_EXCL` 预留会在 rename 之前把最终路径建成 0 字节占位（崩溃时可能留下一个空的假「成功」文件），而且 `report-1.pdf` 冲突时生成的是 `report-1-1.pdf` 而不是 `report-2.pdf`。现在提交时把完成的 `.part` 硬链接到目标路径（完整文件一步出现；`-1..-99` 后缀从原始文件名开始扫描），仅在不支持硬链接的文件系统上回退到 O_EXCL 占位（仍不会覆盖已有文件）。
 - **EDE 内层信封的 `999999` 现在给出「无数据」提示。** 双层信封的内层错误在传输层之后才解包，所以一直沿用通用的「稍后重试」提示；现在与外层错误码一样，提示检查查询时间窗。
-
-### 变更
-- `pytest` 通过 `pyproject.toml` 中的 `filterwarnings` 把本 SDK 的 `UserWarning` 升级为错误，因此将来出现不完整结果 / 形状漂移告警时，测试套件在本地和 CI/发版流程中都会失败（此前只做零散断言）。
 
 ## [0.1.16] - 2026-07-11
 
@@ -414,9 +430,6 @@
 - **预签名 URL 请求现在会重试临时网络故障**（默认策略，每次尝试有 10× 硬时限）。重放签名 URL 始终安全——计费的上游接口绝不会被重新请求；签名 URL 返回 HTTP >= 400 时仍快速失败（签名 URL 会过期，重放 403 毫无意义）。
 - **`report_image_download` 的自动命名现在带扩展名**：`image/png` / `image/jpeg` / `image/gif` / `image/webp` / `image/svg+xml` 加入了 MIME→扩展名映射（与 TS 一致），因此自动命名的图片会落盘为 `report-image-<id>.jpg`，而不是没有扩展名。
 - **不自动重发接口上的 999999 不再提示「稍后重试」。** SDK 有意不重试（请求可能已经执行并计费）；提示现在改为先核实结果/计费情况，再手动重试。
-
-### 变更
-- 分页接口的测试夹具统一为真实的 `{total, list}` 形状；测试套件现在在 `-W error::UserWarning` 下通过，将来真正的形状漂移告警不会再淹没在夹具噪声里。
 
 ## [0.1.15] - 2026-07-11
 
@@ -459,9 +472,6 @@
 ### 新增
 - 每个请求（同步 + 异步）都带上 `User-Agent: gangtise-openapi-python/<version>`，便于服务端日志区分 Python SDK 与 npm CLI。
 
-### 内部
-- 引入覆盖率工具（`pytest-cov`），CI 矩阵扩展到 Python 3.11 / 3.12，并新增列式 DataFrame 回归测试集（`tests/unit/test_common.py`）。
-
 ## [0.1.13] - 2026-07-06
 
 与 `gangtise-openapi-cli` v0.23.0 同步。
@@ -503,7 +513,7 @@
 ## [0.1.11] - 2026-06-29
 
 ### 变更
-- **`vault.wechat_chatroom_list`** 在省略 `size` 时现在拉取**全部**群聊（此前上限 20）。该接口不返回 `total`，因此客户端顺序翻页，直到出现不满一页的页（服务端每页上限 50）表示结束；传 `size=N` 可将结果限制为前 N 行。依赖隐式 20 行默认值的脚本现在会拿到所有群。移植自 CLI v0.21.0（`5e306b3`）。
+- **`vault.wechat_chatroom_list`** 在省略 `size` 时现在拉取**全部**群聊（此前上限 20）。该接口不返回 `total`，因此客户端顺序翻页，直到出现不满一页的页（服务端每页上限 50）表示结束；传 `size=N` 可将结果限制为前 N 行。依赖隐式 20 行默认值的脚本现在会拿到所有群。移植自 CLI v0.21.0。
 
 ### 修复
 - **下载文件名** 除原有的路径不安全字符集外，现在还会剔除控制字符和 NUL（`\x00`–`\x1f`），避免服务端给出的文件名破坏文件写入或夹带终端转义序列。与 TS 对齐（CLI v0.21.0）。
@@ -516,8 +526,8 @@
 ## [0.1.10] - 2026-06-27
 
 ### 新增
-- **指标（EDE）领域**——`gangtise.indicator.*`（同步 + 异步）：`search` 按关键词查找数据指标代码；`cross_section` 返回单一日期下的多指标 × 多证券矩阵；`time_series` 返回某一日期区间内的多指标 × 单证券（或单指标 × 多证券）矩阵。线上返回的 `values` 矩阵被展平为宽表行（每个证券/每个日期一行，指标名作列），内层的双层信封会被拆开——内层失败码以 `ApiError` 抛出，而不是返回 null 载荷。`indicator_param={"qte_close": {"adjustmentType": "2"}}` 可为单个指标设置选项（如前复权）。移植自 CLI v0.19.0（`5af5540`）。
-- **美股接口**（CLI v0.20.0，`9881ea2`）：`insight.announcement_us_list` / `announcement_us_download`（与港股公告方法对应，`file_type` 1=原始 PDF，2=Markdown）；`fundamental.income_statement_us` / `balance_sheet_us` / `cash_flow_us`。
+- **指标（EDE）领域**——`gangtise.indicator.*`（同步 + 异步）：`search` 按关键词查找数据指标代码；`cross_section` 返回单一日期下的多指标 × 多证券矩阵；`time_series` 返回某一日期区间内的多指标 × 单证券（或单指标 × 多证券）矩阵。线上返回的 `values` 矩阵被展平为宽表行（每个证券/每个日期一行，指标名作列），内层的双层信封会被拆开——内层失败码以 `ApiError` 抛出，而不是返回 null 载荷。`indicator_param={"qte_close": {"adjustmentType": "2"}}` 可为单个指标设置选项（如前复权）。移植自 CLI v0.19.0。
+- **美股接口**（CLI v0.20.0）：`insight.announcement_us_list` / `announcement_us_download`（与港股公告方法对应，`file_type` 1=原始 PDF，2=Markdown）；`fundamental.income_statement_us` / `balance_sheet_us` / `cash_flow_us`。
 - **`ai.stock_summary_list`**（个股看点）——按证券给出的精炼投研摘要；必须传 `security`（证券代码或市场关键词 `aShares` / `hkStocks`），传空值时抛 `ValidationError`，避免全市场查询导致积分暴增。
 - **`reference.chiefs_search`**——按姓名/机构/团队检索首席分析师 ID。
 
@@ -533,12 +543,12 @@
 ## [0.1.9] - 2026-06-17
 
 ### 新增
-- **Insight 公众号（微信）接口**：`official_account_list` 按关键词/公众号/证券/类别（枚举）/行业分页检索产业公众号文章，支持 `search_type`（1=标题，2=全文）和 `rank_type`（1=综合，2=时间倒序）；`official_account_download` 按 `article_id` 将文章下载为 txt（默认，`file_type=1`）或 HTML（`file_type=2`）。两个方法均提供同步 + 异步版本，下载时通过标题缓存解析文件名。移植自 CLI v0.18.0（`4ce9556`）。
+- **Insight 公众号（微信）接口**：`official_account_list` 按关键词/公众号/证券/类别（枚举）/行业分页检索产业公众号文章，支持 `search_type`（1=标题，2=全文）和 `rank_type`（1=综合，2=时间倒序）；`official_account_download` 按 `article_id` 将文章下载为 txt（默认，`file_type=1`）或 HTML（`file_type=2`）。两个方法均提供同步 + 异步版本，下载时通过标题缓存解析文件名。移植自 CLI v0.18.0。
 
 ## [0.1.8] - 2026-06-16
 
 ### 修复
-- **服务端使 token 失效后自动恢复**（`0000001008`）：当服务端吊销了一个按本地过期时间看仍然有效的 token 时——例如账号在别处登录、挤掉了本会话——SDK 现在会强制重新登录并重放请求一次，覆盖 `_call` 与下载两条路径（同步 + 异步），而不是在手动重新登录之前每个请求都失败。同时补充了对应的中文错误提示。移植自 CLI v0.17.2（`1915227`）。
+- **服务端使 token 失效后自动恢复**（`0000001008`）：当服务端吊销了一个按本地过期时间看仍然有效的 token 时——例如账号在别处登录、挤掉了本会话——SDK 现在会强制重新登录并重放请求一次，覆盖 `_call` 与下载两条路径（同步 + 异步），而不是在手动重新登录之前每个请求都失败。同时补充了对应的中文错误提示。移植自 CLI v0.17.2。
 
 ## [0.1.7] - 2026-06-16
 
@@ -548,11 +558,10 @@
 ### 变更
 - **异步下载不再因文件系统元数据操作阻塞事件循环**：异步写入路径中的 `mkdir` / `replace` / `unlink` 现在通过 `anyio.to_thread.run_sync` 执行（流式写入正文本就使用 `anyio.open_file`）。
 - **行提取逻辑合并**：`reference.securities_search` 和 `alternative.edb_search`（同步 + 异步）现在使用共享的 `_extract_rows` 辅助函数，取代各自定制的 `isinstance` 判断链——对这些接口返回的形状输出完全相同，还顺带获得列式矩阵的兜底处理。
-- 测试集从 413 扩充到 431：确定性的并发下载回归测试、fundamental 矩阵形状转置覆盖（`valuation_analysis` / `top_holders` / `main_business`）、fundamental 报表方法的异步请求体映射测试、异步行情分片/请求体测试，以及异步 `earnings_review` 的 `410110` 轮询重试路径。
 
 ## [0.1.6] - 2026-06-15
 
-与上游 CLI v0.16.0（`f2d2a00`、`041fc60`）和 v0.17.0（`010ac02`）同步；另修复 3 个 bug。
+与上游 CLI v0.16.0 和 v0.17.0 同步；另修复 3 个 bug。
 
 ### 新增
 - **`reference` 常量/概念/板块 API**（5 个新接口，同步 + 异步）：
@@ -582,7 +591,7 @@
 ### 修复
 - **并发下的 token 处理**：N 个并发调用方遇到过期 token 时，现在只触发一次登录（与 TS `refreshPromise` 对齐）；被拒的 `GANGTISE_TOKEN` 环境变量 token 在首次失败后即被跳过，不再让此后每次调用都永久变成三倍请求；token 缓存的临时文件现在按写入方唯一（多进程安全）；`__enter__`/`__aenter__` 复用惰性创建的 HTTP 客户端，不再泄漏旧连接池。
 - **异步错误契约**：分页/分片并发拉取失败时，现在抛出原始的 `ApiError`，而不是 anyio 的 `ExceptionGroup`，因此 `except ApiError` 在同步和异步代码中行为一致。
-- **K 线分片**（与 TS `c4306fe` 对齐）：单个分片失败不再丢弃全部已拉取的数据——成功的分片会合并，并带上 `partial: true` + `failedShards` 标记，同时发出 `UserWarning`；只有全部分片都失败时才抛异常。
+- **K 线分片**（与 CLI 对齐）：单个分片失败不再丢弃全部已拉取的数据——成功的分片会合并，并带上 `partial: true` + `failedShards` 标记，同时发出 `UserWarning`；只有全部分片都失败时才抛异常。
 - **下载路径**（与 TS 对齐）：鉴权自愈（8000014/8000015 → 刷新 → 重试一次）、瞬时错误带退避重试、预签名 `{url}` 响应现在会去取文件而不是报错、4xx JSON 信封保留业务码和中文提示、流式传输失败时清理 `.part` 临时文件，且异步版本写盘时不再阻塞事件循环。
 - **门面（Facade）**：`gangtise.configure(...)` 现在会同步作用到 `gangtise.async_`（此前异步门面只会静默重读环境变量）。
 - **TS 对齐细节**：`fundamental.earning_forecast` 在省略日期时注入 CLI 默认的一年日期窗口；`insight` 时间戳转换与 `toTimestamp13` 一致（秒级整数 ×1000，naive datetime 按本地时区处理）；`ERROR_HINTS` 补齐至 TS v0.15.1（410004、430004、430007、433007、10011401）。
@@ -592,10 +601,6 @@
 ### 变更
 - **性能**：列式 K 线载荷直接由矩阵构建 DataFrame（快 2–3 倍，大行数时峰值内存约减半）；全市场日 K 线分片跳过纯周末窗口（回补 1 年数据时请求数减少约 29%）。
 - IDE 体验：门面的领域属性现已静态标注类型（mypy / IDE 自动补全可用于 `gangtise.quote.*`），`dir()` 会列出各领域，每个公开方法都有中文 docstring，注明接口 key 与枚举值。
-- CI 现在测试支持范围的边界版本（Python 3.10 + 3.13）。
-
-### 测试
-- 新增 179 个测试（222 → 401）：覆盖每个 vault/insight/ai 方法的异步请求体回归（领域覆盖率 64% → 94%）、异步传输层错误路径、轮询耗尽、token 刷新并发、下载错误路径与文件名解析各层级、门面注册表完整性，以及 4 个新的 live 冒烟测试（共 7 个），覆盖 quote/fundamental/insight/alternative 的读取路径。
 
 ## [0.1.4] - 2026-05-30
 

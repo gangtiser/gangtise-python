@@ -154,11 +154,10 @@ def _wants_injected_date(
 
     The server REJECTS a stray ``tradeDate`` on all of these with
     ``100003 不支持参数 tradeDate``, so injecting unconditionally makes them
-    unreachable. All three clients carry this escape hatch now — the CLI took it in
-    v0.35.0 (``--indicator-param "<code>:"`` on cross-section) and v0.36.0
-    (``--indicator-param "<var>:"`` on the screener, keyed by the variable exactly as
-    here), gangtise-mcp spells it ``noQueryDate: true``. Same semantics, three
-    spellings — and on the screener all three key it by the VARIABLE, not the code.
+    unreachable. The CLI carries the same escape hatch — it took it in v0.35.0
+    (``--indicator-param "<code>:"`` on cross-section) and v0.36.0
+    (``--indicator-param "<var>:"`` on the screener). Same semantics, different
+    spelling — and on the screener both key it by the VARIABLE, not the code.
 
     Opt-in on purpose: it only fires on an explicit marker, so no existing call
     changes behaviour. ``key`` is the indicator code for cross-section and the
@@ -174,8 +173,8 @@ def _wants_injected_date(
     and the injection happens as usual. Param keys are per-indicator (whatever
     ``parameterList`` declares), so there is no local whitelist to check against;
     a ``None`` never reaches the server, which would otherwise name a misspelled key
-    in a 100003. Recorded rather than fixed — see bug/python-open.md P6. (A misspelled INDICATOR CODE — the outer key — IS caught:
-    see :func:`_assert_param_codes_bound`.)
+    in a 100003. (A misspelled INDICATOR CODE — the outer key — IS caught: see
+    :func:`_assert_param_codes_bound`.)
     """
     if any(p["paramKey"] in _DATE_PARAM_KEYS for p in group["parameters"]):
         return False

@@ -44,14 +44,13 @@
 
 `InvalidDistribution: '2.5' is not a valid metadata version`——固定版本的 `pypa/gh-action-pypi-publish` 自带的 twine 太旧，不认 hatchling 产出的元数据版本。**修 action 的固定版本，不要给 hatchling 封顶**：metadata 2.5 是 PyPI 接受的标准版本，给 hatchling 封顶等于为了迁就一个过时的工具而背离标准。v1.14.2 是第一个自带 twine（v7）能接受 2.5 的版本，固定版本必须不低于它。v0.3.0 遇到过此问题——发布失败，没有任何东西传到 PyPI，于是把 tag 挪到了修复提交上，而没有烧掉这个版本号。
 
-## 初始配置
+## 发布配置
 
-首次发版前，为 `gangtise-openapi` 项目配置 PyPI Trusted Publishing：
+PyPI 通过 Trusted Publishing（OIDC）发布，不使用 API token。`gangtise-openapi` 项目设置里的 Trusted Publisher：
 
-1. 在 PyPI 上占下 `gangtise-openapi` 这个名字（截至 2026-05-27 已确认未被占用）。
-2. 在 PyPI 项目设置中添加 Trusted Publisher：
-   - Owner：`gangtiser`
-   - Repository：`gangtise-python`
-   - Workflow：`release.yml`
-   - Environment：（留空）
-3. 临时在固定版本的 `pypa/gh-action-pypi-publish` 步骤中加上 `repository-url: https://test.pypi.org/legacy/`，通过 TestPyPI 跑一遍 workflow。打正式的 `v0.1.0` tag 之前改回来。
+- Owner：`gangtiser`
+- Repository：`gangtise-python`
+- Workflow：`release.yml`
+- Environment：（留空）
+
+改仓库名、workflow 文件名或启用 environment 时，要同步改 PyPI 侧的这项配置，否则发布步骤会在 OIDC 校验时失败。需要先在 TestPyPI 演练时，临时给固定版本的 `pypa/gh-action-pypi-publish` 步骤加上 `repository-url: https://test.pypi.org/legacy/`，打正式 tag 前改回来。

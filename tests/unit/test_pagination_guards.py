@@ -136,7 +136,7 @@ OPINION = "insight.opinion.list"  # row_id chiefOpinionId, 1 credit/row, pages o
 
 def _shifted_pages(second_page_head):
     """Page 2 (from 50) starts with page 1's last row again and skips row 51: a
-    same-timestamp group reordered between the two requests (server-side P2-26)."""
+    same-timestamp group reordered between the two requests."""
 
     def edit(start, rows):
         if start == 50 and rows:

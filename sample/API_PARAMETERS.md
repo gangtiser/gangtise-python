@@ -406,7 +406,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"000001.SZ"` | 证券代码或代码列表（重复代码自动去掉）。接口本身一次只收一只，传列表时 SDK 逐只并发请求再按传入顺序合并；某只填满 limit 会标 partial + truncatedSecurities。支持沪深 A 股、ETF（512800.SH）、各类指数与全球指数（SPX.SPI / N225.NKI / HSI.HI）；无全市场关键词。 |
-| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间 yyyy-MM-dd HH:mm:ss（只写日期亦可）。分钟数据窗口远短于日 K：整段在窗外返回空表且不报错（SDK 发 warning）；首行比它晚 14 天以上时发 warning。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间 yyyy-MM-dd HH:mm:ss（只写日期亦可）。分钟数据窗口远短于日 K 且随日期滚动：整段在窗外返回空表且不报错（SDK 发 warning）；首行比它晚 14 天以上时发 warning。 |
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间 yyyy-MM-dd HH:mm:ss（只写日期亦可）。 |
 | `limit` | `int \| None` | 否 | `None` | `10` | 单次请求行数上限，默认 6000、最大 10000；无翻页，撞上限标 partial 并告警。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；多只证券时自动在最前补 securityCode / tradeTime 并发 warning；单只不补。 |
@@ -1778,7 +1778,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `folder_id` | `str` | 是 | - | `"<folderId>"` | 要移动的文件夹 ID。 |
-| `target_parent_id` | `str` | 是 | - | `"root"` | 同一空间里的目标父文件夹 ID，或 "root"；移到另一空间、自身或其子文件夹报 230005。 |
+| `target_parent_id` | `str` | 是 | - | `"root"` | 同一空间里的目标父文件夹 ID，或 "root"；移到另一空间、自身或其子文件夹报 230005。跨空间用 drive_copy。 |
 | `raw` | `bool` | 否 | `False` | `False` | 总是返回原始 data（{folderId, parentId}）；raw 仅为签名统一。 |
 
 ### `vault.drive_copy`
@@ -1790,9 +1790,11 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `file_id` | `Any` | 是 | - | `["<fileId>"]` | 源文件 ID，支持单值或列表（只复制文件，源保留）；单条失败进 failList，非空时告警并标 partial=True。重复复制会多一份，且不自动重发。 |
-| `target_folder_id` | `str` | 是 | - | `"root"` | 另一空间里的目标文件夹 ID，"root" 即另一空间的根目录；同空间复制报 100003。 |
-| `raw` | `bool` | 否 | `False` | `False` | 总是返回原始 data（{successList[]{fileId, newFileId}, failList}）；raw 仅为签名统一。 |
+| `file_id` | `Any` | 否 | `None` | `["<fileId>"]` | 复制文件：源文件 ID，支持单值或列表，与 target_folder_id 成对传（源保留）；单条失败进 failList，非空时告警并标 partial=True。与 folder_id + target_parent_id 二选一，混传、只传一半或都不传本地拒绝。重复复制会多一份，且不自动重发。 |
+| `target_folder_id` | `str \| None` | 否 | `None` | `"root"` | 复制文件：另一空间里的目标文件夹 ID，"root" 即另一空间的根目录；同空间复制报 100003。 |
+| `folder_id` | `str \| None` | 否 | `None` | `"<folderId>"` | 复制文件夹：源文件夹 ID，与 target_parent_id 成对传，连同其中的子文件夹与文件一起复制。 |
+| `target_parent_id` | `str \| None` | 否 | `None` | `"root"` | 复制文件夹：另一空间里的目标父文件夹 ID，"root" 即另一空间的根目录；同空间复制报 100003。 |
+| `raw` | `bool` | 否 | `False` | `False` | 总是返回原始 data（复制文件 {successList[]{fileId, newFileId}, failList}；复制文件夹 {folderId, newFolderId}）；raw 仅为签名统一。 |
 
 ### `vault.drive_delete_file`
 
@@ -2062,7 +2064,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"019742.SH"` | 标准债券代码或列表，不限只数。 |
-| `start_date` | `str` | 是 | - | `"2026-09-15"` | 交易日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003（即使 end_date 在窗口内）。 |
+| `start_date` | `str` | 是 | - | `"2026-09-15"` | 交易日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003（即使 end_date 在窗口内）。数据还可能比账号窗口短：早于数据起点整段报 130001，跨过数据起点时从有数据的那天起返回、不报错——取长序列时核对首行日期。 |
 | `end_date` | `str` | 是 | - | `"2026-09-19"` | 交易日区间结束，YYYY-MM-DD。 |
 | `field` | `Any` | 否 | `None` | `["cleanClose", "ytmClose", "modifiedDuration"]` | 返回字段名或列表；None 返回全部字段。默认列 securityCode + tradeDate 恒在最前。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（列式 fieldList + list）；False 时转换为 pandas.DataFrame。 |
@@ -2077,7 +2079,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"019742.SH"` | 标准债券代码或列表。 |
-| `start_date` | `str` | 是 | - | `"2026-09-15"` | 估值日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003。 |
+| `start_date` | `str` | 是 | - | `"2026-09-15"` | 估值日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003。数据还可能比账号窗口短：早于数据起点整段报 130001，跨过数据起点时从有数据的那天起返回、不报错——取长序列时核对首行日期。 |
 | `end_date` | `str` | 是 | - | `"2026-09-19"` | 估值日区间结束，YYYY-MM-DD。 |
 | `confidence_level` | `str \| None` | 否 | `None` | `"不推荐"` | 估值可信度：推荐 / 不推荐，其他值本地拒绝。不传时服务端默认只返回「推荐」的估值，要看全部需两个值分别查。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或列表；None 返回全部字段。默认列 securityCode + tradeDate + confidenceLevel 恒在最前。 |
@@ -2108,7 +2110,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 否 | `None` | `"019742.SH"` | 标准债券代码或列表；与 start_date/end_date 二选一，同传或都不传本地拒绝。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-09-18"` | 公告日区间开始，YYYY-MM-DD；与 security 二选一。按日期查询时返回的 securityCode 不带市场后缀。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-09-18"` | 公告日区间开始，YYYY-MM-DD；与 security 二选一。按日期查询时有代码的行都带市场后缀，部分行（如不对应已上市证券的公告）securityCode 为空。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-09-19"` | 公告日区间结束，YYYY-MM-DD；与 security 二选一。 |
 | `page_no` | `int` | 否 | `1` | `2` | 页码，从 1 开始。响应无 total、SDK 不自动翻页：逐页递增，返回空结果即停；条件下一条都没有时任何页码都抛 ApiError(130001)。 |
 | `page_size` | `int` | 否 | `50` | `200` | 每页条数 1-200，超出本地拒绝。按次计费、每页扣一次，批量翻页传 200 调用次数只有默认的四分之一。 |

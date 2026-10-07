@@ -91,6 +91,38 @@ def _read_drive_upload(
     return UploadFile(filename=path.name, data=path.read_bytes(), fields=tuple(fields))
 
 
+def _drive_copy_body(
+    file_id: Any, target_folder_id: Any, folder_id: Any, target_parent_id: Any
+) -> dict[str, Any]:
+    """The endpoint takes one of two shapes keyed on ``copyType``; a mixed or half
+    request would only come back as a bare 100001/100003, so it is refused before any
+    request (TS v0.45.0 ``drive-copy``)."""
+    files = _as_named_list(file_id, "file_id")
+    by_file = files is not None or target_folder_id is not None
+    by_folder = folder_id is not None or target_parent_id is not None
+    if by_file and by_folder:
+        raise ValidationError(
+            "pass either file_id + target_folder_id (copy files) or folder_id + "
+            "target_parent_id (copy a folder), not both"
+        )
+    if by_file and (files is None or target_folder_id is None):
+        raise ValidationError("copying files needs both file_id and target_folder_id")
+    if by_folder and (folder_id is None or target_parent_id is None):
+        raise ValidationError("copying a folder needs both folder_id and target_parent_id")
+    if not by_file and not by_folder:
+        raise ValidationError(
+            "pass either file_id + target_folder_id (copy files) or folder_id + "
+            "target_parent_id (copy a folder)"
+        )
+    if by_file:
+        return _request_body(
+            {"copyType": "file", "fileIdList": files, "targetFolderId": target_folder_id}
+        )
+    return _request_body(
+        {"copyType": "folder", "folderId": folder_id, "targetParentId": target_parent_id}
+    )
+
+
 class Vault:
     """`gangtise.vault.*` — personal drive, recordings, conferences, WeChat, stock pools."""
 
@@ -535,7 +567,8 @@ class Vault:
         """把云盘文件夹移到同一空间的另一文件夹下（vault.drive.move-folder，免费），返回 {folderId, parentId}。
 
         target_parent_id 为目标父文件夹 ID 或 "root"；移到另一空间、文件夹自身或其子文件夹
-        报 230005。重复执行结果不变，保留默认重试。
+        报 230005——跨空间用 drive_copy(folder_id=..., target_parent_id=...)。重复执行结果
+        不变，保留默认重试。
 
         返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
         """
@@ -543,28 +576,30 @@ class Vault:
         return self._client._call("vault.drive.move-folder", body=body)  # type: ignore[no-any-return]
 
     def drive_copy(
-        self, *, file_id: FilterValue, target_folder_id: str, raw: bool = False
+        self,
+        *,
+        file_id: FilterValue | None = None,
+        target_folder_id: str | None = None,
+        folder_id: str | None = None,
+        target_parent_id: str | None = None,
+        raw: bool = False,
     ) -> dict[str, Any]:
-        """把云盘文件复制到另一空间: 我的云盘 ↔ 租户云盘（vault.drive.copy，免费），返回 {successList, failList}。
+        """把云盘文件或整个文件夹复制到另一空间: 我的云盘 ↔ 租户云盘（vault.drive.copy，免费）。
 
-        源文件保留不动；file_id 支持单值或列表。target_folder_id 必须在另一空间（"root"
-        即另一空间的根目录），同空间复制报 100003。successList[]{fileId, newFileId}
-        （newFileId 是副本的 ID）；单条失败进 failList（{fileId, failReason}），非空时发
-        UserWarning 并标 partial=True。
+        源保留不动，目标 ID 必须在另一空间（"root" 即另一空间的根目录），同空间复制报
+        100003。两种用法二选一，混传、只传一半或都不传都在发请求前抛 ValidationError:
 
-        只复制文件: 接口虽也收 copyType=folder，但实测（2026-09-24）返回 000000 与新文件夹
-        ID、副本却是空的，所以不提供。云盘允许同名，每复制一次就多一份: 该端点标
-        no-replay，超时 / 5xx 不自动重发。
+        - 复制文件: file_id（单值或列表）+ target_folder_id，返回 {successList, failList}。
+          successList[]{fileId, newFileId}（newFileId 是副本的 ID）；单条失败进 failList
+          （{fileId, failReason}），非空时发 UserWarning 并标 partial=True。
+        - 复制文件夹: folder_id + target_parent_id，连同其中的子文件夹与文件一起复制，
+          返回 {folderId, newFolderId}（newFolderId 是另一空间里副本文件夹的 ID）。
+
+        云盘允许同名，每复制一次就多一份: 该端点标 no-replay，超时 / 5xx 不自动重发。
 
         返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
         """
-        body = _request_body(
-            {
-                "copyType": "file",
-                "fileIdList": _as_list(file_id, "file_id"),
-                "targetFolderId": target_folder_id,
-            }
-        )
+        body = _drive_copy_body(file_id, target_folder_id, folder_id, target_parent_id)
         return self._client._call("vault.drive.copy", body=body)  # type: ignore[no-any-return]
 
     def drive_delete_file(
@@ -1139,7 +1174,8 @@ class AsyncVault:
         """把云盘文件夹移到同一空间的另一文件夹下（vault.drive.move-folder，免费），返回 {folderId, parentId}。
 
         target_parent_id 为目标父文件夹 ID 或 "root"；移到另一空间、文件夹自身或其子文件夹
-        报 230005。重复执行结果不变，保留默认重试。
+        报 230005——跨空间用 drive_copy(folder_id=..., target_parent_id=...)。重复执行结果
+        不变，保留默认重试。
 
         返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
         """
@@ -1147,28 +1183,30 @@ class AsyncVault:
         return await self._client._call("vault.drive.move-folder", body=body)  # type: ignore[no-any-return]
 
     async def drive_copy(
-        self, *, file_id: FilterValue, target_folder_id: str, raw: bool = False
+        self,
+        *,
+        file_id: FilterValue | None = None,
+        target_folder_id: str | None = None,
+        folder_id: str | None = None,
+        target_parent_id: str | None = None,
+        raw: bool = False,
     ) -> dict[str, Any]:
-        """把云盘文件复制到另一空间: 我的云盘 ↔ 租户云盘（vault.drive.copy，免费），返回 {successList, failList}。
+        """把云盘文件或整个文件夹复制到另一空间: 我的云盘 ↔ 租户云盘（vault.drive.copy，免费）。
 
-        源文件保留不动；file_id 支持单值或列表。target_folder_id 必须在另一空间（"root"
-        即另一空间的根目录），同空间复制报 100003。successList[]{fileId, newFileId}
-        （newFileId 是副本的 ID）；单条失败进 failList（{fileId, failReason}），非空时发
-        UserWarning 并标 partial=True。
+        源保留不动，目标 ID 必须在另一空间（"root" 即另一空间的根目录），同空间复制报
+        100003。两种用法二选一，混传、只传一半或都不传都在发请求前抛 ValidationError:
 
-        只复制文件: 接口虽也收 copyType=folder，但实测（2026-09-24）返回 000000 与新文件夹
-        ID、副本却是空的，所以不提供。云盘允许同名，每复制一次就多一份: 该端点标
-        no-replay，超时 / 5xx 不自动重发。
+        - 复制文件: file_id（单值或列表）+ target_folder_id，返回 {successList, failList}。
+          successList[]{fileId, newFileId}（newFileId 是副本的 ID）；单条失败进 failList
+          （{fileId, failReason}），非空时发 UserWarning 并标 partial=True。
+        - 复制文件夹: folder_id + target_parent_id，连同其中的子文件夹与文件一起复制，
+          返回 {folderId, newFolderId}（newFolderId 是另一空间里副本文件夹的 ID）。
+
+        云盘允许同名，每复制一次就多一份: 该端点标 no-replay，超时 / 5xx 不自动重发。
 
         返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
         """
-        body = _request_body(
-            {
-                "copyType": "file",
-                "fileIdList": _as_list(file_id, "file_id"),
-                "targetFolderId": target_folder_id,
-            }
-        )
+        body = _drive_copy_body(file_id, target_folder_id, folder_id, target_parent_id)
         return await self._client._call("vault.drive.copy", body=body)  # type: ignore[no-any-return]
 
     async def drive_delete_file(

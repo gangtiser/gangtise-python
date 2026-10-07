@@ -26,7 +26,7 @@ async def main():
         __file__,
     )
 
-    # 示例 2 · 按公告日区间查第 2 页（此时返回的 securityCode 不带市场后缀）
+    # 示例 2 · 按公告日区间查第 2 页（有代码的行都带市场后缀; 部分行 securityCode 为空）
     show_result(
         await gangtise.async_.bond.announcement(
             start_date="2026-09-18",  # 公告日起始 YYYY-MM-DD; 与 security 二选一

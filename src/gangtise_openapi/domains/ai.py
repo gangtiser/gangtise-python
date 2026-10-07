@@ -59,8 +59,7 @@ def _stock_summary_max_securities() -> int:
 # confirmed to have no highlights on its own, so the guard sits at the documented limit
 # rather than below it (TS v0.39.0). The stretch from a full A-share batch up to 6000
 # rests on that documented limit, not on a probe. If a request inside it ever answers
-# with an empty list again, lower this. Probes behind both the old 5000 ceiling and
-# this reversal: upstream bug/closed.md P1-12 (closed 2026-09-12).
+# with an empty list again, lower this.
 STOCK_SUMMARY_MAX_SECURITIES = _stock_summary_max_securities()
 
 

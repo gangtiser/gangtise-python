@@ -1,6 +1,6 @@
 """vault.drive_move_folder — 把云盘文件夹移到同一空间的另一文件夹下（免费, 写操作）。
 
-返回 {folderId, parentId}; 移到另一空间、自身或其子文件夹报 230005。
+返回 {folderId, parentId}; 移到另一空间、自身或其子文件夹报 230005, 跨空间用 drive_copy。
 异步用法相同, 路径为 gangtise.async_.vault.drive_move_folder(...)。
 
 本示例会改动账号数据: 把 FOLDER_ID 填好后再运行。

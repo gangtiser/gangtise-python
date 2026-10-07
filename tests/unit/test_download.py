@@ -79,6 +79,36 @@ def test_parse_content_disposition_decodes_rfc5987_case_insensitively():
     )
 
 
+def test_parse_content_disposition_prefers_filename_star_over_a_plain_filename():
+    # TS v0.45.0 (RFC 6266): the plain filename is usually an ASCII fallback, so the
+    # UTF-8 one wins whichever comes first.
+    header = "attachment; filename=\"report.pdf\"; filename*=UTF-8''%E7%A0%94%E6%8A%A5.pdf"
+    assert _parse_content_disposition(header) == "研报.pdf"
+    assert _parse_content_disposition("attachment; filename*=UTF-8'zh'%E7%A0%94.pdf") == "研.pdf"
+    assert _parse_content_disposition('attachment; filename="plain.pdf"') == "plain.pdf"
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        # RFC 5987 allows ISO-8859-1 too: %E9 is é there, and invalid UTF-8.
+        ("attachment; filename=\"cafe.pdf\"; filename*=ISO-8859-1'fr'caf%E9.pdf", "café.pdf"),
+        ("attachment; filename*=iso-8859-1''caf%E9.pdf", "café.pdf"),
+        # A charset Python cannot decode with falls back to the plain filename.
+        ("attachment; filename=\"cafe.pdf\"; filename*=X-UNKNOWN''caf%E9.pdf", "cafe.pdf"),
+        ("attachment; filename=\"cafe.pdf\"; filename*=''caf%E9.pdf", "cafe.pdf"),
+        ("attachment; filename=\"cafe.pdf\"; filename*=rot13''caf%E9.pdf", "cafe.pdf"),
+        # Text codecs that raise UnicodeError while decoding, despite errors="replace".
+        ("attachment; filename=\"fallback.pdf\"; filename*=idna''%61.pdf", "fallback.pdf"),
+        ("attachment; filename=\"fallback.pdf\"; filename*=punycode''%FF.pdf", "fallback.pdf"),
+        ("attachment; filename=\"fallback.pdf\"; filename*=undefined''%61.pdf", "fallback.pdf"),
+        ("attachment; filename*=X-UNKNOWN''caf%E9.pdf", None),
+    ],
+)
+def test_parse_content_disposition_decodes_filename_star_in_its_declared_charset(header, expected):
+    assert _parse_content_disposition(header) == expected
+
+
 _LOGIN_JSON = {
     "code": "000000",
     "status": True,
@@ -207,6 +237,68 @@ def test_download_uses_content_disposition_filename(tmp_path: Path, monkeypatch:
                 fallback_name="report-r1",
             )
     assert path.name == "alpha.pdf"
+    assert path.read_bytes() == b"data"
+
+
+# The body is received before the name is decided, so a name that cannot be decoded
+# must fall back, never fail the download (idna raises UnicodeError while decoding).
+_DECLARED_CHARSET_CASES = pytest.mark.parametrize(
+    ("disposition", "expected"),
+    [
+        ("attachment; filename=\"cafe.pdf\"; filename*=ISO-8859-1'fr'caf%E9.pdf", "café.pdf"),
+        ("attachment; filename=\"fallback.pdf\"; filename*=idna''%61.pdf", "fallback.pdf"),
+    ],
+)
+
+
+@_DECLARED_CHARSET_CASES
+def test_download_names_the_file_in_the_declared_filename_charset(
+    tmp_path: Path, monkeypatch: object, disposition: str, expected: str
+) -> None:
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": disposition},
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+    assert path.name == expected
+    assert path.read_bytes() == b"data"
+
+
+@pytest.mark.anyio
+@_DECLARED_CHARSET_CASES
+async def test_download_async_names_the_file_in_the_declared_filename_charset(
+    tmp_path: Path, monkeypatch: object, disposition: str, expected: str
+) -> None:
+    monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get("/application/open-insight/broker-report/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=b"data",
+                headers={"content-disposition": disposition},
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="insight.research.download",
+                query={"reportId": "r1"},
+                output=None,
+                fallback_name="report-r1",
+            )
+    assert path.name == expected
     assert path.read_bytes() == b"data"
 
 
@@ -1818,7 +1910,7 @@ async def test_async_download_concurrent_same_target_no_collision(tmp_path: Path
 
 
 def test_302_redirect_does_not_replay_billing_endpoint(tmp_path: Path, monkeypatch) -> None:
-    # P0: a no-replay download that 302s to a CDN which then fails transiently must
+    # A no-replay download that 302s to a CDN which then fails transiently must
     # retry only the (unbilled) CDN URL — never resend the billed upstream endpoint.
     monkeypatch.setattr("gangtise_openapi._download._retry_delay", lambda error, attempt: 0.0)
     with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
@@ -2090,7 +2182,7 @@ def test_cross_origin_redirect_drops_authorization(tmp_path: Path) -> None:
 def test_redirect_target_auth_error_does_not_replay_billed_upstream(
     tmp_path: Path, monkeypatch
 ) -> None:
-    # P1 regression: a followed target answering 200 + JSON auth envelope
+    # Regression: a followed target answering 200 + JSON auth envelope
     # (0000001008) must NOT drive download_to_path to refresh the token and replay
     # the billed upstream endpoint (double-bill on no-replay 50/篇). The auth error
     # surfaces as-is, with the upstream sent exactly once and no token refresh.

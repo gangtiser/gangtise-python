@@ -261,10 +261,10 @@ def test_request_body_normalizes_year_first_datetime(field, value, expected):
 
 # Python's `$` also matches just BEFORE a trailing newline, so "2026-07-01\n" cleared
 # validation and went to the server verbatim from 0.2.0 through 0.3.1. v0.4.0 anchors
-# every pattern with `\Z` and refuses it (bug/python-open.md P9 — a tightening, hence
-# the minor bump). The `_normalize_year_first` tail slice stays bounded by `m.end()`
-# regardless: that bound is what keeps the function correct for either anchor, and
-# without it the old `$` appended the newline a SECOND time ("2026-07-01\n\n").
+# every pattern with `\Z` and refuses it (a tightening, hence the minor bump). The
+# `_normalize_year_first` tail slice stays bounded by `m.end()` regardless: that bound
+# is what keeps the function correct for either anchor, and without it the old `$`
+# appended the newline a SECOND time ("2026-07-01\n\n").
 @pytest.mark.parametrize(
     ("field", "value"),
     [

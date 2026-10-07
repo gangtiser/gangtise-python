@@ -159,7 +159,7 @@ def test_900002_hint_states_the_probed_meaning():
     assert "方法" in hint
 
 
-# ── message-level hints (CLI v0.34.1, rules split per gangtise-mcp C7) ──
+# ── message-level hints (CLI v0.34.1; the alternation split into ordered rules) ──
 
 
 @pytest.mark.parametrize(
@@ -182,7 +182,7 @@ def test_900002_hint_states_the_probed_meaning():
         # 半句「拒 reportDate」：删掉是对的，但不能承诺删完就出数。
         ("指标 x 不支持参数 reportDate", "不接受 reportDate", "要的是 tradeDate"),
         # 🔴 半句「拒 tradeDate」：只证明 tradeDate 被拒，推不出要 reportDate。
-        # 这是 gangtise-mcp 2026-08-15 在 scr_exchg_mkt 上抓到的形态——它的
+        # scr_exchg_mkt 就是这种形态——它的
         # parameterList 是空的，照断言式提示去补 reportDate 会再次被拒。
         (
             "指标 scr_exchg_mkt 不支持参数 tradeDate",

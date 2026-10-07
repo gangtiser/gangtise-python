@@ -258,6 +258,10 @@ class Bond:
         ⚠️ 历史范围正式账号前溯 5 年、试用 3 年。**start_date 早于可回溯下界时整批报
         110003「超出时间范围限制」**——即使 end_date 在窗口内，也不会只返回窗口内那一段；
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
+
+        ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
+        取长序列时核对返回的首行日期。**
         """
         body = _range_body(security, start_date, end_date, field)
         return _frame(self._client._call("bond.daily-quote", body=body), raw)
@@ -283,6 +287,10 @@ class Bond:
         ⚠️ 历史范围正式账号前溯 5 年、试用 3 年。**start_date 早于可回溯下界时整批报
         110003「超出时间范围限制」**——即使 end_date 在窗口内，也不会只返回窗口内那一段；
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
+
+        ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
+        取长序列时核对返回的首行日期。**
         """
         body = _request_body(
             {
@@ -337,12 +345,9 @@ class Bond:
         - 条件下**一条公告都没有**时，任何页码都抛 ApiError（404 / 130001）——第 1 页
           收到它就是没有数据，不用再翻
 
-        ⚠️ **按日期区间查询时，返回的 securityCode 不带市场后缀**（如 012682337）；按
-        security 查询时带后缀。要把结果接着传给其他 bond 方法（它们只收带后缀的代码，
-        否则 120001），用该行的 securityName 走
-        reference.securities_search(keyword=<简称>) 换回带后缀的 gtsCode，并核对它去掉
-        后缀后与原代码一致。**别拿不带后缀的代码本身去搜**——检索按相似度返回，可能给出
-        相邻的其他代码；部分资产支持证券按简称也检索不到。
+        按日期区间查询时，部分行的 securityCode 为空（如不对应已上市证券的公告、部分新
+        发行债券的发行文件），这类行无法接着传给其他 bond 方法；有代码的行都带市场后缀，
+        可以直接传。
         """
         body = _announcement_body(security, start_date, end_date, page_no, page_size, field)
         return _frame(self._client._call("bond.announcement", body=body), raw)
@@ -574,6 +579,10 @@ class AsyncBond:
         ⚠️ 历史范围正式账号前溯 5 年、试用 3 年。**start_date 早于可回溯下界时整批报
         110003「超出时间范围限制」**——即使 end_date 在窗口内，也不会只返回窗口内那一段；
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
+
+        ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
+        取长序列时核对返回的首行日期。**
         """
         body = _range_body(security, start_date, end_date, field)
         return _frame(await self._client._call("bond.daily-quote", body=body), raw)
@@ -599,6 +608,10 @@ class AsyncBond:
         ⚠️ 历史范围正式账号前溯 5 年、试用 3 年。**start_date 早于可回溯下界时整批报
         110003「超出时间范围限制」**——即使 end_date 在窗口内，也不会只返回窗口内那一段；
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
+
+        ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
+        取长序列时核对返回的首行日期。**
         """
         body = _request_body(
             {
@@ -653,12 +666,9 @@ class AsyncBond:
         - 条件下**一条公告都没有**时，任何页码都抛 ApiError（404 / 130001）——第 1 页
           收到它就是没有数据，不用再翻
 
-        ⚠️ **按日期区间查询时，返回的 securityCode 不带市场后缀**（如 012682337）；按
-        security 查询时带后缀。要把结果接着传给其他 bond 方法（它们只收带后缀的代码，
-        否则 120001），用该行的 securityName 走
-        reference.securities_search(keyword=<简称>) 换回带后缀的 gtsCode，并核对它去掉
-        后缀后与原代码一致。**别拿不带后缀的代码本身去搜**——检索按相似度返回，可能给出
-        相邻的其他代码；部分资产支持证券按简称也检索不到。
+        按日期区间查询时，部分行的 securityCode 为空（如不对应已上市证券的公告、部分新
+        发行债券的发行文件），这类行无法接着传给其他 bond 方法；有代码的行都带市场后缀，
+        可以直接传。
         """
         body = _announcement_body(security, start_date, end_date, page_no, page_size, field)
         return _frame(await self._client._call("bond.announcement", body=body), raw)

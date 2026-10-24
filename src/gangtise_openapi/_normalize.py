@@ -33,9 +33,11 @@ def zip_field_row(fields: Sequence[Any], row: Sequence[Any], source: Any = None)
     plausible number, an entirely different metric. Silent mis-columning has to
     become an explicit failure (TS v0.28.3).
 
-    The message cannot assert "you passed a bad field name": ``alternative.edb_data``
-    goes through the same zip and has no ``field`` parameter at all, so a mismatch
-    there can only mean the upstream response shape changed.
+    ``main-business`` / ``valuation-analysis`` now refuse an unknown field name with
+    100005 (CLI probe 2026-10-14), so the message no longer blames a bad field name;
+    the check stays, since a width mismatch is still a broken response.
+    ``alternative.edb_data`` goes through the same zip and has no ``field`` parameter
+    at all, so a mismatch there can only mean the upstream response shape changed.
 
     ``source`` is the payload the row came out of. A structural failure is exactly
     what support needs to trace, and ``ValidationError`` carries no ``trace_id``
@@ -47,11 +49,9 @@ def zip_field_row(fields: Sequence[Any], row: Sequence[Any], source: Any = None)
         raise ValidationError(
             f"响应字段数与 fieldList 不匹配（fieldList {len(fields)} 项、该行返回 "
             f"{len(row)} 个值）——按位置拍平会把值贴到错误的字段上，已拒绝输出。"
-            "传了 field= 的方法多为写了该接口不存在的字段名（上游只返回有效字段的值、"
-            "字段名却按请求回显）：核对 field 取值（如 quote.realtime 没有 close，"
-            "最新价是 latestPrice），不确定就别传 field（返回全量字段最稳）。"
-            "没有 field 参数的方法（如 alternative.edb_data）出现此错，"
-            "是上游响应结构异常，请报障。" + _trace_suffix(source)
+            "这是响应结构异常：传了 field= 的方法先去掉 field 重试（返回全量字段最稳）；"
+            "没有 field 参数的方法（如 alternative.edb_data）或去掉后仍报此错，请报障。"
+            + _trace_suffix(source)
         )
     return {str(field): row[idx] for idx, field in enumerate(fields)}
 

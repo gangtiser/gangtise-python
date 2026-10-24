@@ -112,6 +112,25 @@ CASES = [
         _BASE + "exercise-notice",
         {"securityList": ["136236.SH"], "fieldList": ["exerciseDate"]},
     ),
+    # TS v0.48.0 default-list: exactly one selector per call.
+    (
+        "default_list",
+        {"start_date": "2026/09/01", "end_date": "20261020"},
+        _BASE + "default-list",
+        {"startDate": "2026-09-01", "endDate": "2026-10-20"},
+    ),
+    (
+        "default_list",
+        {"security": ["169687.SH", "146589.SH"]},
+        _BASE + "default-list",
+        {"securityList": ["169687.SH", "146589.SH"]},
+    ),
+    (
+        "default_list",
+        {"issuer": "上海世茂股份有限公司", "field": "issuerName"},
+        _BASE + "default-list",
+        {"issuerNameList": ["上海世茂股份有限公司"], "fieldList": ["issuerName"]},
+    ),
 ]
 
 _ELEVEN = [f"{100000 + i}.SH" for i in range(11)]
@@ -139,6 +158,23 @@ REFUSALS = [
         },
         "confidence_level",
     ),
+    ("default_list", {}, "pass start_date with end_date"),
+    (
+        "default_list",
+        {"start_date": "2026-09-01", "end_date": "2026-10-20", "security": "169687.SH"},
+        "mutually exclusive",
+    ),
+    ("default_list", {"security": "169687.SH", "issuer": "上海世茂"}, "mutually exclusive"),
+    ("default_list", {"start_date": "2026-09-01"}, "go together"),
+    ("default_list", {"end_date": "2026-09-01"}, "go together"),
+    # A comma-joined pair would otherwise go out as one name for the server to fuzzy-match.
+    (
+        "default_list",
+        {"issuer": "上海世茂股份有限公司,上海世茂建设有限公司"},
+        "one issuer per call",
+    ),
+    ("default_list", {"issuer": "上海世茂股份有限公司\uff0c上海世茂建设有限公司"}, "one issuer"),
+    ("default_list", {"issuer": ["上海世茂股份有限公司", "上海世茂建设有限公司"]}, "one issuer"),
 ]
 
 
@@ -202,3 +238,24 @@ async def test_async_a_5xx_is_not_replayed(seeded_config):
             with pytest.raises(ApiError):
                 await AsyncBond(client).basic_info(security="019742.SH")
     assert route.call_count == 1
+
+
+_QUOTE_PATH = "/application/open-quote/bond/daily-quote-exchange-cfets"
+
+
+@pytest.mark.anyio
+async def test_async_a_series_starting_two_weeks_late_warns_with_the_bond_cause(seeded_config):
+    late = {
+        "fieldList": ["securityCode", "tradeDate"],
+        "list": [["019742.SH", "2026-06-03"]],
+        "total": 1,
+    }
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_QUOTE_PATH).mock(return_value=_ok(late))
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            with pytest.warns(UserWarning, match="The bond may have listed later") as record:
+                await AsyncBond(client).daily_quote(
+                    security="019742.SH", start_date="2026-05-01", end_date="2026-06-30"
+                )
+    assert "bond daily-quote starts at 2026-06-03, 33 days after" in str(record[0].message)
+    assert record[0].filename == __file__

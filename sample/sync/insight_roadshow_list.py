@@ -34,7 +34,7 @@ def main():
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
             market=["aShares", "hkStocks"],  # 市场, 支持单值或列表; aShares / hkStocks / usStocks
             permission=[1],  # 权限/可见性, 数字列表, 支持单值或列表
-            size=20,  # 按条计费（20 积分/条）: 带 size 取一部分; 要全量改传 confirm=True
+            size=20,  # 按条计费（10 积分/条）: 带 size 取一部分; 要全量改传 confirm=True
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,
@@ -45,6 +45,7 @@ def main():
     #   category=<分类>               分类名称过滤, 支持单值或列表; 取值 earningsCall/strategyMeeting 等
     #   participant_role=<参与方角色> 参与方角色名称过滤, 支持单值或列表
     #   broker_type=<券商类型>        券商类型名称过滤, 支持单值或列表
+    #   location=<城市码>             domesticCity 码（如上海 "156310000"）; 传城市名报 999999
 
 
 if __name__ == "__main__":

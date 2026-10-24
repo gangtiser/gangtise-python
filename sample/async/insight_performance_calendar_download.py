@@ -1,7 +1,7 @@
 """insight.performance_calendar_download — 下载业绩报告原文 PDF。
 
 流程: 先用 insight.performance_calendar_list 拿到 performanceReportId, 再下载。
-**A股 10 积分 / 港美股 20 积分**; 仅 hasAttachment=True 的记录可下。
+**A股 1 积分 / 港美股 2 积分**; 仅 hasAttachment=True 的记录可下。
 省略 output 时用 title-cache 里的真实标题命名。
 异步路径为 gangtise.async_.insight.performance_calendar_download(...)（同步用法见 sample/sync 同名文件）。
 """

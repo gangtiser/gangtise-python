@@ -26,7 +26,7 @@ CODE_TERMINAL = "410111"
 # 140002 PROCESSING_FAILED (500). Probed by the CLI 2026-07-20: the server still
 # answers with the legacy codes, so the new ones are a forward guard — but an
 # expensive one to omit. A poll that does not recognize the pending code aborts on
-# the first attempt and voids a job already billed 50 credits.
+# the first attempt and voids a job already billed.
 PENDING_CODES = frozenset({CODE_PENDING, "140001"})
 FAILED_CODES = frozenset({CODE_TERMINAL, "140002"})
 

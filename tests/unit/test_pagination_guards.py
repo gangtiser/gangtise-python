@@ -237,6 +237,69 @@ def test_the_same_later_version_repeat_is_partial_on_an_unverified_id_list(colle
     assert "different content" not in _messages(record)
 
 
+def _sentiment_row(i):
+    """A management-sentiment row (1-based ``i``); rows 10 and 11 carry no source call."""
+    if i in (10, 11):
+        return {"securityCode": "000001.SZ", "source": None, "score": 0}
+    source = {"sourceType": "conference", "sourceId": str(i)}
+    return {"securityCode": f"{i}.SZ", "source": source, "score": i}
+
+
+@pytest.mark.parametrize(
+    "key", ["ai.management-sentiment-indicator", "ai.management-sentiment-conclusion"]
+)
+def test_drops_a_whole_row_repeat_keyed_by_security_and_source_call(collect, key):
+    # CLI v0.48.0: two pages of 100, page 2 opens with page 1's last row again. A row
+    # without its source has no id and is kept both times, identical or not.
+    def edit(start, rows):
+        if start == 100:
+            rows[0] = _sentiment_row(100)
+
+    server = Server(200, row=lambda i: _sentiment_row(i + 1), edit=edit)
+    with pytest.warns(UserWarning, match="more than once"):
+        out = collect(lookup(key), fetch=server, allow_costly=True)
+    assert len(out["list"]) == 199
+    assert len([r for r in out["list"] if r["source"] is None]) == 2
+    assert out["duplicateRows"] == 1
+    assert "changedRows" not in out
+    assert out["partial"] is True
+
+
+def test_a_composite_row_id_matches_only_when_every_part_does(collect):
+    # A verified composite id, so a changed row is counted: the same call for another
+    # security, and another call for the same security, are other rows...
+    endpoint = _endpoint(row_id=("securityCode", "source.sourceId"))
+
+    def row(code, call, score):
+        return {"securityCode": code, "source": {"sourceId": call}, "score": score}
+
+    def other_rows(start, rows):
+        if start == 0:
+            rows[9] = row("600519.SH", "1", 0)
+        if start == 10:
+            rows[0] = row("000858.SZ", "1", 0)
+            rows[1] = row("600519.SH", "2", 0)
+
+    def same_row_edited(start, rows):
+        if start == 0:
+            rows[9] = row("600519.SH", "1", 0)
+        if start == 10:
+            rows[0] = row("600519.SH", "1", 99)
+
+    def serve(edit):
+        return Server(20, row=lambda i: row(f"{i}.SZ", str(i), i), edit=edit)
+
+    out = collect(endpoint, fetch=serve(other_rows))
+    assert len(out["list"]) == 20
+    assert "changedRows" not in out
+    assert "duplicateRows" not in out
+    # ...while every part matching, with other content, is the same row changed.
+    with pytest.warns(UserWarning, match=r"securityCode \+ source\.sourceId came back"):
+        out = collect(endpoint, fetch=serve(same_row_edited))
+    assert out["changedRows"] == 1
+    assert out["partial"] is True
+
+
 def _second_page_opens(first, second):
     """Page 1 ends with id "a" as v1; page 2 opens with the two versions given."""
 
@@ -321,20 +384,45 @@ def test_an_id_one_page_carries_twice_with_different_content_marks_nothing(colle
 
 
 def test_no_changed_row_is_counted_on_an_unverified_id_list(collect):
-    # insight.roadshow.list declares `id` from the response description only: a pair of
-    # records sharing it across a page boundary must not mark every run partial.
+    # insight.roadshow.list's id is not yet shown unique on a page: a pair of records
+    # sharing it across a page boundary must not mark every run partial.
     endpoint = lookup("insight.roadshow.list")
-    assert endpoint.row_id == "id" and endpoint.row_id_unverified
+    assert endpoint.row_id == "roadshowId" and endpoint.row_id_unverified
 
     def edit(start, rows):
         if start == 50:
-            rows[0] = {"id": "50", "title": "another record under id 50"}
+            rows[0] = {"roadshowId": "50", "title": "another record under id 50"}
 
-    server = Server(100, row=lambda i: {"id": str(i + 1), "title": f"t{i + 1}"}, edit=edit)
+    server = Server(100, row=lambda i: {"roadshowId": str(i + 1), "title": f"t{i + 1}"}, edit=edit)
     out = collect(endpoint, fetch=server, allow_costly=True)
     assert len(out["list"]) == 100
     assert "changedRows" not in out
     assert "partial" not in out
+
+
+@pytest.mark.parametrize(
+    ("key", "id_field"),
+    [
+        ("insight.roadshow.list", "roadshowId"),
+        ("insight.site-visit.list", "siteVisitId"),
+        ("insight.strategy.list", "strategyMeetingId"),
+        ("insight.forum.list", "forumId"),
+    ],
+)
+def test_a_schedule_list_drops_a_repeat_under_its_real_id_field(collect, key, id_field):
+    # Rows shaped as the schedule lists really answer: no `id`, only the per-list id.
+    # Page 2 opens with page 1's last row again and skips row 51.
+    def edit(start, rows):
+        if start == 50:
+            rows[0] = {id_field: "50", "title": "t50"}
+
+    server = Server(100, row=lambda i: {id_field: str(i + 1), "title": f"t{i + 1}"}, edit=edit)
+    with pytest.warns(UserWarning, match="more than once"):
+        out = collect(lookup(key), fetch=server, allow_costly=True)
+    assert len(out["list"]) == 99
+    assert len({r[id_field] for r in out["list"]}) == 99
+    assert out["duplicateRows"] == 1
+    assert out["partial"] is True
 
 
 def test_a_list_without_a_declared_row_id_is_left_untouched(collect):
@@ -521,7 +609,7 @@ def test_a_costly_first_page_learns_the_total_from_one_row(collect):
     assert server.sent == [(0, 1)]
     assert "15000 credits" in str(info.value)
 
-    # insight.roadshow.list within the guard (40 rows at 20 = 800): the fetch starts over
+    # insight.roadshow.list within the guard (40 rows at 10 = 400): the fetch starts over
     # on the usual page boundaries rather than continuing from offset 1.
     server = Server(40)
     out = collect(lookup("insight.roadshow.list"), fetch=server)

@@ -94,8 +94,7 @@ async def main():
     # 示例 6 · N 期统计 + 报告期类指标: finc_roe_avg_avg（平均ROE N 期均值）要 periodNum,
     # 且按报告期取数——只给 date 会报 100003, 必须显式给 reportDate（SDK 见到它就不再注入
     # tradeDate）。indicator_param 里键名以 Date 结尾的值与 date 一样校验, 年在后的写法本地拒绝。
-    # parameterList 要 fiscalYear 的指标（frcst_* / div_cash_yr 等）漏传不报错, 会按服务端
-    # 默认年度取数, 一律显式传。
+    # parameterList 要 fiscalYear 的指标（frcst_* / div_cash_yr 等）漏传报 100001 并点名。
     show_result(
         await gangtise.async_.indicator.cross_section(
             date="2026-03-31",

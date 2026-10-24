@@ -95,7 +95,11 @@ class Alternative:
         end_date: str,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
+        """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。
+
+        indicator_id 至少 1 个、最多 10 个（上限由接口校验，SDK 不拦）。计费 **30 积分/指标**
+        （单次最多 10 个指标，即最多 300 积分）。
+        """
         body = _request_body(
             {
                 "indicatorIdList": _as_list(indicator_id, "indicator_id"),
@@ -213,7 +217,11 @@ class AsyncAlternative:
         end_date: str,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。"""
+        """按指标 ID 列表查询行业指标时间序列（alternative.edb-data）。
+
+        indicator_id 至少 1 个、最多 10 个（上限由接口校验，SDK 不拦）。计费 **30 积分/指标**
+        （单次最多 10 个指标，即最多 300 积分）。
+        """
         body = _request_body(
             {
                 "indicatorIdList": _as_list(indicator_id, "indicator_id"),

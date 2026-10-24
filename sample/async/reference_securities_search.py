@@ -26,17 +26,26 @@ async def main():
     show_result(
         await gangtise.async_.reference.securities_search(
             keyword="600519",  # 也可直接用证券代码搜索
-            category="stock",  # 分类: stock=股票 dr=存托凭证 index=指数 fund=基金
+            category="stock",  # 分类: stock=股票 dr=存托凭证 index=指数 fund=基金 bond=债券
             top=5,  # 每个查询返回的最大候选数, 默认 10, 最大 10
         ),
         __file__,
     )
 
-    # 示例 3 · 多分类（列表入参）+ 原始返回
+    # 示例 3 · 债券代码（用于 gangtise.bond）; 可转债在任何分类下都可能出现, 只取 category 等于所查类别的行
+    show_result(
+        await gangtise.async_.reference.securities_search(
+            keyword="甬金转债",
+            category="bond",
+        ),
+        __file__,
+    )
+
+    # 示例 4 · 多分类（列表入参）+ 原始返回
     show_result(
         await gangtise.async_.reference.securities_search(
             keyword="ping an",  # 关键词支持英文/拼音
-            category=["stock", "index"],  # 分类支持单值或列表: stock/dr/index/fund
+            category=["stock", "index"],  # 分类支持单值或列表: stock/dr/index/fund/bond
             top=10,  # 上限 10
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pandas as pd
 import pytest
@@ -467,3 +469,62 @@ async def test_async_stock_summary_refuses_an_oversized_batch(tmp_path):
     async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
         with pytest.raises(ValidationError, match="Split the codes into batches"):
             await AsyncAI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(6001)])
+
+
+# ─── management sentiment (TS v0.48.0) ───
+
+_SENTIMENT = "/application/open-ai/management-sentiment/company/"
+
+
+@pytest.mark.anyio
+async def test_async_management_sentiment_lists_map_their_filters(tmp_path):
+    rows = [{"securityCode": "300285.SZ", "source": {"sourceType": "conference", "sourceId": "1"}}]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        indicator = router.post(_SENTIMENT + "indicator").mock(return_value=_list_response(rows))
+        conclusion = router.post(_SENTIMENT + "conclusion").mock(return_value=_list_response(rows))
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            ai = AsyncAI(client)
+            df = await ai.management_sentiment_indicator(
+                security="300285.SZ", start_time="2026-08-01", size=150
+            )
+            await ai.management_sentiment_conclusion(security="300285.SZ", size=5)
+    assert json.loads(indicator.calls[0].request.content) == {
+        "from": 0,
+        "size": 100,
+        "startTime": "2026-08-01",
+        "securityList": ["300285.SZ"],
+    }
+    assert json.loads(conclusion.calls[0].request.content) == {
+        "from": 0,
+        "size": 5,
+        "securityList": ["300285.SZ"],
+    }
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["securityCode"] == "300285.SZ"
+
+
+@pytest.mark.anyio
+async def test_async_management_sentiment_without_size_probes_one_row_first(tmp_path):
+    rows = [{"securityCode": "300285.SZ", "source": {"sourceType": "conference", "sourceId": "1"}}]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SENTIMENT + "indicator").mock(return_value=_list_response(rows))
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncAI(client).management_sentiment_indicator()
+    assert json.loads(route.calls[0].request.content) == {"from": 0, "size": 1}
+
+
+@pytest.mark.anyio
+async def test_async_management_sentiment_detail_defaults_the_source_type(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SENTIMENT + "detail").mock(
+            return_value=_list_response([{"qaId": "1", "qaPolarity": 5.0}])
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = await AsyncAI(client).management_sentiment_detail(
+                source_id="554030", source_type="conference"
+            )
+    assert json.loads(route.calls.last.request.content) == {
+        "sourceId": "554030",
+        "sourceType": "conference",
+    }
+    assert df.iloc[0]["qaPolarity"] == 5.0

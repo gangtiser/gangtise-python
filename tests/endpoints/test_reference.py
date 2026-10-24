@@ -42,6 +42,25 @@ def test_securities_search(tmp_path):
     assert df.iloc[0]["code"] == "000001.SH"
 
 
+def test_securities_search_accepts_the_bond_category(tmp_path):
+    # TS v0.46.0: bond codes (.SH / .SZ / .IB) for gangtise.bond.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-reference/securities/search").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "code": "000000",
+                    "status": True,
+                    "data": [{"gtsCode": "113636.SH", "gtsName": "甬金转债", "category": "bond"}],
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Reference(client).securities_search(keyword="甬金转债", category="bond")
+    assert json.loads(route.calls.last.request.content)["category"] == ["bond"]
+    assert df.iloc[0]["gtsCode"] == "113636.SH"
+
+
 def test_constant_category(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.get("/application/open-reference/constants/category").mock(
@@ -308,7 +327,7 @@ def test_search_local_caps_and_whitelists(tmp_path):
         with pytest.raises(ValidationError):
             ref.securities_search(keyword="x", top=11)
         with pytest.raises(ValidationError):
-            ref.securities_search(keyword="x", category="bond")
+            ref.securities_search(keyword="x", category="option")
         with pytest.raises(ValidationError):
             ref.concept_search(keyword="x", top=0)
         with pytest.raises(ValidationError):

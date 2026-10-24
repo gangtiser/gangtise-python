@@ -3,8 +3,8 @@
 这是一个**独立的专家纪要库**, 不是 summary_list 的筛选项, 需单独购买专家纪要数据库
 （未开通报 999004）, 且不受历史数据范围限制。筛选项是 summary_list 的真子集:
 没有 source / institution / participant_role。
-⚠️ 已知返回口径: conceptList 在所有查法下都是空的; categoryList / marketList 只在用
-category 或 market 过滤时才回填——按这两个维度分组要靠过滤参数取, 别拉全量再本地分组。
+⚠️ 已知返回口径: conceptList / categoryList / marketList 三个标签字段稀疏、不保证完整,
+用 category 或 market 过滤时回填率明显更高——按这几个维度分组要靠过滤参数取, 别拉全量再本地分组。
 异步用法相同, 路径为 gangtise.async_.insight.pamirs_summary_list(...)。
 """
 

@@ -41,12 +41,23 @@ async def main():
         __file__,
     )
 
-    # 示例 4 · 列表直接带正文（旧版结构, 30 积分/条）: 标题与正文在 contentList.title / contentList.content
+    # 示例 4 · 按观点类别 / 投研标签 / 机构标签筛（同一参数传多个值取并集）
+    show_result(
+        await gangtise.async_.insight.opinion_list(
+            size=10,
+            category="earningsReview",  # 类别: earningsReview / abnormalReview / researchUpdate / tradingDesk / industryAnalysis
+            llm_tag=["beatExpect", "priceHike"],  # 投研标签 28 项, 取值见 API_PARAMETERS
+            broker_tag="topBroker",  # 机构标签: topBroker=头部券商 / newFortune=新财富团队
+        ),
+        __file__,
+    )
+
+    # 示例 5 · 列表直接带正文（旧版结构, 30 积分/条）: 标题与正文在 contentList.title / contentList.content
     show_result(
         await gangtise.async_.insight.opinion_list(
             security="600519.SH",
             size=2,  # 带正文 30 积分/条, 只取需要的条数
-            with_content=True,  # True=走旧版列表带正文; 默认 False 只含 200 字摘要 brief（1 积分/条）
+            with_content=True,  # True=走旧版列表带正文（不收 category / broker_tag）; 默认 False 只含 200 字摘要 brief（1 积分/条）
         ),
         __file__,
     )
@@ -56,7 +67,6 @@ async def main():
     #   chief=<首席分析师ID>
     #   broker=<券商/机构ID>         见 lookup.broker_orgs
     #   concept=<题材ID>             见 reference.concept_search(keyword=...)（如 机器人=121000130）
-    #   llm_tag=<语义标签>           LLM 语义标签过滤
 
 
 if __name__ == "__main__":

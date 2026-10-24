@@ -14,7 +14,7 @@ from gangtise_openapi._errors import ValidationError
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 151
+    assert len(ENDPOINTS) == 155
 
 
 def test_lookup_known_endpoint():
@@ -56,6 +56,8 @@ def test_pagination_registry_matches_ts_source():
         "insight.highlight.list": 50,
         "ai.security-clue.list": 500,
         "ai.hot-topic": 20,
+        "ai.management-sentiment-indicator": 100,
+        "ai.management-sentiment-conclusion": 100,
         "vault.drive.list": 50,
         "vault.record.list": 50,
         "vault.my-conference.list": 50,
@@ -123,7 +125,7 @@ def test_dataclass_equality():
 
 
 def test_retry_policy_registry_matches_ts_source():
-    # Translated 1:1 from gangtise-openapi-cli v0.44.0 endpoints.ts.
+    # Translated 1:1 from gangtise-openapi-cli v0.48.0 endpoints.ts.
     # These annotations are billing-safety-critical — a drifted entry either
     # double-bills (missing no-replay) or degrades reliability (spurious one).
     expected_no_replay = {
@@ -148,6 +150,7 @@ def test_retry_policy_registry_matches_ts_source():
         "bond.issuer-rating-change",
         "bond.issuance-plan",
         "bond.exercise-notice",
+        "bond.default-list",
         "fund.basic-info",
         "fund.nav",
         "fund.fee-rate",
@@ -177,6 +180,7 @@ def test_retry_policy_registry_matches_ts_source():
         "ai.hot-topic",
         "ai.management-discuss-announcement",
         "ai.management-discuss-earnings-call",
+        "ai.management-sentiment-detail",
         "ai.viewpoint-debate.get-id",
         "vault.drive.upload",
         "vault.drive.create-folder",
@@ -319,6 +323,7 @@ def test_all_endpoint_keys_match_ts_source():
         "bond.issuer-rating-change",
         "bond.issuance-plan",
         "bond.exercise-notice",
+        "bond.default-list",
         "fund.basic-info",
         "fund.nav",
         "fund.fee-rate",
@@ -351,6 +356,9 @@ def test_all_endpoint_keys_match_ts_source():
         "ai.hot-topic",
         "ai.management-discuss-announcement",
         "ai.management-discuss-earnings-call",
+        "ai.management-sentiment-indicator",
+        "ai.management-sentiment-conclusion",
+        "ai.management-sentiment-detail",
         "ai.viewpoint-debate.get-id",
         "ai.viewpoint-debate.get-content",
         "vault.drive.list",
@@ -395,15 +403,18 @@ def test_all_endpoint_keys_match_ts_source():
 
 
 def test_row_id_registry_matches_ts_source():
-    """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by."""
+    """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by;
+    v0.48.0: several dotted paths together where no single field identifies a row.
+    The four schedule lists deliberately differ: TS declares ``id``, real responses
+    carry the per-list name."""
     assert {k: ep.row_id for k, ep in ENDPOINTS.items() if ep.row_id} == {
         "insight.opinion.list": "chiefOpinionId",
         "insight.summary.list": "summaryId",
         "insight.pamirs-summary.list": "summaryId",
-        "insight.roadshow.list": "id",
-        "insight.site-visit.list": "id",
-        "insight.strategy.list": "id",
-        "insight.forum.list": "id",
+        "insight.roadshow.list": "roadshowId",
+        "insight.site-visit.list": "siteVisitId",
+        "insight.strategy.list": "strategyMeetingId",
+        "insight.forum.list": "forumId",
         "insight.performance-calendar.list": "performanceReportId",
         "insight.research.list": "reportId",
         "insight.foreign-report.list": "reportId",
@@ -419,8 +430,20 @@ def test_row_id_registry_matches_ts_source():
         "vault.my-conference.list": "conferenceId",
         "vault.wechat-message.list": "msgId",
         "vault.wechat-chatroom.list": "chatroomId",
+        "ai.management-sentiment-indicator": (
+            "securityCode",
+            "source.sourceType",
+            "source.sourceId",
+        ),
+        "ai.management-sentiment-conclusion": (
+            "securityCode",
+            "source.sourceType",
+            "source.sourceId",
+        ),
     }
     assert {k for k, ep in ENDPOINTS.items() if ep.row_id_unverified} == {
+        "ai.management-sentiment-indicator",
+        "ai.management-sentiment-conclusion",
         "insight.roadshow.list",
         "insight.site-visit.list",
         "insight.strategy.list",
@@ -468,6 +491,7 @@ def test_expects_registry_matches_ts_source():
         "bond.issuer-rating-change",
         "bond.issuance-plan",
         "bond.exercise-notice",
+        "bond.default-list",
         "fund.basic-info",
         "fund.nav",
         "fund.fee-rate",
@@ -486,6 +510,9 @@ def test_expects_registry_matches_ts_source():
         "fund.etf-pcf-header",
         "fund.etf-pcf-components",
         "fund.etf-share-change",
+        "ai.management-sentiment-indicator",
+        "ai.management-sentiment-conclusion",
+        "ai.management-sentiment-detail",
         "tool.web-search",
     }
 
@@ -523,27 +550,27 @@ def test_billing_registry_matches_ts_source():
         "insight.opinion.list-with-content": ("row", 30),
         "insight.opinion.detail": ("row", 30, 20),
         "insight.summary.list": ("row", 0.1),
-        "insight.summary.download": ("document", 50),
-        "insight.roadshow.list": ("row", 20),
-        "insight.site-visit.list": ("row", 20),
-        "insight.strategy.list": ("row", 20),
-        "insight.forum.list": ("row", 20),
+        "insight.summary.download": ("document", 30),
+        "insight.roadshow.list": ("row", 10),
+        "insight.site-visit.list": ("row", 10),
+        "insight.strategy.list": ("row", 10),
+        "insight.forum.list": ("row", 10),
         "insight.performance-calendar.list": ("row", 0.1),
-        "insight.performance-calendar.download": ("document", 20),
+        "insight.performance-calendar.download": ("document", 2),
         "insight.research.list": ("row", 0.1),
         "insight.research.download": ("document", 10),
         "insight.foreign-report.list": ("row", 0.1),
-        "insight.foreign-report.download": ("document", 50),
+        "insight.foreign-report.download": ("document", 30),
         "insight.announcement.list": ("row", 0.1),
-        "insight.announcement.download": ("document", 10),
+        "insight.announcement.download": ("document", 1),
         "insight.announcement-hk.list": ("row", 0.1),
-        "insight.announcement-hk.download": ("document", 20),
+        "insight.announcement-hk.download": ("document", 2),
         "insight.announcement-us.list": ("row", 0.1),
-        "insight.announcement-us.download": ("document", 20),
+        "insight.announcement-us.download": ("document", 2),
         "insight.foreign-opinion.list": ("row", 1),
         "insight.foreign-opinion.list-with-content": ("row", 30),
         "insight.foreign-opinion.detail": ("row", 30, 20),
-        "insight.independent-opinion.list": ("row", 5),
+        "insight.independent-opinion.list": ("row", 1),
         "insight.independent-opinion.download": ("document", 30),
         "insight.official-account.list": ("row", 0.1),
         "insight.official-account.download": ("document", 10),
@@ -563,6 +590,7 @@ def test_billing_registry_matches_ts_source():
         "bond.issuer-rating-change": ("issuer", 0.4, 10),
         "bond.issuance-plan": ("call", 0.4),
         "bond.exercise-notice": ("call", 0.4),
+        "bond.default-list": ("call", 0.4),
         "fund.basic-info": ("call", 0.4),
         "fund.nav": ("call", 0.4),
         "fund.fee-rate": ("call", 0.4),
@@ -581,21 +609,25 @@ def test_billing_registry_matches_ts_source():
         "fund.etf-pcf-header": ("call", 0.4),
         "fund.etf-pcf-components": ("call", 0.4),
         "fund.etf-share-change": ("call", 0.4),
-        "ai.stock-summary.list": ("row", 3, 6000),
+        "ai.stock-summary.list": ("row", 1, 6000),
         "ai.knowledge-batch": ("call", 10),
         "ai.security-clue.list": ("row", 5),
-        "ai.one-pager": ("call", 50),
-        "ai.investment-logic": ("call", 50),
-        "ai.peer-comparison": ("call", 50),
-        "ai.earnings-review.get-id": ("call", 50),
-        "ai.theme-tracking": ("call", 50),
-        "ai.research-outline": ("call", 50),
-        "ai.hot-topic": ("row", 50),
-        "ai.management-discuss-announcement": ("call", 10),
+        "ai.one-pager": ("call", 10),
+        "ai.investment-logic": ("call", 10),
+        "ai.peer-comparison": ("call", 10),
+        "ai.earnings-review.get-id": ("call", 20),
+        "ai.theme-tracking": ("call", 10),
+        "ai.research-outline": ("call", 10),
+        "ai.hot-topic": ("row", 10),
+        "ai.management-discuss-announcement": ("call", 5),
         "ai.management-discuss-earnings-call": ("call", 10),
-        "ai.viewpoint-debate.get-id": ("call", 50),
+        "ai.management-sentiment-indicator": ("row", 5),
+        "ai.management-sentiment-conclusion": ("row", 5),
+        "ai.management-sentiment-detail": ("call", 10),
+        "ai.viewpoint-debate.get-id": ("call", 20),
         "vault.my-conference.list": ("row", 0.1),
-        "vault.my-conference.download": ("document", 50),
+        "vault.my-conference.download": ("document", 30),
+        "alternative.edb-data": ("indicator", 30, 10),
         "alternative.concept-info": ("call", 50),
         "alternative.concept-info-full": ("call", 500),
         "alternative.concept-securities": ("call", 50),
@@ -618,15 +650,15 @@ def test_billing_invariants():
     - an endpoint billed per call or per page must be no-replay;
     - one billed by quantity must be too once one request can bill more than
       NO_REPLAY_ABOVE_CREDITS;
-    - a per-row / per-security / per-issuer endpoint that does not page must declare
-      max_units, so 1 never stands in for an unknown bound.
+    - an endpoint billed by quantity (anything but per call / page / document) that
+      does not page must declare max_units, so 1 never stands in for an unknown bound.
     """
     for key, ep in ENDPOINTS.items():
         if ep.billing is None:
             continue
         if ep.billing.per in ("call", "page"):
             assert ep.retry == "no-replay", key
-        if ep.billing.per in ("row", "security", "issuer") and ep.pagination is None:
+        if ep.billing.per not in ("call", "page", "document") and ep.pagination is None:
             assert ep.billing.max_units is not None, key
         if worst_request_credits(ep) > NO_REPLAY_ABOVE_CREDITS:
             assert ep.retry == "no-replay", key
@@ -671,7 +703,15 @@ def test_every_billed_endpoint_has_a_positive_price_in_a_known_unit():
     for key, ep in ENDPOINTS.items():
         if ep.billing is None:
             continue
-        assert ep.billing.per in ("call", "page", "row", "security", "issuer", "document"), key
+        assert ep.billing.per in (
+            "call",
+            "page",
+            "row",
+            "security",
+            "issuer",
+            "indicator",
+            "document",
+        ), key
         assert ep.billing.price > 0, key
 
 
@@ -705,19 +745,25 @@ def test_the_no_replay_line_actually_bites():
         and worst_request_credits(ep) > NO_REPLAY_ABOVE_CREDITS
     }
     assert {"ai.stock-summary.list", "fundamental.earning-forecast"} <= costly
-    assert worst_request_credits(ENDPOINTS["ai.stock-summary.list"]) == 18_000
+    assert worst_request_credits(ENDPOINTS["ai.stock-summary.list"]) == 6_000
     # The line is strict: a 500-row page of security clues at 5 credits stays under it.
     assert worst_request_credits(ENDPOINTS["ai.security-clue.list"]) == 2_500
+    # TS v0.48.0: a 100-row management-sentiment page (500) and ten EDB indicators (300)
+    # stay under it too, so both keep the default retry.
+    assert worst_request_credits(ENDPOINTS["ai.management-sentiment-indicator"]) == 500
+    assert worst_request_credits(ENDPOINTS["alternative.edb-data"]) == 300
 
 
-def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_26():
-    """The CHANGELOG 0.5.0 billing note and README name these: billed, yet retried
-    after an uncertain failure. A change here must update that note."""
+def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_29():
+    """The README billing note names these: billed, yet retried after an uncertain
+    failure. A change here must update that note (and say so in the CHANGELOG)."""
     default_retry = {
         key for key, ep in ENDPOINTS.items() if ep.billing is not None and ep.retry != "no-replay"
     }
     lists = {
         "ai.security-clue.list",
+        "ai.management-sentiment-indicator",
+        "ai.management-sentiment-conclusion",
         "insight.roadshow.list",
         "insight.site-visit.list",
         "insight.strategy.list",
@@ -746,8 +792,8 @@ def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_26():
         "insight.official-account.download",
         "insight.report-image.download",
     }
-    assert default_retry == lists | downloads
-    assert len(default_retry) == 26
+    assert default_retry == lists | downloads | {"alternative.edb-data"}
+    assert len(default_retry) == 29
     # The same note names the quantity-billed endpoints kept on no-replay although one
     # request stays under the line — pinned by name, so one swapped for another fails.
     under_the_line = {

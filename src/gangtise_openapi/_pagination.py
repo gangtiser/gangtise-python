@@ -172,6 +172,19 @@ def _row_digest(row: Any) -> bytes:
     return hashlib.sha1(text.encode("utf-8", "surrogatepass"), usedforsecurity=False).digest()
 
 
+def _row_id_value(row: Any, path: str) -> Any:
+    """The value at a dotted ``path`` (``source.sourceId``) of a row, ``None`` when any
+    step is missing or not an object."""
+    value = row
+    for key in path.split("."):
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+def _row_id_name(row_id: str | tuple[str, ...]) -> str:
+    return row_id if isinstance(row_id, str) else " + ".join(row_id)
+
+
 def _credits(value: float) -> str:
     """A credit amount as the price list writes it: ``2500``, ``1000.1``."""
     return str(int(value)) if float(value).is_integer() else str(value)
@@ -541,7 +554,7 @@ class _PagedFetch:
         means "never resend a request the server may already have executed" — REPLAY
         safety — and the probe is a new request, never a resend, so the flag has
         nothing to say about it. Billing-wise the one endpoint that gate excluded,
-        ``ai.hot-topic``, is priced per returned item (50 per 篇, where a 篇 is one whole
+        ``ai.hot-topic``, is priced per returned item (10 per 篇, where a 篇 is one whole
         report), and the platform does not charge a per-item endpoint for a query that
         finds nothing — so the gate saved no credits while costing that endpoint its
         only truncation check.
@@ -620,20 +633,21 @@ class _PagedFetch:
         kept and counted. The same on ONE page — a single consistent response — means
         the id does not identify a row on this list, and the count is then disregarded,
         as it is for an id field not yet seen to be one (``row_id_unverified``). Rows
-        without the id are always kept.
+        without the id (or any part of a composite one) are always kept.
         """
         row_id = self.endpoint.row_id
         if row_id is None:
             return list(rows)
+        paths = (row_id,) if isinstance(row_id, str) else row_id
         on_this_page: dict[str, set[bytes]] = {}
         kept: list[Any] = []
         for row in rows:
-            value = row.get(row_id) if isinstance(row, dict) else None
-            if value is None:
+            ids = [_row_id_value(row, path) for path in paths]
+            if any(value is None for value in ids):
                 kept.append(row)
                 continue
             digest = _row_digest(row)
-            key = str(value)
+            key = str(ids[0]) if len(ids) == 1 else json.dumps([str(value) for value in ids])
             page_versions = on_this_page.get(key)
             if page_versions is None:
                 on_this_page[key] = {digest}
@@ -677,7 +691,8 @@ class _PagedFetch:
             out["duplicateRows"] = self.duplicate_rows
             out["partial"] = True
         if self.changed_rows and self.id_is_row_key and not self.endpoint.row_id_unverified:
-            row_id = self.endpoint.row_id
+            assert self.endpoint.row_id is not None  # changed_rows is only counted under one
+            row_id = _row_id_name(self.endpoint.row_id)
             warnings.warn(
                 f"{key} returned {self.changed_rows} row(s) whose {row_id} came back on a "
                 "later page with different content — the list changed while it was being "

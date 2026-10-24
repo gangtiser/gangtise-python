@@ -123,13 +123,11 @@ def _valuation_fields_to_send(fields: list[Any]) -> list[Any]:
     all that was asked for.
 
     The endpoint always answers with ``tradeDate`` first. Asking for it anyway, or
-    naming a column twice, repeats that value in every row while the echoed field list
-    names it once; an unknown name drops its value (probed 2026-09-25, three samples
-    each). One of each CANCELS OUT — ``tradeDate,value,percentileRank,foo`` came back
-    with every value one column to the right and the widths equal, so the width guard
-    passed it. With nothing that can add a value, an unknown name always leaves the
-    rows short, which ``normalize_rows`` refuses. ``tradeDate`` alone is kept: dropping
-    it would ask for every column, and the endpoint answers it with no rows.
+    naming a column twice, once repeated that value in every row while the echoed field
+    list named it once (probed 2026-09-25); since 2026-10-14 names and values line up
+    and an unknown name is refused with 100005. Kept because the request means the same
+    without the repeats. ``tradeDate`` alone is kept: dropping it would ask for every
+    column, and the endpoint answers it with no rows.
     """
     unique = list(dict.fromkeys(fields))
     values = [f for f in unique if f != "tradeDate"]
@@ -291,17 +289,21 @@ class Fundamental:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """Shared body builder for the eight statement endpoints.
+        """Shared body builder for the eleven statement endpoints.
 
-        ⚠️ **Point-in-time alignment must use ``earliestAnncDate``** (首次公告日,
-        added server-side 2026-08-14), not ``announcementDate``: some securities
-        fill all four quarters of ``announcementDate`` with the ANNUAL report's
-        publish date (五粮液 FY2025 returns 20260430 four times), while
-        ``earliestAnncDate`` returns 20250426 / 20250828 / 20251031 / 20260430,
-        matching the announcement list. After-hours disclosures count as the next
-        day, so it is never EARLIER than the real disclosure — the safe direction.
-        No column pinning here (``schema=None``), so both fields flow through as
-        the server sends them.
+        ⚠️ **The values are the latest version, restatements included** — also under
+        ``consolidated``. ``announcementDate`` is the date of the announcement those
+        values come from; ``earliestAnncDate`` (首次公告日, added server-side
+        2026-08-14) is when the period was first disclosed. 五粮液 restated 2025
+        Q1–Q3 on 2026-04-30: 2025Q1 ``consolidated`` returns the restated 44.16 亿
+        归母净利 (as ``consolidatedRestated`` does; first disclosed 148.60 亿) with
+        ``announcementDate`` 20260430 and ``earliestAnncDate`` 20250426. So
+        ``earliestAnncDate`` tells whether a period was public on a date, but pairing
+        it with these values backfills numbers that only became known later
+        (look-ahead); a value is knowable from its ``announcementDate``, and the
+        first-disclosed numbers of a restated period are not in this response. No
+        column pinning here (``schema=None``), so both fields flow through as the
+        server sends them.
         """
         body = _request_body(
             {
@@ -319,7 +321,7 @@ class Fundamental:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
 
-    # ---- 8 statement endpoints ----
+    # ---- 11 statement endpoints ----
 
     def income_statement(
         self,
@@ -645,7 +647,8 @@ class Fundamental:
         """查询主营业务构成（fundamental.main-business）。
 
         breakdown 取值 product=产品 / industry=行业 / region=地区；
-        period 取值 interim=中报 / annual=年报，支持单值或列表。
+        period 取值 interim=中报 / annual=年报，支持单值或列表。field 写了不存在的字段名时
+        整条报 100005 并点名，不确定字段名就别传。
         """
         body = _request_body(
             {
@@ -692,11 +695,10 @@ class Fundamental:
         权限窗口，看首行日期判断。
 
         field 里**至少要有一个数值列**（value / percentileRank / average / median /
-        upper1Std / lower1Std）：只传 tradeDate、只传不存在的名字（含 securityCode）时
-        接口返回 0 行、不报错（SDK 发 UserWarning 说明原因）；数值列与不存在的名字混传时
-        字段数对不上，抛 ValidationError、不返回错位数据。tradeDate 总在第一列返回，不用写进
-        field——写了 SDK 会在发请求前去掉，同一字段写两次也只发一次（只传 tradeDate 一项时
-        照常发送）。不确定字段名就别传 field。
+        upper1Std / lower1Std）：只传 tradeDate 时接口返回 0 行、不报错（SDK 发 UserWarning
+        说明原因）；不存在的名字（含 securityCode）整条报 100005 并点名。tradeDate 总在第一
+        列返回，不用写进 field——写了 SDK 会在发请求前去掉，同一字段写两次也只发一次（只传
+        tradeDate 一项时照常发送）。不确定字段名就别传 field。
 
         skip_null=True 时丢弃 value 或 percentileRank 为空的行（最新交易日可能未入库）；
         field 没点名这两列时 SDK 会补取、过滤后再删掉，输出列仍由 field 决定。raw=True 时
@@ -772,6 +774,7 @@ class Fundamental:
         """查询盈利预测一致预期（fundamental.earning-forecast），仅 A 股。
 
         start_date/end_date 缺省时取截至**北京时间今天**、向前一年（与机器所在时区无关）；
+        可查范围前溯 1 年（各档相同，个别账号更长，以实际返回为准）。
         latest=True（默认）仅保留最新一次更新。consensus 取值 netIncome/netIncomeYoy/eps/
         pe/bps/pb/peg/roe/ps，支持单值或列表。
 
@@ -820,17 +823,21 @@ class AsyncFundamental:
         field: FilterValue | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """Shared body builder for the eight statement endpoints.
+        """Shared body builder for the eleven statement endpoints.
 
-        ⚠️ **Point-in-time alignment must use ``earliestAnncDate``** (首次公告日,
-        added server-side 2026-08-14), not ``announcementDate``: some securities
-        fill all four quarters of ``announcementDate`` with the ANNUAL report's
-        publish date (五粮液 FY2025 returns 20260430 four times), while
-        ``earliestAnncDate`` returns 20250426 / 20250828 / 20251031 / 20260430,
-        matching the announcement list. After-hours disclosures count as the next
-        day, so it is never EARLIER than the real disclosure — the safe direction.
-        No column pinning here (``schema=None``), so both fields flow through as
-        the server sends them.
+        ⚠️ **The values are the latest version, restatements included** — also under
+        ``consolidated``. ``announcementDate`` is the date of the announcement those
+        values come from; ``earliestAnncDate`` (首次公告日, added server-side
+        2026-08-14) is when the period was first disclosed. 五粮液 restated 2025
+        Q1–Q3 on 2026-04-30: 2025Q1 ``consolidated`` returns the restated 44.16 亿
+        归母净利 (as ``consolidatedRestated`` does; first disclosed 148.60 亿) with
+        ``announcementDate`` 20260430 and ``earliestAnncDate`` 20250426. So
+        ``earliestAnncDate`` tells whether a period was public on a date, but pairing
+        it with these values backfills numbers that only became known later
+        (look-ahead); a value is knowable from its ``announcementDate``, and the
+        first-disclosed numbers of a restated period are not in this response. No
+        column pinning here (``schema=None``), so both fields flow through as the
+        server sends them.
         """
         body = _request_body(
             {
@@ -1170,7 +1177,8 @@ class AsyncFundamental:
         """查询主营业务构成（fundamental.main-business）。
 
         breakdown 取值 product=产品 / industry=行业 / region=地区；
-        period 取值 interim=中报 / annual=年报，支持单值或列表。
+        period 取值 interim=中报 / annual=年报，支持单值或列表。field 写了不存在的字段名时
+        整条报 100005 并点名，不确定字段名就别传。
         """
         body = _request_body(
             {
@@ -1215,11 +1223,10 @@ class AsyncFundamental:
         权限窗口，看首行日期判断。
 
         field 里**至少要有一个数值列**（value / percentileRank / average / median /
-        upper1Std / lower1Std）：只传 tradeDate、只传不存在的名字（含 securityCode）时
-        接口返回 0 行、不报错（SDK 发 UserWarning 说明原因）；数值列与不存在的名字混传时
-        字段数对不上，抛 ValidationError、不返回错位数据。tradeDate 总在第一列返回，不用写进
-        field——写了 SDK 会在发请求前去掉，同一字段写两次也只发一次（只传 tradeDate 一项时
-        照常发送）。不确定字段名就别传 field。
+        upper1Std / lower1Std）：只传 tradeDate 时接口返回 0 行、不报错（SDK 发 UserWarning
+        说明原因）；不存在的名字（含 securityCode）整条报 100005 并点名。tradeDate 总在第一
+        列返回，不用写进 field——写了 SDK 会在发请求前去掉，同一字段写两次也只发一次（只传
+        tradeDate 一项时照常发送）。不确定字段名就别传 field。
 
         skip_null=True 时丢弃 value 或 percentileRank 为空的行（最新交易日可能未入库）；
         field 没点名这两列时 SDK 会补取、过滤后再删掉，输出列仍由 field 决定。raw=True 时
@@ -1291,6 +1298,7 @@ class AsyncFundamental:
         """查询盈利预测一致预期（fundamental.earning-forecast），仅 A 股。
 
         start_date/end_date 缺省时取截至**北京时间今天**、向前一年（与机器所在时区无关）；
+        可查范围前溯 1 年（各档相同，个别账号更长，以实际返回为准）。
         latest=True（默认）仅保留最新一次更新。consensus 取值 netIncome/netIncomeYoy/eps/
         pe/bps/pb/peg/roe/ps，支持单值或列表。
 

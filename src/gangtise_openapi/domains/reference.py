@@ -19,7 +19,7 @@ from gangtise_openapi.domains._common import (
 # Server-probed enum whitelists (TS CLI v0.25.0): these endpoints silently ignore
 # an unknown category (or return empty) instead of erroring, so typos would
 # masquerade as "no results" without a local check.
-_SECURITIES_CATEGORIES = ("stock", "dr", "index", "fund")
+_SECURITIES_CATEGORIES = ("stock", "dr", "index", "fund", "bond")
 _INSTITUTION_CATEGORIES = (
     "domesticBroker",
     "foreignInstitution",
@@ -46,11 +46,19 @@ class Reference:
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """按关键词搜索证券 GTS 代码（reference.securities-search）。
 
-        category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金；支持单值或列表。
+        category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金 bond=债券；支持单值或列表。
+        bond 覆盖交易所可转债、国债、地方债、金融债与银行间债券（后缀 .SH / .SZ / .IB），按
+        代码或简称查；债券代码用于 gangtise.bond，quote、公告等其余方法不收债券代码（传了报
+        120001）。fund 同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起
+        返回，按 gtsName 区分后取一个。
+
+        🔴 **可转债在任何 category 下都可能出现**：按公司简称查 stock 时，同名可转债常排第一
+        （「甬金」→ 113636.SH 甬金转债在 603995.SH 甬金股份之前）。**取第一条 category 等于
+        所查类别的行**，别直接取第一行；查基金同理——债券代码传给 fund 方法返回空结果、不报错。
         """
         # TS body shape (cli.ts:503):
         #   { keyword, category: maybeArray(category) | undefined, top: int }
-        # category choices the TS CLI enforces: stock/dr/index/fund.
+        # category choices the TS CLI enforces: stock/dr/index/fund/bond.
         body = _request_body(
             {
                 "keyword": keyword,
@@ -255,7 +263,15 @@ class AsyncReference:
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """按关键词搜索证券 GTS 代码（reference.securities-search）。
 
-        category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金；支持单值或列表。
+        category 分类: stock=股票 dr=存托凭证 index=指数 fund=基金 bond=债券；支持单值或列表。
+        bond 覆盖交易所可转债、国债、地方债、金融债与银行间债券（后缀 .SH / .SZ / .IB），按
+        代码或简称查；债券代码用于 gangtise.bond，quote、公告等其余方法不收债券代码（传了报
+        120001）。fund 同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起
+        返回，按 gtsName 区分后取一个。
+
+        🔴 **可转债在任何 category 下都可能出现**：按公司简称查 stock 时，同名可转债常排第一
+        （「甬金」→ 113636.SH 甬金转债在 603995.SH 甬金股份之前）。**取第一条 category 等于
+        所查类别的行**，别直接取第一行；查基金同理——债券代码传给 fund 方法返回空结果、不报错。
         """
         body = _request_body(
             {

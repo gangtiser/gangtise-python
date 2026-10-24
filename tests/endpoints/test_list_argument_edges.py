@@ -127,8 +127,8 @@ async def test_async_stock_pool_stocks_empty_pool_id_means_all(seeded_config):
 
 
 def test_independent_opinion_download_refuses_the_paid_title_lookup(seeded_config, tmp_path):
-    """Its list bills 5 credits/row: the 200-row filename lookup would cost 1000 credits,
-    exactly AT the guard. Refused before anything is sent (the CLI never offers it)."""
+    """Its list bills per row: the 200-row filename lookup would cost 200 credits for a
+    filename. Refused before anything is sent (the CLI never offers it)."""
     from gangtise_openapi.domains.insight import Insight
 
     with respx.mock(base_url=BASE, assert_all_called=False) as router:

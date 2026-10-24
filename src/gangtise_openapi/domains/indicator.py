@@ -630,13 +630,11 @@ class Indicator:
         第 3 种最容易写错成第 4 种: `pty_shr_reg` 看着像「静态属性」, 但它有
         currency / scale, 传 {} 会把这两个参数一起丢掉且没有任何提示。
 
-        🔴 **fiscalYear 漏传不报错**: parameterList 标必填的 fiscalYear 漏传时, 服务端按它
-        自定的默认年度取数（不随 date 变）——该年度有数就返回它, 看着完全正常但未必是你要的
-        那一年; 没有就是 null。预测类（frcst_*, 与 tradeDate 同时必填）与分红类
-        （div_cash_yr / div_cash_paid_ratio）都受影响, 一律显式传 fiscalYear。
-
-        报错与缺数: code 或参数名写错报 100003 并点名, 缺其余必填参数报 100001 并点名;
-        无数据是保留行列的 null 单元格（不是空表, 也不报错）。
+        报错与缺数: code 或参数名写错报 100003 并点名, 缺必填参数（含 fiscalYear）报 100001
+        并点名; 无数据是保留行列的 null 单元格（不是空表, 也不报错）。parameterList 列了默认
+        值的参数也可能必须显式传（如区间指标的 changePeriod / yieldType / riskFreeRate /
+        benchmarkCode, 股东结构类的 rank / shareType）, 漏传同样报 100001。返回的证券（行）
+        顺序不作保证, 一律按 security 列对应, 别按传入顺序对位。
 
         key_by 取 name（默认, 列头用服务端给的指标显示名）或 code（列头就是你传进去的
         indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠; 批量按 code 回填用 code 模式。
@@ -680,7 +678,7 @@ class Indicator:
 
         每行一个日期。security 也接受板块 ID（仅单指标时; 服务端把它展开成全部成分股,
         此时列头按证券出）。currency / scale / indicator_param 同 cross_section（参数日期
-        校验、fiscalYear 漏传不报错、100003 / 100001 / null 的含义都相同）; 时序的区间由
+        校验、100003 / 100001 / null 的含义都相同）; 时序的区间由
         start_date / end_date 统管, 不要再用 indicator_param 传 tradeDate。
 
         calendar_type 取值 ND=自然日 TD=交易日 WD=工作日, **服务端默认 ND**; TD 且跨市场时
@@ -756,8 +754,8 @@ class Indicator:
         date 作为每个变量的 tradeDate 下发（已带 tradeDate / reportDate 的不覆盖）; 绝大多数
         指标必填 tradeDate, 漏传服务端报 100001, 因此它是必填的。报告期类指标同
         cross_section, 用 indicator_param 传 reportDate; indicator_param 里 *Date 键的值同样
-        校验并统一成 YYYY-MM-DD。fiscalYear 漏传不报错（按服务端默认年度取数）, 同
-        cross_section, 一律显式传。security 传板块 ID 时服务端展开成全部成分股。
+        校验并统一成 YYYY-MM-DD。fiscalYear 等必填参数漏传报 100001 并点名, 同
+        cross_section。security 传板块 ID 时服务端展开成全部成分股。
 
         输出同 cross_section 的宽表（每行一只命中的证券）。空结果是正常答案, 但也可能是
         报告期类指标的日期不在报告期末（全为 null, 无一通过）或指标不覆盖这些证券——
@@ -873,13 +871,11 @@ class AsyncIndicator:
         第 3 种最容易写错成第 4 种: `pty_shr_reg` 看着像「静态属性」, 但它有
         currency / scale, 传 {} 会把这两个参数一起丢掉且没有任何提示。
 
-        🔴 **fiscalYear 漏传不报错**: parameterList 标必填的 fiscalYear 漏传时, 服务端按它
-        自定的默认年度取数（不随 date 变）——该年度有数就返回它, 看着完全正常但未必是你要的
-        那一年; 没有就是 null。预测类（frcst_*, 与 tradeDate 同时必填）与分红类
-        （div_cash_yr / div_cash_paid_ratio）都受影响, 一律显式传 fiscalYear。
-
-        报错与缺数: code 或参数名写错报 100003 并点名, 缺其余必填参数报 100001 并点名;
-        无数据是保留行列的 null 单元格（不是空表, 也不报错）。
+        报错与缺数: code 或参数名写错报 100003 并点名, 缺必填参数（含 fiscalYear）报 100001
+        并点名; 无数据是保留行列的 null 单元格（不是空表, 也不报错）。parameterList 列了默认
+        值的参数也可能必须显式传（如区间指标的 changePeriod / yieldType / riskFreeRate /
+        benchmarkCode, 股东结构类的 rank / shareType）, 漏传同样报 100001。返回的证券（行）
+        顺序不作保证, 一律按 security 列对应, 别按传入顺序对位。
 
         key_by 取 name（默认, 列头用服务端给的指标显示名）或 code（列头就是你传进去的
         indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠; 批量按 code 回填用 code 模式。
@@ -923,7 +919,7 @@ class AsyncIndicator:
 
         每行一个日期。security 也接受板块 ID（仅单指标时; 服务端把它展开成全部成分股,
         此时列头按证券出）。currency / scale / indicator_param 同 cross_section（参数日期
-        校验、fiscalYear 漏传不报错、100003 / 100001 / null 的含义都相同）; 时序的区间由
+        校验、100003 / 100001 / null 的含义都相同）; 时序的区间由
         start_date / end_date 统管, 不要再用 indicator_param 传 tradeDate。
 
         calendar_type 取值 ND=自然日 TD=交易日 WD=工作日, **服务端默认 ND**; TD 且跨市场时
@@ -1002,8 +998,8 @@ class AsyncIndicator:
         date 作为每个变量的 tradeDate 下发（已带 tradeDate / reportDate 的不覆盖）; 绝大多数
         指标必填 tradeDate, 漏传服务端报 100001, 因此它是必填的。报告期类指标同
         cross_section, 用 indicator_param 传 reportDate; indicator_param 里 *Date 键的值同样
-        校验并统一成 YYYY-MM-DD。fiscalYear 漏传不报错（按服务端默认年度取数）, 同
-        cross_section, 一律显式传。security 传板块 ID 时服务端展开成全部成分股。
+        校验并统一成 YYYY-MM-DD。fiscalYear 等必填参数漏传报 100001 并点名, 同
+        cross_section。security 传板块 ID 时服务端展开成全部成分股。
 
         输出同 cross_section 的宽表（每行一只命中的证券）。空结果是正常答案, 但也可能是
         报告期类指标的日期不在报告期末（全为 null, 无一通过）或指标不覆盖这些证券——

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import re
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -49,6 +48,7 @@ from gangtise_openapi._transport import _attach_envelope_trace_id
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
+    _note_late_start,
     _request_body,
     _validate_date,
     _validate_datetime,
@@ -202,11 +202,6 @@ _NO_KEYWORD_REASONS: dict[str, str] = {
     ),
 }
 
-# A first row this many calendar days after the requested start is not a weekend or a
-# holiday (the longest market closure runs about nine days) — the series starts late.
-_LATE_START_DAYS = 14
-_ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}\Z", re.ASCII)
-
 
 def _unique(values: list[Any] | None) -> list[Any] | None:
     """Drop repeated codes / field names, first occurrence kept (TS v0.44.0 ⑧).
@@ -251,65 +246,6 @@ def _with_identity_fields(
         stacklevel=4,
     )
     return [*missing, *fields]
-
-
-def _earliest_row_date(result: Any, field: str) -> str | None:
-    """The earliest ``YYYY-MM-DD`` of ``field`` over all rows, columnar or object.
-    Several securities merge one after another, so the first row is not the earliest."""
-    if not isinstance(result, dict) or not isinstance(result.get("list"), list):
-        return None
-    fields = result.get("fieldList")
-    index = fields.index(field) if isinstance(fields, list) and field in fields else -1
-    earliest: str | None = None
-    for row in result["list"]:
-        if isinstance(row, list):
-            value = row[index] if 0 <= index < len(row) else None
-        elif isinstance(row, dict):
-            value = row.get(field)
-        else:
-            continue
-        if not isinstance(value, str):
-            continue
-        day = value[:10]
-        if earliest is None or day < earliest:
-            earliest = day
-    return earliest
-
-
-def _note_late_start(result: Any, requested_start: Any, field: str, label: str) -> None:
-    """Warn when a quote series starts well after the requested start (TS v0.43.0 ⑥).
-
-    The quote endpoints answer a range that reaches past the account's history window
-    with what lies inside it and no error, so a clipped series otherwise looks like a
-    complete one. A security that listed (or resumed trading) later reads the same,
-    which is why this only warns and marks nothing partial. Stays quiet after a failed
-    date shard: that alone can move the first row later, and its own warning names
-    the gap.
-    """
-    if not isinstance(result, dict):
-        return
-    failed = result.get("failedShards")
-    if isinstance(failed, list) and failed:
-        return
-    if not isinstance(requested_start, str) or not _ISO_DAY.match(requested_start[:10]):
-        return
-    start = requested_start[:10]
-    first = _earliest_row_date(result, field)
-    if first is None or not _ISO_DAY.match(first):
-        return
-    try:
-        late = (dt.date.fromisoformat(first) - dt.date.fromisoformat(start)).days
-    except ValueError:
-        return
-    if late <= _LATE_START_DAYS:
-        return
-    warnings.warn(
-        f"{label} starts at {first}, {late} days after the requested start {start}. The "
-        "security may have listed or resumed trading later, or the range reaches past "
-        "your account's history window for this data — the endpoint returns what lies "
-        "inside the window without an error.",
-        stacklevel=4,
-    )
 
 
 def _note_empty_minutes(rows: list[Any], start_time: Any, end_time: Any) -> None:
@@ -1120,8 +1056,8 @@ class Quote:
         该接口无翻页，返回行数撞上 limit 时结果标 partial（raw 可见）并发 warning，
         提示缩小时间范围或分批取数。
 
-        ⚠️ 分钟数据的历史窗口比日 K 短得多，且随日期滚动（2026-09-25 实测某账号约 29 个
-        交易日）：整段在窗口外返回**空表且不报错**（日 K 同样情况报 110003），
+        ⚠️ 分钟数据的历史窗口比日 K 短得多：**最近 1 个月**，随日期滚动（各档相同）。
+        整段在窗口外返回**空表且不报错**（日 K 同样情况报 110003），
         SDK 在整段为空时发 warning；跨过窗口时从窗内起返回，首行比 start_time 晚 14 天
         以上时发 warning。
 
@@ -1496,8 +1432,8 @@ class AsyncQuote:
         该接口无翻页，返回行数撞上 limit 时结果标 partial（raw 可见）并发 warning，
         提示缩小时间范围或分批取数。
 
-        ⚠️ 分钟数据的历史窗口比日 K 短得多，且随日期滚动（2026-09-25 实测某账号约 29 个
-        交易日）：整段在窗口外返回**空表且不报错**（日 K 同样情况报 110003），
+        ⚠️ 分钟数据的历史窗口比日 K 短得多：**最近 1 个月**，随日期滚动（各档相同）。
+        整段在窗口外返回**空表且不报错**（日 K 同样情况报 110003），
         SDK 在整段为空时发 warning；跨过窗口时从窗内起返回，首行比 start_time 晚 14 天
         以上时发 warning。
 

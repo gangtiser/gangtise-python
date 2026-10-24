@@ -122,6 +122,62 @@ async def test_async_opinion_lists_switch_endpoint_on_with_content(seeded_config
     assert v1.called
 
 
+_OPINION_V2 = "/application/open-insight/chief-opinion/v2/getList"
+
+
+def test_opinion_list_sends_category_and_broker_tag(seeded_config):
+    # TS v0.47.0: opinion category and broker tag are their own filters next to llm_tag.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_OPINION_V2).mock(return_value=_page([{"categoryList": []}]))
+        with GangtiseClient(_config=seeded_config) as client:
+            Insight(client).opinion_list(
+                category=["earningsReview", "tradingDesk"],
+                llm_tag="beatExpect",
+                broker_tag="topBroker",
+                size=1,
+            )
+    sent = _sent(route)
+    assert sent["categoryList"] == ["earningsReview", "tradingDesk"]
+    assert sent["llmTagList"] == ["beatExpect"]
+    assert sent["brokerTagList"] == ["topBroker"]
+
+
+@pytest.mark.parametrize("filters", [{"category": "earningsReview"}, {"broker_tag": "topBroker"}])
+def test_with_content_refuses_the_filters_its_v1_list_ignores(seeded_config, filters):
+    # The v1 list drops categoryList / brokerTagList unread: sent, the filter would widen
+    # to every opinion at 30 credits a row.
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        catch_all = router.route().mock(return_value=_page([]))
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="opinion_detail"):
+                Insight(client).opinion_list(with_content=True, size=1, **filters)
+    assert not catch_all.called
+
+
+@pytest.mark.anyio
+async def test_async_with_content_refuses_category(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        catch_all = router.route().mock(return_value=_page([]))
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            with pytest.raises(ValidationError, match="with_content"):
+                await AsyncInsight(client).opinion_list(
+                    with_content=True, broker_tag="newFortune", size=1
+                )
+    assert not catch_all.called
+
+
+@pytest.mark.anyio
+async def test_async_opinion_list_sends_category_and_broker_tag(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_OPINION_V2).mock(return_value=_page([{"brief": "b"}]))
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            await AsyncInsight(client).opinion_list(
+                category="industryAnalysis", broker_tag="newFortune", size=1
+            )
+    assert _sent(route)["categoryList"] == ["industryAnalysis"]
+    assert _sent(route)["brokerTagList"] == ["newFortune"]
+
+
 # ---------------------------------------------------------------- detail batching
 
 

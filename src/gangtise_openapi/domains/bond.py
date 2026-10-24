@@ -1,7 +1,7 @@
 # ruff: noqa: RUF002
 # (RUF002 disabled file-wide: method docstrings are user-facing Chinese text
 # that intentionally uses fullwidth punctuation.)
-"""`gangtise.bond.*` — 债券（资料/行情/估值/评级/公告），12 个方法（TS v0.41.0）。
+"""`gangtise.bond.*` — 债券（资料/行情/估值/评级/公告/违约），13 个方法（TS v0.41.0 / v0.48.0）。
 
 整族通用（逐条见上游 ``gangtise-openapi/references/commands/bond.md``）：
 
@@ -11,10 +11,10 @@
   仅连接失败、429 与 token 自愈会重试；偶发失败自行重跑。
 - ``security`` 只收**标准债券代码**（``019742.SH`` / ``123456.SZ`` / ``220205.IB``
   银行间），**不接受简称或拼音**——传了整批报 ``120001``，不会退化成模糊匹配；只有
-  简称时先用 ``reference.securities_search(keyword=<简称>)`` 换代码。单值或列表，
+  简称时先用 ``reference.securities_search(keyword=<简称>, category="bond")`` 换代码。单值或列表，
   发送前去重；有单次只数上限的方法按**去重后**的只数计（与服务端一致）。
-- ``field`` 不传返回全部字段；**传了不支持的字段名整批报 ``100003``** 并指名，不会
-  静默丢列。各方法的默认列恒在最前，无需指定。
+- ``field`` 不传返回全部字段；**传了不支持的字段名整批报 ``100003``**（``default_list``
+  为 ``100005``）并指名，不会静默丢列。各方法的默认列恒在最前，无需指定。
 - 返回是**列式**的（``fieldList`` + 数组行），默认转成 DataFrame；``raw=True`` 返回原始 data。
 - 条件合法但全部没有数据时抛 ``ApiError``（``404`` / ``130001`` 数据未找到）——表示没有
   数据、不是故障。只有部分代码有数据时不报错：``basic_info`` / ``rating_overview`` /
@@ -23,11 +23,14 @@
   行，用「请求的代码 − 返回里出现的代码」判断哪些没数据。
 - 字段里的枚举 ID 可用 ``reference.constant_list(category=...)`` 查全量：``bondType``
   债券类型 / ``interestRateType`` 利率类型 / ``interestFrequency`` 付息频率 /
-  ``absUnderlyingAssetType`` ABS 基础资产类型 / ``ratingType`` 评级类型 / ``exchange`` 交易市场。
+  ``absUnderlyingAssetType`` ABS 基础资产类型 / ``ratingType`` 评级类型 / ``exchange`` 交易市场 /
+  ``interestBondSubtype`` 利率债子类型。⚠️ 同名字段 ``bondType`` 两套码：``basic_info`` 用
+  ``bondType``，``issuance_plan`` 用 ``interestBondSubtype``。
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pandas as pd
@@ -39,6 +42,7 @@ from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
     _empty_list_error,
+    _note_late_start,
     _request_body,
     _result_to_dataframe,
     _validate_top,
@@ -49,6 +53,13 @@ from gangtise_openapi.domains._common import (
 _BASIC_INFO_MAX_CODES = 10000
 _CONFIDENCE_LEVELS = ("推荐", "不推荐")
 _ANNOUNCEMENT_MAX_PAGE_SIZE = 200
+# A bond range past the account's history window is refused (110003), not clipped, so a
+# late first row means the bond listed later or its data starts later (TS v0.47.0).
+_BOND_LATE_CAUSE = (
+    "The bond may have listed later, or this data starts later than the requested "
+    "range — the endpoint returns from its first day of data without an error."
+)
+_NAME_SEPARATORS = re.compile("[,\uff0c]")  # ASCII and fullwidth comma
 
 
 def _max_units(key: str) -> int:
@@ -146,11 +157,55 @@ def _announcement_body(
     )
 
 
+def _default_list_body(
+    start_date: Any, end_date: Any, security: Any, issuer: Any, field: Any
+) -> dict[str, Any]:
+    """Three ways in, exactly one per call: a default-date range (both ends, at most one
+    calendar year apart — the server checks that, 110002), bond codes, or ONE issuer
+    name. Checked here, before the metered request, so a comma-joined pair of issuers
+    cannot go out as one fuzzy-matched name (TS v0.48.0)."""
+    codes = _unique(security, "security")
+    names = _unique(issuer, "issuer")
+    if codes == []:
+        raise _empty_list_error("security")
+    if names == []:
+        raise _empty_list_error("issuer")
+    by_date = start_date is not None or end_date is not None
+    modes = sum((by_date, bool(codes), bool(names)))
+    if modes > 1:
+        raise ValidationError(
+            "start_date/end_date, security and issuer are mutually exclusive on "
+            "bond.default_list — pick one"
+        )
+    if modes == 0:
+        raise ValidationError(
+            "bond.default_list: pass start_date with end_date (default date range), "
+            "security (bond codes) or issuer (one issuer)"
+        )
+    if by_date and (start_date is None or end_date is None):
+        raise ValidationError("bond.default_list: start_date and end_date go together")
+    if names and (
+        len(names) > 1 or any(isinstance(n, str) and _NAME_SEPARATORS.search(n) for n in names)
+    ):
+        raise ValidationError(
+            "bond.default_list takes one issuer per call — run one call per issuer"
+        )
+    return _request_body(
+        {
+            "startDate": start_date,
+            "endDate": end_date,
+            "securityList": codes,
+            "issuerNameList": names,
+            "fieldList": _unique(field, "field"),
+        }
+    )
+
+
 def _range_body(
     security: Any, start_date: Any, end_date: Any, field: Any, *, cap: int | None = None
 ) -> dict[str, Any]:
     """``securityList`` + optional date range + ``fieldList`` — the shape four of the
-    twelve share (TS ``addBondRange``); the two dated quote endpoints reuse it with
+    thirteen share (TS ``addBondRange``); the two dated quote endpoints reuse it with
     their dates required by signature."""
     return _request_body(
         {
@@ -168,8 +223,18 @@ def _frame(result: Any, raw: bool) -> pd.DataFrame | dict[str, Any]:
     return _result_to_dataframe(result)
 
 
+def _dated_frame(
+    result: Any, body: dict[str, Any], label: str, raw: bool
+) -> pd.DataFrame | dict[str, Any]:
+    """``_frame`` for the two dated series: warns when the first row comes back more than
+    two weeks after ``start_date``. Only the earliest first row of the whole batch is
+    judged, so with several bonds one early series keeps it quiet."""
+    _note_late_start(result, body.get("startDate"), "tradeDate", label, _BOND_LATE_CAUSE)
+    return _frame(result, raw)
+
+
 class Bond:
-    """`gangtise.bond.*` — 债券（资料/行情/估值/评级/公告）。
+    """`gangtise.bond.*` — 债券（资料/行情/估值/评级/公告/违约）。
 
     全部计费（0.4 积分起）且超时 / 5xx 不自动重试；``security`` 只收标准债券代码；
     返回列式、默认转 DataFrame。通用约定见模块说明。
@@ -260,11 +325,13 @@ class Bond:
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
 
         ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
-        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
-        取长序列时核对返回的首行日期。**
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错（首行比
+        start_date 晚超过 14 天时发 UserWarning）。**按年份取长序列时按 securityCode 逐只
+        核对首行日期**——告警只看整批最早的首行，多只同查时有一只数据够早就不会告警。
         """
         body = _range_body(security, start_date, end_date, field)
-        return _frame(self._client._call("bond.daily-quote", body=body), raw)
+        result = self._client._call("bond.daily-quote", body=body)
+        return _dated_frame(result, body, "bond daily-quote", raw)
 
     def valuation(
         self,
@@ -289,8 +356,9 @@ class Bond:
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
 
         ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
-        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
-        取长序列时核对返回的首行日期。**
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错（首行比
+        start_date 晚超过 14 天时发 UserWarning）。**按年份取长序列时按 securityCode 逐只
+        核对首行日期**——告警只看整批最早的首行，多只同查时有一只数据够早就不会告警。
         """
         body = _request_body(
             {
@@ -301,7 +369,8 @@ class Bond:
                 "fieldList": _unique(field, "field"),
             }
         )
-        return _frame(self._client._call("bond.valuation", body=body), raw)
+        result = self._client._call("bond.valuation", body=body)
+        return _dated_frame(result, body, "bond valuation", raw)
 
     def cash_flow(
         self,
@@ -492,6 +561,37 @@ class Bond:
         body = _range_body(security, start_date, end_date, field)
         return _frame(self._client._call("bond.exercise-notice", body=body), raw)
 
+    def default_list(
+        self,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        security: FilterValue | None = None,
+        issuer: str | None = None,
+        field: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """违约债券：代码、简称、违约日期、违约金额、发行人、违约原因（bond.default-list）。
+
+        0.4 积分/次。🔴 **三种查法三选一**，同传或都不传在本地拒绝、不发请求：
+
+        - **按违约日期**：start_date 与 end_date 必须同时给，区间不超过 1 个自然年
+          （2025-01-01～2026-01-01 可以，结束日到 2026-01-02 报 110002）
+        - **按债券**：security 不限只数，没有违约记录的代码不产生行
+        - **按发行人**：issuer **一次一个**（传多个或用逗号拼在一起本地报错，分次调用）。
+          ⚠️ **用发行人全称**：传简称也会返回结果，但只返回最匹配的**一家**——如「上海世茂」
+          只返回上海世茂建设有限公司的记录，同样有违约记录的上海世茂股份有限公司不在其中。
+          拿到结果先核对 issuerName 是不是要查的那家
+
+        默认返回 securityCode + defaultDate，其余字段：securityName / defaultAmount 违约金额
+        （**亿元**）/ issuerName 发行人全称 / defaultReason 违约原因，缺值为 null。按违约日期
+        降序、代码升序，同一只债券每次违约一行。🔴 **field 写错报 100005**（其余 bond 方法是
+        100003），同样整批拒绝并点名。历史范围不限；条件下一条记录都没有时抛 ApiError
+        （130001）。
+        """
+        body = _default_list_body(start_date, end_date, security, issuer, field)
+        return _frame(self._client._call("bond.default-list", body=body), raw)
+
 
 class AsyncBond:
     """Async mirror of `Bond`."""
@@ -581,11 +681,13 @@ class AsyncBond:
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
 
         ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
-        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
-        取长序列时核对返回的首行日期。**
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错（首行比
+        start_date 晚超过 14 天时发 UserWarning）。**按年份取长序列时按 securityCode 逐只
+        核对首行日期**——告警只看整批最早的首行，多只同查时有一只数据够早就不会告警。
         """
         body = _range_body(security, start_date, end_date, field)
-        return _frame(await self._client._call("bond.daily-quote", body=body), raw)
+        result = await self._client._call("bond.daily-quote", body=body)
+        return _dated_frame(result, body, "bond daily-quote", raw)
 
     async def valuation(
         self,
@@ -610,8 +712,9 @@ class AsyncBond:
         把 start_date 移进窗口再查（实际下界随账号服务等级而定，以返回为准）。
 
         ⚠️ 数据还可能比账号窗口短：区间在窗口内、但早于数据起点时整段抛 ApiError
-        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错。**按年份
-        取长序列时核对返回的首行日期。**
+        （130001「数据未找到」）；跨过数据起点时从有数据的那天起返回、不报错（首行比
+        start_date 晚超过 14 天时发 UserWarning）。**按年份取长序列时按 securityCode 逐只
+        核对首行日期**——告警只看整批最早的首行，多只同查时有一只数据够早就不会告警。
         """
         body = _request_body(
             {
@@ -622,7 +725,8 @@ class AsyncBond:
                 "fieldList": _unique(field, "field"),
             }
         )
-        return _frame(await self._client._call("bond.valuation", body=body), raw)
+        result = await self._client._call("bond.valuation", body=body)
+        return _dated_frame(result, body, "bond valuation", raw)
 
     async def cash_flow(
         self,
@@ -812,3 +916,34 @@ class AsyncBond:
         """
         body = _range_body(security, start_date, end_date, field)
         return _frame(await self._client._call("bond.exercise-notice", body=body), raw)
+
+    async def default_list(
+        self,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        security: FilterValue | None = None,
+        issuer: str | None = None,
+        field: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """违约债券：代码、简称、违约日期、违约金额、发行人、违约原因（bond.default-list）。
+
+        0.4 积分/次。🔴 **三种查法三选一**，同传或都不传在本地拒绝、不发请求：
+
+        - **按违约日期**：start_date 与 end_date 必须同时给，区间不超过 1 个自然年
+          （2025-01-01～2026-01-01 可以，结束日到 2026-01-02 报 110002）
+        - **按债券**：security 不限只数，没有违约记录的代码不产生行
+        - **按发行人**：issuer **一次一个**（传多个或用逗号拼在一起本地报错，分次调用）。
+          ⚠️ **用发行人全称**：传简称也会返回结果，但只返回最匹配的**一家**——如「上海世茂」
+          只返回上海世茂建设有限公司的记录，同样有违约记录的上海世茂股份有限公司不在其中。
+          拿到结果先核对 issuerName 是不是要查的那家
+
+        默认返回 securityCode + defaultDate，其余字段：securityName / defaultAmount 违约金额
+        （**亿元**）/ issuerName 发行人全称 / defaultReason 违约原因，缺值为 null。按违约日期
+        降序、代码升序，同一只债券每次违约一行。🔴 **field 写错报 100005**（其余 bond 方法是
+        100003），同样整批拒绝并点名。历史范围不限；条件下一条记录都没有时抛 ApiError
+        （130001）。
+        """
+        body = _default_list_body(start_date, end_date, security, issuer, field)
+        return _frame(await self._client._call("bond.default-list", body=body), raw)

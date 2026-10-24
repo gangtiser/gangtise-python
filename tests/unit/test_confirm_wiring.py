@@ -60,6 +60,8 @@ _CASES: list[tuple[str, str, str, dict[str, Any]]] = [
         },
     ),
     ("ai.hot-topic", "ai", "hot_topic", {}),
+    ("ai.management-sentiment-indicator", "ai", "management_sentiment_indicator", {}),
+    ("ai.management-sentiment-conclusion", "ai", "management_sentiment_conclusion", {}),
     ("vault.my-conference.list", "vault", "my_conference_list", {}),
 ]
 

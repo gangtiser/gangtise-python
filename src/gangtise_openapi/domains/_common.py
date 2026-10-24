@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import warnings
 from collections.abc import Iterable, Sequence
 from typing import Any, TypeAlias
 
@@ -499,6 +500,78 @@ def _result_to_dataframe(result: Any) -> pd.DataFrame:
     if fast is not None:
         return fast
     return to_dataframe(_extract_rows(result), schema=None)
+
+
+# A first row this many calendar days after the requested start is not a weekend or a
+# holiday (the longest market closure runs about nine days) — the series starts late.
+_LATE_START_DAYS = 14
+_ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}\Z", re.ASCII)
+
+
+def _earliest_row_date(result: Any, field: str) -> str | None:
+    """The earliest ``YYYY-MM-DD`` of ``field`` over all rows, columnar or object.
+    Several securities merge one after another, so the first row is not the earliest."""
+    if not isinstance(result, dict) or not isinstance(result.get("list"), list):
+        return None
+    fields = result.get("fieldList")
+    index = fields.index(field) if isinstance(fields, list) and field in fields else -1
+    earliest: str | None = None
+    for row in result["list"]:
+        if isinstance(row, list):
+            value = row[index] if 0 <= index < len(row) else None
+        elif isinstance(row, dict):
+            value = row.get(field)
+        else:
+            continue
+        if not isinstance(value, str):
+            continue
+        day = value[:10]
+        if earliest is None or day < earliest:
+            earliest = day
+    return earliest
+
+
+_LATE_START_CAUSE = (
+    "The security may have listed or resumed trading later, or the range reaches past "
+    "your account's history window for this data — the endpoint returns what lies "
+    "inside the window without an error."
+)
+
+
+def _note_late_start(
+    result: Any, requested_start: Any, field: str, label: str, cause: str = _LATE_START_CAUSE
+) -> None:
+    """Warn when a series starts well after the requested start (TS v0.43.0 ⑥).
+
+    The quote endpoints answer a range that reaches past the account's history window
+    with what lies inside it and no error, so a clipped series otherwise looks like a
+    complete one. A security that listed (or resumed trading) later reads the same,
+    which is why this only warns and marks nothing partial. ``cause`` replaces that
+    explanation where the window reading does not apply (TS v0.47.0). Stays quiet after
+    a failed date shard: that alone can move the first row later, and its own warning
+    names the gap.
+    """
+    if not isinstance(result, dict):
+        return
+    failed = result.get("failedShards")
+    if isinstance(failed, list) and failed:
+        return
+    if not isinstance(requested_start, str) or not _ISO_DAY.match(requested_start[:10]):
+        return
+    start = requested_start[:10]
+    first = _earliest_row_date(result, field)
+    if first is None or not _ISO_DAY.match(first):
+        return
+    try:
+        late = (dt.date.fromisoformat(first) - dt.date.fromisoformat(start)).days
+    except ValueError:
+        return
+    if late <= _LATE_START_DAYS:
+        return
+    warnings.warn(
+        f"{label} starts at {first}, {late} days after the requested start {start}. {cause}",
+        stacklevel=4,
+    )
 
 
 def _validate_top(value: int, *, name: str, max_value: int) -> int:

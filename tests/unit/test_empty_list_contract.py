@@ -62,6 +62,7 @@ _OVERRIDES: dict[str, dict[str, Any]] = {
     "announcement": {"security": "019742.SH"},
     "issuer_info": {"security": "019742.SH"},
     "issuer_rating_change": {"security": "019742.SH"},
+    "default_list": {"security": "019742.SH"},
 }
 _SKIP = {"file_parse", "file_parse_check", "drive_upload"}
 _ALLOWED_TO_SEND = {("Vault", "stock_pool_stocks", "pool_id")}

@@ -252,7 +252,7 @@ EDE_NO_DATA_HINT = (
     " 为准（传错名会报 100003 并指名）、日期匹配指标周期（财务报表类用报告期末如 2025-12-31，"
     "PE/PB 等日频估值用交易日）、标的在 scopeList 覆盖内、required 参数已补。注意此码不表示"
     "无数据——无数据返回保留行列的 null 单元格；code 或参数名写错报 100003、缺必填参数报"
-    " 100001，都会指名（fiscalYear 例外：漏传不报错，返回 null 或默认年度的值）。"
+    " 100001，都会指名。"
 )
 
 # Override for billed no-replay endpoints: the SDK deliberately did not retry because

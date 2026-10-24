@@ -153,6 +153,25 @@ CASES = [
         _BASE + "exercise-notice",
         {"securityList": ["136236.SH"]},
     ),
+    # TS v0.48.0 default-list: exactly one selector per call.
+    (
+        "default_list",
+        {"start_date": "2026/09/01", "end_date": "20261020"},
+        _BASE + "default-list",
+        {"startDate": "2026-09-01", "endDate": "2026-10-20"},
+    ),
+    (
+        "default_list",
+        {"security": ["169687.SH", "146589.SH"]},
+        _BASE + "default-list",
+        {"securityList": ["169687.SH", "146589.SH"]},
+    ),
+    (
+        "default_list",
+        {"issuer": "上海世茂股份有限公司", "field": "issuerName"},
+        _BASE + "default-list",
+        {"issuerNameList": ["上海世茂股份有限公司"], "fieldList": ["issuerName"]},
+    ),
 ]
 
 _TEN = [f"{100000 + i}.SH" for i in range(10)]
@@ -198,6 +217,23 @@ REFUSALS = [
         {"security": "019742.SH", "start_date": "09/15/2026", "end_date": "2026-09-19"},
         "start_date",
     ),
+    ("default_list", {}, "pass start_date with end_date"),
+    (
+        "default_list",
+        {"start_date": "2026-09-01", "end_date": "2026-10-20", "security": "169687.SH"},
+        "mutually exclusive",
+    ),
+    ("default_list", {"security": "169687.SH", "issuer": "上海世茂"}, "mutually exclusive"),
+    ("default_list", {"start_date": "2026-09-01"}, "go together"),
+    ("default_list", {"end_date": "2026-09-01"}, "go together"),
+    # A comma-joined pair would otherwise go out as one name for the server to fuzzy-match.
+    (
+        "default_list",
+        {"issuer": "上海世茂股份有限公司,上海世茂建设有限公司"},
+        "one issuer per call",
+    ),
+    ("default_list", {"issuer": "上海世茂股份有限公司\uff0c上海世茂建设有限公司"}, "one issuer"),
+    ("default_list", {"issuer": ["上海世茂股份有限公司", "上海世茂建设有限公司"]}, "one issuer"),
 ]
 
 
@@ -280,3 +316,50 @@ def test_a_5xx_is_not_replayed(seeded_config):
             with pytest.raises(ApiError):
                 Bond(client).basic_info(security="019742.SH")
     assert route.call_count == 1
+
+
+_QUOTE_PATH = "/application/open-quote/bond/daily-quote-exchange-cfets"
+
+
+def _series(first_day):
+    return {
+        "fieldList": ["securityCode", "tradeDate"],
+        "list": [["019742.SH", first_day], ["019742.SH", "2026-06-30"]],
+        "total": 2,
+    }
+
+
+def test_a_series_starting_two_weeks_late_warns_with_the_bond_cause(seeded_config):
+    # TS v0.47.0: past the account window these endpoints refuse (110003) rather than
+    # clip, so a late first row means the bond (or its data) starts later.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_QUOTE_PATH).mock(return_value=_ok(_series("2026-06-03")))
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="The bond may have listed later") as record:
+                Bond(client).daily_quote(
+                    security="019742.SH", start_date="2026/05/01", end_date="2026-06-30"
+                )
+    message = str(record[0].message)
+    assert "bond daily-quote starts at 2026-06-03, 33 days after the requested start" in message
+    assert "history window" not in message
+    assert record[0].filename == __file__  # points at the caller, not the SDK
+
+
+def test_a_valuation_series_starting_late_warns_even_raw(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_BASE + "valuation-shclearing").mock(return_value=_ok(_series("2026-06-03")))
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="bond valuation starts at 2026-06-03"):
+                Bond(client).valuation(
+                    security="019742.SH", start_date="2026-05-01", end_date="2026-06-30", raw=True
+                )
+
+
+def test_a_first_row_within_two_weeks_of_the_start_stays_quiet(seeded_config, recwarn):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_QUOTE_PATH).mock(return_value=_ok(_series("2026-05-15")))
+        with GangtiseClient(_config=seeded_config) as client:
+            Bond(client).daily_quote(
+                security="019742.SH", start_date="2026-05-01", end_date="2026-06-30"
+            )
+    assert not [w for w in recwarn if "starts at" in str(w.message)]

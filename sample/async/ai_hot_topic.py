@@ -22,7 +22,7 @@ async def main():
         await gangtise.async_.ai.hot_topic(
             from_=0,  # 分页起始偏移(映射为请求字段 from)
             size=10,  # 分页大小; 省略则按最大页 20 自动翻页
-            start_date="2026-09-15",  # 开始日期 YYYY-MM-DD（试用档只回溯约 1 个月）
+            start_date="2026-09-15",  # 开始日期 YYYY-MM-DD（可回溯 3 个月）
             end_date="2026-09-28",  # 结束日期 YYYY-MM-DD
             category="morningBriefing",  # 报告类型: morningBriefing=早报
             with_related_securities=True,  # 是否返回关联证券, 默认 True

@@ -35,17 +35,14 @@ async def main():
         await gangtise.async_.insight.strategy_list(
             institution=[1, 2],  # 机构 ID, 支持单值或列表
             keyword="策略",  # 关键词
-            size=20,  # 按条计费（20 积分/条）: 带 size 取一部分; 要全量改传 confirm=True
+            size=20,  # 按条计费（10 积分/条）: 带 size 取一部分; 要全量改传 confirm=True
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,
     )
     # 其余可选过滤参数:
-    #   research_area=<研究领域ID>    见 reference.constant_list(category="citicIndustry"); 支持单值或列表
     #   institution=<机构ID>          机构过滤, 支持单值或列表
-    #   category=<分类>               分类名称过滤, 支持单值或列表
-    #   participant_role=<参与方角色> 参与方角色名称过滤, 支持单值或列表
-    #   broker_type=<券商类型>        券商类型名称过滤, 支持单值或列表
+    #   location=<城市码>             domesticCity 码（如上海 "156310000"）; 传城市名报 999999
 
 
 if __name__ == "__main__":

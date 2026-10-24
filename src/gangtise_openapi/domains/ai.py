@@ -63,6 +63,22 @@ def _stock_summary_max_securities() -> int:
 STOCK_SUMMARY_MAX_SECURITIES = _stock_summary_max_securities()
 
 
+def _sentiment_body(
+    from_: int, size: int | None, start_time: Any, end_time: Any, security: Any
+) -> dict[str, Any]:
+    """Request body of the two management-sentiment lists (TS v0.48.0): no security
+    means every covered security, billed per row."""
+    return _request_body(
+        {
+            "from": from_,
+            "size": size,
+            "startTime": start_time,
+            "endTime": end_time,
+            "securityList": _as_list(security, "security"),
+        }
+    )
+
+
 class AI:
     """`gangtise.ai.*` — AI-generated insights and structured outputs."""
 
@@ -186,14 +202,14 @@ class AI:
         security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 6000 个
         (接口上限, 本地同值拦截, 超过报错并提示分批); 支持单值或列表。仅支持 A 股和港股。
 
-        计费 **3 积分/条**, 按返回条数计: 没有看点的证券不在返回列表里、也不扣分——所以
+        计费 **1 积分/条**, 按返回条数计: 没有看点的证券不在返回列表里、也不扣分——所以
         **返回行数少于提交数是正常的**, 不是丢了数据。全 A 股可一次提交完, 但数千只就是
-        上万积分, 提交前先估总价。🔴 整批返 0 行别直接读成「这批都没有看点」, 挑其中一两只
-        单查确认后再下结论。超时 / 5xx 不自动重发(一次最多可扣 18000 积分, 重放可能重复
+        数千积分, 提交前先估总价。🔴 整批返 0 行别直接读成「这批都没有看点」, 挑其中一两只
+        单查确认后再下结论。超时 / 5xx 不自动重发(一次最多可扣 6000 积分, 重放可能重复
         扣费), 端点带 120 秒超时下限; 失败后先确认再重跑。
 
         ⚠️ 服务端 2026-08-14 起**移除了全市场批量能力**: aShares / hkStocks 等市场关键词
-        不再返回全市场。本接口按 **3 积分/条**计费, 所以关键词在发请求前就被本地拦下——
+        不再返回全市场。本接口按 **1 积分/条**计费, 所以关键词在发请求前就被本地拦下——
         让失败落在请求之前而不是之后。省略 security 同样会被后端当作全市场, 故强制非空。
         """
         securities = _as_list(security, "security")
@@ -281,13 +297,13 @@ class AI:
         / afternoonFlash=盘中快报 / eveningBriefing=晚报; 支持单值或列表, 省略=全部。
         本地校验——接口对错值不报错, 结果看着像正常查询。
 
-        🔴 计费 **50 积分/篇**, 按返回条数计; 一「篇」= 一整份报告(一份早报 / 午报 /
-        盘中快报 / 晚报), 不是报告里的一条话题——一页 20 条 = 1000 积分。先用
+        🔴 计费 **10 积分/篇**, 按返回条数计; 一「篇」= 一整份报告(一份早报 / 午报 /
+        盘中快报 / 晚报), 不是报告里的一条话题——一页 20 条 = 200 积分。先用
         start_date/end_date + category 收窄范围再考虑全量。
         省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分
         拒绝（ValidationError，不再往下拉）；传更小的 size 取一部分，或 confirm=True 确认全量。
         省略 size 时先取 1 篇拿到总数来估算, 结果多于 1 篇时这 1 篇会多计一次——知道要几篇
-        就直接传 size。可查的历史范围跟账号权限走, 超出范围的日期返回空结果、不报错。
+        就直接传 size。可查的历史范围是前溯 3 个月(各档相同), 超出范围的日期返回空结果、不报错。
         """
         _refuse_empty(category, "category")  # [] would widen to all four categories
         body = _request_body(
@@ -355,6 +371,126 @@ class AI:
         )
         return self._client._call("ai.management-discuss-earnings-call", body=body)  # type: ignore[no-any-return]
 
+    # ---- management-sentiment ----
+
+    def management_sentiment_indicator(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        security: FilterValue | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """管理层情绪评分：每场业绩会的三维情绪评分（ai.management-sentiment-indicator）。
+
+        三维为正面回应程度 sentimentResponsiveness（正面回答还是回避）、回复乐观度
+        sentimentPolarity（回答对公司是利好还是风险）、回复确定度 sentimentConviction（表述
+        是否明确），0–5、两位小数；另有有效问答数 qaCount，回避 / 风险 / 低确定度三个占比
+        qaEvasionRatio / qaRiskRatio / qaUncertaintyRatio（**百分数**：7.14 即 7.14%，分母是
+        qaCount），以及按问题类型拆分的 questionCategoryList（只列这一场出现过的类型，各类
+        questionCategoryQaCount 之和等于 qaCount；某类只有一两条问答时评分由单条决定、波动
+        大，isImportant 标出重要类型）。
+
+        一行 = 一只证券 × 一场来源会议（同一证券开过几场就有几行，用 source.sourceId 区分），
+        按发布时间倒序；来源类型目前只有 conference（电话会议）。source.sourceId 传给
+        management_sentiment_detail 取逐条问答。
+
+        security 支持单值或列表，只收具体代码（aShares 这类市场关键词报 120001），任一代码
+        非法整批报 120001；**不传 = 全部证券**。start_time / end_time 按发布时间（北京时间）
+        筛，写 "YYYY-MM-DD"、"YYYY-MM-DD HH:mm:ss" 或 10 / 13 位时间戳——**写时刻就要带秒**
+        （"HH:mm" 报 110001）；只写日期的 end_time 含当天整天。数据范围正式账号前溯 1 年、
+        试用 6 个月，start_time 早于范围报 110003。
+
+        🔴 **返回的 publishTime 比北京时间早 8 小时**：北京时间 20:30 开的业绩会返回
+        12:30:00。展示时刻、与纪要 / 路演按时间对齐、按日期归档前先加 8 小时——否则北京
+        时间 0–8 点开的会会落到前一天。
+
+        🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
+        单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
+        不再往下拉）；传更小的 size 取一部分，或 confirm=True 确认全量。省略 size 时先取 1 条
+        拿到总数来估算，结果多于 1 条时这 1 条会多计一次——知道要几条就直接传 size。
+        """
+        return self._sentiment_list(
+            "ai.management-sentiment-indicator",
+            _sentiment_body(from_, size, start_time, end_time, security),
+            confirm,
+            raw,
+        )
+
+    def management_sentiment_conclusion(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        security: FilterValue | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """管理层情绪结论：每场业绩会的情绪结论与较上一场的变化（ai.management-sentiment-conclusion）。
+
+        返回结论文本 sentimentSummary（overallSentiment 总体情绪、questionCategorySentiment
+        主要影响因素、qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（*Signal 是
+        自然语言、不含分数，要分数用 management_sentiment_indicator）、与上一场同一事项的
+        问答对照 qaSentimentContrast（previousQaList 上一场、currentQaList 本场；qTrace /
+        aTrace 是录音里的毫秒区间 "起-止"），对比基准见 previousSource。**没有可比的上一场
+        时** qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null，
+        结论文本照常返回、只是不含「较上一次」。
+
+        行粒度（一只证券 × 一场会议，按发布时间倒序）、security / start_time / end_time 的
+        写法与数据范围同 management_sentiment_indicator。🔴 publishTime（含
+        previousSource.publishTime）同样**比北京时间早 8 小时**，筛选仍按北京时间。
+
+        🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
+        单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
+        不再往下拉）；传更小的 size 取一部分，或 confirm=True 确认全量。
+        """
+        return self._sentiment_list(
+            "ai.management-sentiment-conclusion",
+            _sentiment_body(from_, size, start_time, end_time, security),
+            confirm,
+            raw,
+        )
+
+    def _sentiment_list(
+        self, endpoint_key: str, body: dict[str, Any], confirm: bool, raw: bool
+    ) -> pd.DataFrame | dict[str, Any]:
+        result = self._client._call(endpoint_key, body=body, confirm=confirm)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def management_sentiment_detail(
+        self,
+        *,
+        source_id: str,
+        source_type: str = "conference",
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """管理层情绪明细：一场业绩会的逐条问答评分与判断依据（ai.management-sentiment-detail）。
+
+        source_id 取自 management_sentiment_indicator / management_sentiment_conclusion 返回行
+        的 source.sourceId，source_type 取同一行的 source.sourceType（默认 conference）。
+        **source_id 写错不报错、返回空结果**——拿到空先核对 ID 是不是从列表里取的。一次返回
+        整场全部问答、不分页，不按日期限制。
+
+        每条给三维档位 qaResponsiveness / qaPolarity / qaConviction（只取 5.0 / 2.5 / 0.0
+        三档）和依据（*Quote 回答原文节选、*Reason 判断理由），另有 qaId / questionCategory /
+        questionBrief。question / answer 是录音转写原文（口语、可能有同音错字），展示时配合
+        questionBrief。返回行不带来源字段，批量取多场时自己记下每次的 source_id。
+
+        计费 **10 积分/次**，超时 / 5xx 不自动重发。
+        """
+        body = _request_body({"sourceId": source_id, "sourceType": source_type})
+        result = self._client._call("ai.management-sentiment-detail", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
     # ---- Async-polled endpoints ----
 
     def earnings_review(
@@ -419,7 +555,7 @@ class AI:
     ) -> dict[str, Any]:
         """AI 观点辩论/PK, 异步生成（ai.viewpoint-debate.get-id / get-content）。
 
-        viewpoint 为待辩论的投资观点文本, 上限 1000 字。提交计费 50 积分/次(超时不自动重发,
+        viewpoint 为待辩论的投资观点文本, 上限 1000 字。提交计费 20 积分/次(超时不自动重发,
         重提会再扣一次)。⚠️ 观点过不了平台的敏感词检测时, 提交照常受理并扣分, 生成阶段以
         410111 失败; 同样的内容重提仍会失败, 提交前自己把关措辞。
         wait=True 阻塞轮询至内容完成(退避 5→30 秒, 最多 14 次, 累计约 316 秒 ≈ 5 分钟);
@@ -601,14 +737,14 @@ class AsyncAI:
         security 必填, 传具体证券代码(如 600519.SH / 00700.HK), 单次最多 6000 个
         (接口上限, 本地同值拦截, 超过报错并提示分批); 支持单值或列表。仅支持 A 股和港股。
 
-        计费 **3 积分/条**, 按返回条数计: 没有看点的证券不在返回列表里、也不扣分——所以
+        计费 **1 积分/条**, 按返回条数计: 没有看点的证券不在返回列表里、也不扣分——所以
         **返回行数少于提交数是正常的**, 不是丢了数据。全 A 股可一次提交完, 但数千只就是
-        上万积分, 提交前先估总价。🔴 整批返 0 行别直接读成「这批都没有看点」, 挑其中一两只
-        单查确认后再下结论。超时 / 5xx 不自动重发(一次最多可扣 18000 积分, 重放可能重复
+        数千积分, 提交前先估总价。🔴 整批返 0 行别直接读成「这批都没有看点」, 挑其中一两只
+        单查确认后再下结论。超时 / 5xx 不自动重发(一次最多可扣 6000 积分, 重放可能重复
         扣费), 端点带 120 秒超时下限; 失败后先确认再重跑。
 
         ⚠️ 服务端 2026-08-14 起**移除了全市场批量能力**: aShares / hkStocks 等市场关键词
-        不再返回全市场。本接口按 **3 积分/条**计费, 所以关键词在发请求前就被本地拦下——
+        不再返回全市场。本接口按 **1 积分/条**计费, 所以关键词在发请求前就被本地拦下——
         让失败落在请求之前而不是之后。省略 security 同样会被后端当作全市场, 故强制非空。
         """
         securities = _as_list(security, "security")
@@ -700,13 +836,13 @@ class AsyncAI:
         / afternoonFlash=盘中快报 / eveningBriefing=晚报; 支持单值或列表, 省略=全部。
         本地校验——接口对错值不报错, 结果看着像正常查询。
 
-        🔴 计费 **50 积分/篇**, 按返回条数计; 一「篇」= 一整份报告(一份早报 / 午报 /
-        盘中快报 / 晚报), 不是报告里的一条话题——一页 20 条 = 1000 积分。先用
+        🔴 计费 **10 积分/篇**, 按返回条数计; 一「篇」= 一整份报告(一份早报 / 午报 /
+        盘中快报 / 晚报), 不是报告里的一条话题——一页 20 条 = 200 积分。先用
         start_date/end_date + category 收窄范围再考虑全量。
         省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分
         拒绝（ValidationError，不再往下拉）；传更小的 size 取一部分，或 confirm=True 确认全量。
         省略 size 时先取 1 篇拿到总数来估算, 结果多于 1 篇时这 1 篇会多计一次——知道要几篇
-        就直接传 size。可查的历史范围跟账号权限走, 超出范围的日期返回空结果、不报错。
+        就直接传 size。可查的历史范围是前溯 3 个月(各档相同), 超出范围的日期返回空结果、不报错。
         """
         _refuse_empty(category, "category")  # [] would widen to all four categories
         body = _request_body(
@@ -776,6 +912,126 @@ class AsyncAI:
             "ai.management-discuss-earnings-call", body=body
         )
 
+    # ---- management-sentiment ----
+
+    async def management_sentiment_indicator(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        security: FilterValue | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """管理层情绪评分：每场业绩会的三维情绪评分（ai.management-sentiment-indicator）。
+
+        三维为正面回应程度 sentimentResponsiveness（正面回答还是回避）、回复乐观度
+        sentimentPolarity（回答对公司是利好还是风险）、回复确定度 sentimentConviction（表述
+        是否明确），0–5、两位小数；另有有效问答数 qaCount，回避 / 风险 / 低确定度三个占比
+        qaEvasionRatio / qaRiskRatio / qaUncertaintyRatio（**百分数**：7.14 即 7.14%，分母是
+        qaCount），以及按问题类型拆分的 questionCategoryList（只列这一场出现过的类型，各类
+        questionCategoryQaCount 之和等于 qaCount；某类只有一两条问答时评分由单条决定、波动
+        大，isImportant 标出重要类型）。
+
+        一行 = 一只证券 × 一场来源会议（同一证券开过几场就有几行，用 source.sourceId 区分），
+        按发布时间倒序；来源类型目前只有 conference（电话会议）。source.sourceId 传给
+        management_sentiment_detail 取逐条问答。
+
+        security 支持单值或列表，只收具体代码（aShares 这类市场关键词报 120001），任一代码
+        非法整批报 120001；**不传 = 全部证券**。start_time / end_time 按发布时间（北京时间）
+        筛，写 "YYYY-MM-DD"、"YYYY-MM-DD HH:mm:ss" 或 10 / 13 位时间戳——**写时刻就要带秒**
+        （"HH:mm" 报 110001）；只写日期的 end_time 含当天整天。数据范围正式账号前溯 1 年、
+        试用 6 个月，start_time 早于范围报 110003。
+
+        🔴 **返回的 publishTime 比北京时间早 8 小时**：北京时间 20:30 开的业绩会返回
+        12:30:00。展示时刻、与纪要 / 路演按时间对齐、按日期归档前先加 8 小时——否则北京
+        时间 0–8 点开的会会落到前一天。
+
+        🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
+        单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
+        不再往下拉）；传更小的 size 取一部分，或 confirm=True 确认全量。省略 size 时先取 1 条
+        拿到总数来估算，结果多于 1 条时这 1 条会多计一次——知道要几条就直接传 size。
+        """
+        return await self._sentiment_list(
+            "ai.management-sentiment-indicator",
+            _sentiment_body(from_, size, start_time, end_time, security),
+            confirm,
+            raw,
+        )
+
+    async def management_sentiment_conclusion(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        security: FilterValue | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """管理层情绪结论：每场业绩会的情绪结论与较上一场的变化（ai.management-sentiment-conclusion）。
+
+        返回结论文本 sentimentSummary（overallSentiment 总体情绪、questionCategorySentiment
+        主要影响因素、qaSentimentChange 重点变化）、三维信号文本 sentimentSignal（*Signal 是
+        自然语言、不含分数，要分数用 management_sentiment_indicator）、与上一场同一事项的
+        问答对照 qaSentimentContrast（previousQaList 上一场、currentQaList 本场；qTrace /
+        aTrace 是录音里的毫秒区间 "起-止"），对比基准见 previousSource。**没有可比的上一场
+        时** qaSentimentChange 为 null、qaSentimentContrast 为 []、previousSource 为 null，
+        结论文本照常返回、只是不含「较上一次」。
+
+        行粒度（一只证券 × 一场会议，按发布时间倒序）、security / start_time / end_time 的
+        写法与数据范围同 management_sentiment_indicator。🔴 publishTime（含
+        previousSource.publishTime）同样**比北京时间早 8 小时**，筛选仍按北京时间。
+
+        🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
+        单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
+        不再往下拉）；传更小的 size 取一部分，或 confirm=True 确认全量。
+        """
+        return await self._sentiment_list(
+            "ai.management-sentiment-conclusion",
+            _sentiment_body(from_, size, start_time, end_time, security),
+            confirm,
+            raw,
+        )
+
+    async def _sentiment_list(
+        self, endpoint_key: str, body: dict[str, Any], confirm: bool, raw: bool
+    ) -> pd.DataFrame | dict[str, Any]:
+        result = await self._client._call(endpoint_key, body=body, confirm=confirm)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def management_sentiment_detail(
+        self,
+        *,
+        source_id: str,
+        source_type: str = "conference",
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """管理层情绪明细：一场业绩会的逐条问答评分与判断依据（ai.management-sentiment-detail）。
+
+        source_id 取自 management_sentiment_indicator / management_sentiment_conclusion 返回行
+        的 source.sourceId，source_type 取同一行的 source.sourceType（默认 conference）。
+        **source_id 写错不报错、返回空结果**——拿到空先核对 ID 是不是从列表里取的。一次返回
+        整场全部问答、不分页，不按日期限制。
+
+        每条给三维档位 qaResponsiveness / qaPolarity / qaConviction（只取 5.0 / 2.5 / 0.0
+        三档）和依据（*Quote 回答原文节选、*Reason 判断理由），另有 qaId / questionCategory /
+        questionBrief。question / answer 是录音转写原文（口语、可能有同音错字），展示时配合
+        questionBrief。返回行不带来源字段，批量取多场时自己记下每次的 source_id。
+
+        计费 **10 积分/次**，超时 / 5xx 不自动重发。
+        """
+        body = _request_body({"sourceId": source_id, "sourceType": source_type})
+        result = await self._client._call("ai.management-sentiment-detail", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
     async def earnings_review(
         self,
         *,
@@ -840,7 +1096,7 @@ class AsyncAI:
     ) -> dict[str, Any]:
         """AI 观点辩论/PK, 异步生成（ai.viewpoint-debate.get-id / get-content）。
 
-        viewpoint 为待辩论的投资观点文本, 上限 1000 字。提交计费 50 积分/次(超时不自动重发,
+        viewpoint 为待辩论的投资观点文本, 上限 1000 字。提交计费 20 积分/次(超时不自动重发,
         重提会再扣一次)。⚠️ 观点过不了平台的敏感词检测时, 提交照常受理并扣分, 生成阶段以
         410111 失败; 同样的内容重提仍会失败, 提交前自己把关措辞。
         wait=True 阻塞轮询至内容完成(退避 5→30 秒, 最多 14 次, 累计约 316 秒 ≈ 5 分钟);

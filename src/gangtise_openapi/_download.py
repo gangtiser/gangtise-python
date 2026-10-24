@@ -407,7 +407,7 @@ def download_to_path(
                 # retryable 999999, or anything else. The target's own fetch loop
                 # already did any target-only retry; here we only surface. This is
                 # the one guard that keeps report-image (default-retry, 0.1 积分/张)
-                # and the 50/篇 no-replay endpoints from double-billing. The hint is
+                # and the per-篇 no-replay endpoints from double-billing. The hint is
                 # already the billing-safe FOLLOWED_TARGET_HINT (set at the mint site),
                 # so no _apply_policy_hint here (it would overwrite it).
                 raise
@@ -419,7 +419,7 @@ def download_to_path(
                     token = recovered
                     continue
             # Download endpoints carry per-篇 billing too (summary / foreign-report /
-            # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
+            # my-conference are no-replay) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)
                 raise
@@ -960,7 +960,7 @@ async def download_to_path_async(
                     token = recovered
                     continue
             # Download endpoints carry per-篇 billing too (summary / foreign-report /
-            # my-conference at 50/篇) — honor the endpoint's retry policy here as well.
+            # my-conference are no-replay) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)
                 raise

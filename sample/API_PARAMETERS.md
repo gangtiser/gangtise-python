@@ -1,6 +1,6 @@
 # API 参数说明
 
-本文档按 SDK 的方法签名整理，覆盖 148 个公开方法，对应 149 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
+本文档按 SDK 的方法签名整理，覆盖 152 个公开方法，对应 153 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
 
 运行示例前请配置：
 
@@ -89,6 +89,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `ai` | `hot_topic` | [ai_hot_topic.py](sync/ai_hot_topic.py) | [ai_hot_topic.py](async/ai_hot_topic.py) |
 | `ai` | `management_discuss_announcement` | [ai_management_discuss_announcement.py](sync/ai_management_discuss_announcement.py) | [ai_management_discuss_announcement.py](async/ai_management_discuss_announcement.py) |
 | `ai` | `management_discuss_earnings_call` | [ai_management_discuss_earnings_call.py](sync/ai_management_discuss_earnings_call.py) | [ai_management_discuss_earnings_call.py](async/ai_management_discuss_earnings_call.py) |
+| `ai` | `management_sentiment_indicator` | [ai_management_sentiment_indicator.py](sync/ai_management_sentiment_indicator.py) | [ai_management_sentiment_indicator.py](async/ai_management_sentiment_indicator.py) |
+| `ai` | `management_sentiment_conclusion` | [ai_management_sentiment_conclusion.py](sync/ai_management_sentiment_conclusion.py) | [ai_management_sentiment_conclusion.py](async/ai_management_sentiment_conclusion.py) |
+| `ai` | `management_sentiment_detail` | [ai_management_sentiment_detail.py](sync/ai_management_sentiment_detail.py) | [ai_management_sentiment_detail.py](async/ai_management_sentiment_detail.py) |
 | `ai` | `earnings_review` | [ai_earnings_review.py](sync/ai_earnings_review.py) | [ai_earnings_review.py](async/ai_earnings_review.py) |
 | `ai` | `earnings_review_check` | [ai_earnings_review_check.py](sync/ai_earnings_review_check.py) | [ai_earnings_review_check.py](async/ai_earnings_review_check.py) |
 | `ai` | `viewpoint_debate` | [ai_viewpoint_debate.py](sync/ai_viewpoint_debate.py) | [ai_viewpoint_debate.py](async/ai_viewpoint_debate.py) |
@@ -142,6 +145,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `bond` | `issuer_rating_change` | [bond_issuer_rating_change.py](sync/bond_issuer_rating_change.py) | [bond_issuer_rating_change.py](async/bond_issuer_rating_change.py) |
 | `bond` | `issuance_plan` | [bond_issuance_plan.py](sync/bond_issuance_plan.py) | [bond_issuance_plan.py](async/bond_issuance_plan.py) |
 | `bond` | `exercise_notice` | [bond_exercise_notice.py](sync/bond_exercise_notice.py) | [bond_exercise_notice.py](async/bond_exercise_notice.py) |
+| `bond` | `default_list` | [bond_default_list.py](sync/bond_default_list.py) | [bond_default_list.py](async/bond_default_list.py) |
 | `fund` | `basic_info` | [fund_basic_info.py](sync/fund_basic_info.py) | [fund_basic_info.py](async/fund_basic_info.py) |
 | `fund` | `nav` | [fund_nav.py](sync/fund_nav.py) | [fund_nav.py](async/fund_nav.py) |
 | `fund` | `fee_rate` | [fund_fee_rate.py](sync/fund_fee_rate.py) | [fund_fee_rate.py](async/fund_fee_rate.py) |
@@ -224,7 +228,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `keyword` | `str` | 是 | - | `"平安银行"` | 搜索关键词。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 stock / dr / index / fund。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 stock / dr / index / fund / bond。bond 覆盖交易所可转债、国债、地方债、金融债与银行间债券（.SH / .SZ / .IB），代码用于 `gangtise.bond`。🔴 可转债在任何分类下都可能出现（按公司简称查 stock 时同名可转债常排第一），取第一条 category 等于所查类别的行，别直接取第一行。 |
 | `top` | `int` | 否 | `10` | `3` | 每个查询返回的最大候选数。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -464,9 +468,11 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `broker` | `Any` | 否 | `None` | `None` | 券商/机构过滤，支持单值或列表。 |
 | `industry` | `Any` | 否 | `None` | `100800101` | 行业 ID：中信码 1008001xx；申万码 104xx0000 也生效，但两套码的行业成分不同、结果集不一致，同一批查询别混用。支持单值或列表。 |
 | `concept` | `Any` | 否 | `None` | `None` | 概念/主题过滤，支持单值或列表。 |
-| `llm_tag` | `Any` | 否 | `None` | `"strongRcmd"` | 语义标签：strongRcmd=强烈推荐 / earningsReview=业绩点评 / topBroker=头部券商 / newFortune=新财富团队；支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"earningsReview"` | 观点类别：earningsReview=业绩点评 / abnormalReview=异动点评 / researchUpdate=调研/访谈更新 / tradingDesk=交易台 / industryAnalysis=行业分析；支持单值或列表，多个值取并集，非法值报 100005。with_content=True 时不可用（本地报错）。 |
+| `llm_tag` | `Any` | 否 | `None` | `"strongRcmd"` | 投研业务标签（28 项）：推荐 strongRcmd / undervalued / highElasticity / highDividend / reversal / bottom / beatExpect / expectGap / oversold / targetPrice / certainty；业绩侧 highGrowth / withProfitForecast / withGuidance / marginalImprovement；产业链 priceHike / tightSupplyDemand / capacityRelease / newOrder / orderSurge / keyCustomer / soleSupplier / coreSupplier / industryEntry；壁垒 leader / moat / scarcity / breakthrough。支持单值或列表，多个值取并集，非法值报 100005。「业绩点评」「头部券商」「新财富团队」改用 category / broker_tag。with_content=True 时只收 strongRcmd / earningsReview / topBroker / newFortune。 |
+| `broker_tag` | `Any` | 否 | `None` | `"topBroker"` | 机构标签：topBroker=头部券商 / newFortune=新财富团队；支持单值或列表，非法值报 100005。with_content=True 时不可用（本地报错）。 |
 | `source` | `Any` | 否 | `None` | `"realTime"` | 来源：realTime=实时 / openSource=开放来源；支持单值或列表。 |
-| `with_content` | `bool` | 否 | `False` | `False` | True=走旧版 v1 列表直接带正文（30 积分/条，超时 / 5xx 不自动重发），返回旧版结构：标题与正文在 contentList.title / contentList.content（对象，不是数组），没有顶层 title / brief。默认 False 只含 200 字摘要 brief（1 积分/条），正文改用 insight.opinion_detail 按 ID 取。 |
+| `with_content` | `bool` | 否 | `False` | `False` | True=走旧版 v1 列表直接带正文（30 积分/条，超时 / 5xx 不自动重发），返回旧版结构：标题与正文在 contentList.title / contentList.content（对象，不是数组），没有顶层 title / brief，也没有 categoryList / brokerTagList；不收 category / broker_tag。默认 False 只含 200 字摘要 brief（1 积分/条），正文改用 insight.opinion_detail 按 ID 取。 |
 | `confirm` | `bool` | 否 | `False` | `False` | 按条计费（默认 1 积分/条，with_content=True 为 30 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -518,8 +524,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `participant_role` | `Any` | 否 | `None` | `None` | 参与方角色过滤，支持单值或列表。 |
 | `broker_type` | `Any` | 否 | `None` | `None` | 券商类型过滤，支持单值或列表。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
-| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（20 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点，domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海 `156310000`）；支持单值或列表。传城市名（`"上海"`）返回 999999 系统内部错误，不是参数错误。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（10 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.site_visit_list`
@@ -543,8 +549,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `market` | `Any` | 否 | `None` | `"aShares"` | 市场过滤，取值 aShares / hkStocks / usStocks；交易所后缀（SH/SZ 等）会被拒为 100005。 |
 | `object_` | `Any` | 否 | `None` | `"company"` | 对象类型过滤；Python 参数名 object_ 会映射为 object。 |
 | `permission` | `Any` | 否 | `None` | `1` | 权限/可见性过滤。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
-| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（20 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点，domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海 `156310000`）；支持单值或列表。传城市名（`"上海"`）返回 999999 系统内部错误，不是参数错误。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（10 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.strategy_list`
@@ -562,8 +568,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
 | `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
-| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（20 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点，domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海 `156310000`）；支持单值或列表。传城市名（`"上海"`）返回 999999 系统内部错误，不是参数错误。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（10 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.forum_list`
@@ -581,8 +587,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
 | `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
-| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点。⚠️ 目前不可用：四个日程接口上任何取值都返回 999999 系统内部错误。 |
-| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（20 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点，domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海 `156310000`）；支持单值或列表。传城市名（`"上海"`）返回 999999 系统内部错误，不是参数错误。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（10 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.research_list`
@@ -750,7 +756,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `industry` | `Any` | 否 | `None` | `104110000` | 申万行业 ID（104xx0000 形态）；中信码在本接口报 100005。支持单值或列表。 |
 | `rating` | `Any` | 否 | `None` | `None` | 评级过滤，支持单值或列表。 |
 | `rating_change` | `Any` | 否 | `None` | `None` | 评级变动过滤，支持单值或列表。 |
-| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（5 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（1 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.official_account_list`
@@ -872,7 +878,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `independent_opinion_id` | `str` | 是 | - | `"<independentOpinionId>"` | 独立观点 ID，通常来自 independent_opinion_list。 |
 | `file_type` | `int` | 是 | - | `1` | 文件类型代码；下载接口常用 1。 |
 | `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
-| `resolve_title` | `bool` | 否 | `False` | `False` | 🔴 本方法**不支持** `True`（发请求前报 `ValidationError`）：其 list 按 5 积分/条计费，回查 200 条要 1000 积分只为一个文件名。先调 `independent_opinion_list()` 让标题进缓存，下载自动命中（免费）。参数保留只为签名兼容。 |
+| `resolve_title` | `bool` | 否 | `False` | `False` | 🔴 本方法**不支持** `True`（发请求前报 `ValidationError`）：其 list 按 1 积分/条计费，回查 200 条要 200 积分只为一个文件名。先调 `independent_opinion_list()` 让标题进缓存，下载自动命中（免费）。参数保留只为签名兼容。 |
 
 ### `insight.official_account_download`
 
@@ -1000,7 +1006,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
-| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1018,7 +1024,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
-| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1036,7 +1042,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
-| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1054,7 +1060,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
-| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1072,7 +1078,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
 | `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
-| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
+| `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1215,7 +1221,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `start_date` | `str \| None` | 否 | `None` | `"2025-01-01"` | 开始日期 YYYY-MM-DD。早于账号回溯下界时接口从下界起返回、不报错；首行晚于 start_date 时发 UserWarning（上市较晚或撞了权限窗口）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期 YYYY-MM-DD。 |
 | `limit` | `int \| None` | 否 | `None` | `600` | 返回行数上限，省略时按接口默认 2000 显式发送（正整数，否则本地抛 ValidationError）。🔴 序列按自然日逐日一行（含周末），超出时接口**保留最近的行、丢掉区间开头**；行数撞满即标 partial + UserWarning（首行恰好就是 start_date 时不标）。取 N 年设 limit ≥ 366 × N。 |
-| `field` | `Any` | 否 | `None` | `["value", "percentileRank"]` | 返回字段，至少含一个数值列（value / percentileRank / average / median / upper1Std / lower1Std）：只传 tradeDate 或不存在的名字时接口返回 0 行不报错（SDK 发 UserWarning）；数值列混不存在的名字抛 ValidationError。tradeDate 总在第一列返回，SDK 发请求前去掉它并去重（只传 tradeDate 一项时照常发）。 |
+| `field` | `Any` | 否 | `None` | `["value", "percentileRank"]` | 返回字段，至少含一个数值列（value / percentileRank / average / median / upper1Std / lower1Std）：只传 tradeDate 时接口返回 0 行不报错（SDK 发 UserWarning）；不存在的名字（含 securityCode）整条报 100005 并点名。tradeDate 总在第一列返回，SDK 发请求前去掉它并去重（只传 tradeDate 一项时照常发）。 |
 | `skip_null` | `bool` | 否 | `False` | `True` | 丢弃 value 或 percentileRank 为空的行；field 没点名这两列时 SDK 补取、过滤后删掉，输出列仍由 field 决定。raw=True 时不生效。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（撞满 limit 时带 partial: True）；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1300,7 +1306,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表（仅 A 股 / 港股），本接口 2026-08-14 起不再支持市场关键词；留空抛 ValidationError 以防全市场积分误耗。**单次最多 6000 只**（接口上限，本地同值拦截并提示分批）。3 积分/条，无看点的证券不在返回里、不计费，返回行数少于提交数是正常的。 |
+| `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表（仅 A 股 / 港股），本接口 2026-08-14 起不再支持市场关键词；留空抛 ValidationError 以防全市场积分误耗。**单次最多 6000 只**（接口上限，本地同值拦截并提示分批）。1 积分/条，无看点的证券不在返回里、不计费，返回行数少于提交数是正常的。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `ai.one_pager`
@@ -1378,10 +1384,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `category` | `Any` | 否 | `None` | `"morningBriefing"` | 报告类型：morningBriefing=早报 / noonBriefing=午报 / afternoonFlash=盘中快报 / eveningBriefing=晚报；支持单值或列表，省略=全部；其他取值本地报错。计费 50 积分/篇（一篇=一整份报告）。 |
+| `category` | `Any` | 否 | `None` | `"morningBriefing"` | 报告类型：morningBriefing=早报 / noonBriefing=午报 / afternoonFlash=盘中快报 / eveningBriefing=晚报；支持单值或列表，省略=全部；其他取值本地报错。计费 10 积分/篇（一篇=一整份报告）。 |
 | `with_related_securities` | `bool` | 否 | `True` | `True` | 热点主题是否返回关联证券。 |
 | `with_close_reading` | `bool` | 否 | `True` | `True` | 热点主题是否返回精读内容。 |
-| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（50 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（10 积分/篇）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `ai.management_discuss_announcement`
@@ -1410,6 +1416,59 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `report_date` | `str` | 是 | - | `"2025-12-31"` | 报告期日期，例如 2025-12-31。 |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `dimension` | `str` | 是 | - | `"all"` | 管理层讨论维度，例如 all 或 businessOperation。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `ai.management_sentiment_indicator`
+
+- 接口：`ai.management-sentiment-indicator` `POST /application/open-ai/management-sentiment/company/indicator`
+- 同步示例：`sample/sync/ai_management_sentiment_indicator.py`
+- 异步示例：`sample/async/ai_management_sentiment_indicator.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+管理层在业绩会问答里的三维情绪评分：正面回应程度 `sentimentResponsiveness`、回复乐观度 `sentimentPolarity`、回复确定度 `sentimentConviction`（0–5），有效问答数 `qaCount`，回避 / 风险 / 低确定度占比（百分数，`7.14` 即 7.14%），按问题类型拆分的 `questionCategoryList`。一行 = 一只证券 × 一场会议，按发布时间倒序；`source.sourceId` 传给 `management_sentiment_detail`。🔴 返回的 `publishTime` 比北京时间早 8 小时，按时刻展示或按日期归档前先加 8 小时。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；单页上限 100，超出自动翻页。🔴 5 积分/条，务必带 size。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-08-01"` | 发布时间起（北京时间）：YYYY-MM-DD、YYYY-MM-DD HH:mm:ss 或 10 / 13 位时间戳；写时刻须带秒（HH:mm 报 110001）。范围正式账号前溯 1 年、试用 6 个月，早于范围报 110003。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-10-23"` | 发布时间止（北京时间），写法同 start_time；只写日期时含当天整天。 |
+| `security` | `Any` | 否 | `None` | `"300285.SZ"` | 证券代码或列表，只收具体代码（市场关键词报 120001），任一代码非法整批报 120001；**不传 = 全部证券**。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（5 积分/条）的额度确认：省略 size 时按 total × 单价估算（先取 1 条拿到 total）、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `ai.management_sentiment_conclusion`
+
+- 接口：`ai.management-sentiment-conclusion` `POST /application/open-ai/management-sentiment/company/conclusion`
+- 同步示例：`sample/sync/ai_management_sentiment_conclusion.py`
+- 异步示例：`sample/async/ai_management_sentiment_conclusion.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+每场业绩会的情绪结论文本 `sentimentSummary`、三维信号文本 `sentimentSignal`（不含分数）与较上一场同一事项的问答对照 `qaSentimentContrast`，对比基准见 `previousSource`；没有可比的上一场时 `qaSentimentContrast` 为 `[]`、`previousSource` 为 `null`。行粒度与参数同 `management_sentiment_indicator`；`publishTime`（含 `previousSource.publishTime`）同样比北京时间早 8 小时。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；单页上限 100，超出自动翻页。🔴 5 积分/条，务必带 size。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-08-01"` | 发布时间起（北京时间）：YYYY-MM-DD、YYYY-MM-DD HH:mm:ss 或 10 / 13 位时间戳；写时刻须带秒（HH:mm 报 110001）。范围正式账号前溯 1 年、试用 6 个月，早于范围报 110003。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-10-23"` | 发布时间止（北京时间），写法同 start_time；只写日期时含当天整天。 |
+| `security` | `Any` | 否 | `None` | `"300285.SZ"` | 证券代码或列表，只收具体代码（市场关键词报 120001），任一代码非法整批报 120001；**不传 = 全部证券**。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（5 积分/条）的额度确认：省略 size 时按 total × 单价估算（先取 1 条拿到 total）、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `ai.management_sentiment_detail`
+
+- 接口：`ai.management-sentiment-detail` `POST /application/open-ai/management-sentiment/company/detail`
+- 同步示例：`sample/sync/ai_management_sentiment_detail.py`
+- 异步示例：`sample/async/ai_management_sentiment_detail.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+一场业绩会的全部问答（一次返回、不分页），每条给三维档位 `qaResponsiveness` / `qaPolarity` / `qaConviction`（只取 `5.0` / `2.5` / `0.0`）与依据（`*Quote` 回答原文节选、`*Reason` 判断理由）。计费 10 积分/次，超时 / 5xx 不自动重发。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `source_id` | `str` | 是 | - | `"554030"` | 取自 management_sentiment_indicator / management_sentiment_conclusion 返回行的 source.sourceId。写错不报错、返回空结果。 |
+| `source_type` | `str` | 否 | `"conference"` | `"conference"` | 取自同一行的 source.sourceType；目前只有 conference（电话会议）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `ai.earnings_review`
@@ -1631,7 +1690,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `conference_id` | `str` | 是 | - | `"<conferenceId>"` | 会议 ID，通常来自 vault.my_conference_list。 |
-| `content_type` | `str` | 是 | - | `"summary"` | 下载内容：asr=语音识别 / summary=AI 速记（没有 original）；其他取值本地拒绝、不发请求（接口对错值报 130003「没有文件可供下载」）。50 积分/篇，超时不自动重发。 |
+| `content_type` | `str` | 是 | - | `"summary"` | 下载内容：asr=语音识别 / summary=AI 速记（没有 original）；其他取值本地拒绝、不发请求（接口对错值报 130003「没有文件可供下载」）。30 积分/篇，超时不自动重发。 |
 | `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
@@ -1846,7 +1905,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `indicator_id` | `Any` | 是 | - | `"<indicatorId>"` | EDB 指标 ID 或 ID 列表。 |
+| `indicator_id` | `Any` | 是 | - | `"<indicatorId>"` | EDB 指标 ID 或 ID 列表，最多 10 个（接口校验）。计费 30 积分/指标。 |
 | `start_date` | `str` | 是 | - | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str` | 是 | - | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1899,7 +1958,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `market` | `Any` | 否 | `None` | `"aShares"` | aShares / hkStocks / usChinaConcept / usStocks，本地白名单。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data。 |
 
-**注意**：这是独立的专家纪要库，需单独购买（未开通报 `999004`），筛选项是 `summary_list` 的真子集（没有 source / institution / participant_role）。已知返回口径（实测 2026-08-08）：`conceptList` 在所有查法下都是空的；`categoryList` / `marketList` 只在用 category 或 market 过滤时回填。
+**注意**：这是独立的专家纪要库，需单独购买（未开通报 `999004`），筛选项是 `summary_list` 的真子集（没有 source / institution / participant_role）。已知返回口径：`conceptList` / `categoryList` / `marketList` 三个标签字段稀疏、不保证完整，是否有值随记录和查法而变——不带筛选时常整条为空，用 category 或 market 过滤时回填率明显更高。按这几个维度分组要靠过滤参数取，别拉全量再本地分组；某条为空也不说明它没有该属性。
 
 ### `insight.pamirs_summary_download`
 
@@ -1949,7 +2008,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则用 title-cache 里的真实标题命名。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
-**计费**：A股 10 积分 / 港美股 20 积分；仅 `hasAttachment: true` 的记录可下。
+**计费**：A股 1 积分 / 港美股 2 积分；仅 `hasAttachment: true` 的记录可下。
 
 ## 数据指标 EDE（`gangtise.indicator`）
 
@@ -1980,7 +2039,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 10 位 sectorId，与代码混传取并集；服务端展开成**全部成分股**）。🔴 单次上限 30000 单元格（证券数 × 指标数），超出报 100006、不返回部分结果，按乘积拆批。 |
 | `currency` | `str \| None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
 | `scale` | `str \| None` | 否 | `None` | `"8"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。只作用于支持该参数的指标，价格类与金额类可以混查。 |
-| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。参数名以 search 的 parameterList 为准（复权是 **adjustType**，2=前复权 3=后复权；写错名报 100003 并点名）。键名以 Date 结尾的值与 date 同样校验，年在前三种写法统一成 YYYY-MM-DD、年在后本地拒绝。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族、`finc_roe_avg_avg`）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。tradeDate 与 reportDate 都必填的（如 div_cash_yld）两个都显式给。🔴 fiscalYear 漏传**不报错**，按服务端默认年度取数（frcst_* / div_cash_yr 等），一律显式传。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。参数名以 search 的 parameterList 为准（复权是 **adjustType**，2=前复权 3=后复权；写错名报 100003 并点名）。键名以 Date 结尾的值与 date 同样校验，年在前三种写法统一成 YYYY-MM-DD、年在后本地拒绝。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族、`finc_roe_avg_avg`）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。tradeDate 与 reportDate 都必填的（如 div_cash_yld）两个都显式给。fiscalYear 等必填参数漏传报 100001 并点名。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的指标显示名；code=你传进去的 indicatorCode。服务端按自己的顺序返回列，位置索引不可靠；name 模式还需再查一次 search 才能把显示名映射回 code。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一证券、指标名作列的宽表 DataFrame。 |
 
@@ -2000,7 +2059,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `calendar_type` | `str \| None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日，服务端默认 ND。**省略时 SDK 自动选**：用免费的 indicator.search 读各指标 parameterList（每个指标码一次，并发 ≤ 5），全部声明 tradeDate 且都不声明 reportDate / fiscalYear 才发 TD，否则不发（报告期类指标在 TD 轴上会整行全 null）。显式传了原样发送、不查询。 |
 | `currency` | `str \| None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
 | `scale` | `str \| None` | 否 | `None` | `"0"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。只作用于支持该参数的指标。 |
-| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引），规则同 cross_section（参数名以 parameterList 为准、写错报 100003；*Date 键的值校验并统一成 YYYY-MM-DD；fiscalYear 漏传不报错、要显式传）。区间由 start_date / end_date 统管，不要再传 tradeDate。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引），规则同 cross_section（参数名以 parameterList 为准、写错报 100003；*Date 键的值校验并统一成 YYYY-MM-DD；必填参数漏传报 100001）。区间由 start_date / end_date 统管，不要再传 tradeDate。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的显示名；code=你传进去的代码（多指标 × 单证券为 indicatorCode，单指标 × 多证券为 securityCode）。服务端按自己的顺序返回列，位置索引不可靠。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一日期的宽表 DataFrame。 |
 
@@ -2017,7 +2076,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `expression` | `str` | 是 | - | `"F1 >= 500 && F2 <= 30"` | 筛选表达式，支持 `&&` / `\|\|` / 括号，以及 contains / notcontains 文本匹配（仅 dataType 为 string 的指标）。只能引用已绑定的变量，否则本地报 ValidationError。 |
 | `indicator` | `dict[str, str]` | 是 | - | `{"F1": "qte_mkt_cptl", "F2": "finc_pe_ttm"}` | 变量 → 指标码绑定；变量名必须是 F + 正整数。同一指标可绑到两个变量取不同参数。 |
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 sectorId，服务端展开成全部成分股）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形、*Date 键的日期校验、fiscalYear 漏传不报错都同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形、*Date 键的日期校验、必填参数漏传报 100001 都同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=显示名（默认）；code=indicatorCode。同一 code 绑到两个变量时两列都会带上 (F1)/(F2) 后缀。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一只命中证券的宽表 DataFrame。 |
 
@@ -2025,7 +2084,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 ## 债券（`gangtise.bond`）
 
-整族通用：**全部计费，0.4 积分起**——多数按次（与返回行数无关），`rating_overview` 按条、`rating_change` 按有数据的债券只数、`issuer_rating_change` 按发行人计。**超时 / 5xx 不自动重试**（整族 no-replay，避免重复扣费），偶发失败自行重跑。`security` 只收**标准债券代码**（`019742.SH` / `123456.SZ` / `220205.IB`），简称或拼音整批报 `120001`，只有简称时先用 `reference.securities_search(keyword=<简称>)` 换代码；列表发送前去重，有只数上限的按去重后计。`field` 写了不支持的字段名整批报 `100003`（不会静默丢列）。返回是列式的（`fieldList` + 数组行），默认转 DataFrame。条件合法但全部无数据时抛 `ApiError`（`130001`）。
+整族通用：**全部计费，0.4 积分起**——多数按次（与返回行数无关），`rating_overview` 按条、`rating_change` 按有数据的债券只数、`issuer_rating_change` 按发行人计。**超时 / 5xx 不自动重试**（整族 no-replay，避免重复扣费），偶发失败自行重跑。`security` 只收**标准债券代码**（`019742.SH` / `123456.SZ` / `220205.IB`），简称或拼音整批报 `120001`，只有简称时先用 `reference.securities_search(keyword=<简称>)` 换代码；列表发送前去重，有只数上限的按去重后计。`field` 写了不支持的字段名整批报 `100003`（`default_list` 报 `100005`），不会静默丢列。返回是列式的（`fieldList` + 数组行），默认转 DataFrame。条件合法但全部无数据时抛 `ApiError`（`130001`）。
 
 ### `bond.basic_info`
 
@@ -2064,7 +2123,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"019742.SH"` | 标准债券代码或列表，不限只数。 |
-| `start_date` | `str` | 是 | - | `"2026-09-15"` | 交易日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003（即使 end_date 在窗口内）。数据还可能比账号窗口短：早于数据起点整段报 130001，跨过数据起点时从有数据的那天起返回、不报错——取长序列时核对首行日期。 |
+| `start_date` | `str` | 是 | - | `"2026-09-15"` | 交易日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003（即使 end_date 在窗口内）。数据还可能比账号窗口短：早于数据起点整段报 130001，跨过数据起点时从有数据的那天起返回、不报错（首行比 start_date 晚超过 14 天时发 UserWarning，只看整批最早的首行）——取长序列时按 securityCode 逐只核对首行日期。 |
 | `end_date` | `str` | 是 | - | `"2026-09-19"` | 交易日区间结束，YYYY-MM-DD。 |
 | `field` | `Any` | 否 | `None` | `["cleanClose", "ytmClose", "modifiedDuration"]` | 返回字段名或列表；None 返回全部字段。默认列 securityCode + tradeDate 恒在最前。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（列式 fieldList + list）；False 时转换为 pandas.DataFrame。 |
@@ -2079,7 +2138,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `Any` | 是 | - | `"019742.SH"` | 标准债券代码或列表。 |
-| `start_date` | `str` | 是 | - | `"2026-09-15"` | 估值日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003。数据还可能比账号窗口短：早于数据起点整段报 130001，跨过数据起点时从有数据的那天起返回、不报错——取长序列时核对首行日期。 |
+| `start_date` | `str` | 是 | - | `"2026-09-15"` | 估值日区间开始，YYYY-MM-DD。历史范围正式账号前溯 5 年、试用 3 年；早于可回溯下界时整批报 110003。数据还可能比账号窗口短：早于数据起点整段报 130001，跨过数据起点时从有数据的那天起返回、不报错（首行比 start_date 晚超过 14 天时发 UserWarning，只看整批最早的首行）——取长序列时按 securityCode 逐只核对首行日期。 |
 | `end_date` | `str` | 是 | - | `"2026-09-19"` | 估值日区间结束，YYYY-MM-DD。 |
 | `confidence_level` | `str \| None` | 否 | `None` | `"不推荐"` | 估值可信度：推荐 / 不推荐，其他值本地拒绝。不传时服务端默认只返回「推荐」的估值，要看全部需两个值分别查。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或列表；None 返回全部字段。默认列 securityCode + tradeDate + confidenceLevel 恒在最前。 |
@@ -2203,6 +2262,24 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `start_date` | `str \| None` | 否 | `None` | `None` | 行权日区间开始，YYYY-MM-DD；省略返回全部历史。 |
 | `end_date` | `str \| None` | 否 | `None` | `None` | 行权日区间结束，YYYY-MM-DD；省略返回全部历史。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或列表；None 返回全部字段。默认列 securityCode + exerciseDate 恒在最前。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（列式 fieldList + list）；False 时转换为 pandas.DataFrame。 |
+
+### `bond.default_list`
+
+- 接口：`bond.default-list` `POST /application/open-fundamental/bond/default-list`
+- 同步示例：`sample/sync/bond_default_list.py`
+- 异步示例：`sample/async/bond_default_list.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+违约债券：代码、简称、违约日期、违约金额（亿元）、发行人、违约原因，0.4 积分/次。🔴 按违约日期区间、`security`、`issuer` **三选一**，同传或都不传本地拒绝。默认列 securityCode + defaultDate 恒在最前，按违约日期降序；条件下没有记录时抛 ApiError（130001）。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `start_date` | `str \| None` | 否 | `None` | `"2025-01-01"` | 违约日期区间开始，YYYY-MM-DD；须与 end_date 同时给，区间不超过 1 个自然年（超出报 110002）。 |
+| `end_date` | `str \| None` | 否 | `None` | `"2025-12-31"` | 违约日期区间结束，YYYY-MM-DD。 |
+| `security` | `Any` | 否 | `None` | `"169687.SH"` | 标准债券代码或列表，不限只数；没有违约记录的代码不产生行。 |
+| `issuer` | `str \| None` | 否 | `None` | `"上海世茂股份有限公司"` | **一个**发行人，用全称：传简称也会返回结果，但只返回最匹配的一家，核对返回的 issuerName。传多个或用逗号拼接本地报错。 |
+| `field` | `Any` | 否 | `None` | `["securityName", "defaultAmount", "issuerName"]` | 返回字段名或列表；None 返回全部字段。🔴 写错报 100005（其余 bond 方法为 100003）。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（列式 fieldList + list）；False 时转换为 pandas.DataFrame。 |
 
 ## 公募基金（`gangtise.fund`）

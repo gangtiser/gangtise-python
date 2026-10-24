@@ -195,9 +195,17 @@ class _OpinionDetails:
 # for this download; the SDK refuses the flag instead of silently paying.
 _INDEPENDENT_OPINION_NO_TITLE_LOOKUP = (
     "independent_opinion_download does not support resolve_title=True: the lookup "
-    "reads 200 rows of insight.independent-opinion.list at 5 credits/row (1000 credits) "
+    "reads 200 rows of insight.independent-opinion.list at 1 credit/row (200 credits) "
     "for one filename. Call independent_opinion_list() first — its titles are cached "
     "and the download picks them up for free."
+)
+
+# The v1 list predates categoryList / brokerTagList and drops them unread: the filter
+# would silently widen to every opinion, billed at 30 credits a row (TS v0.47.0).
+_OPINION_V1_NO_TAG_FILTERS = (
+    "category / broker_tag do not work with with_content=True: its v1 list ignores them "
+    "and would return unfiltered rows at 30 credits/row. Filter with opinion_list(), "
+    "then fetch bodies with opinion_detail()."
 )
 
 
@@ -224,7 +232,9 @@ class Insight:
         broker: FilterValue | None = None,
         industry: FilterValue | None = None,
         concept: FilterValue | None = None,
+        category: FilterValue | None = None,
         llm_tag: FilterValue | None = None,
+        broker_tag: FilterValue | None = None,
         source: FilterValue | None = None,
         with_content: bool = False,
         confirm: bool = False,
@@ -241,14 +251,33 @@ class Insight:
         ⚠️ with_content=True 返回的是**旧版结构**：标题与正文在 contentList.title /
         contentList.content（contentList 是对象，不是数组；DataFrame 里是一列
         contentList），顶层没有 title / brief；要统一成 opinion_detail 的结构就走
-        list + detail。
+        list + detail。它的筛选项也不同：**不支持 category / broker_tag**（同时传在本地报
+        ValidationError、不发请求——旧版列表不认这两个字段，会按 30 积分/条返回未经筛选的
+        结果），llm_tag 只收 strongRcmd / earningsReview / topBroker / newFortune，返回行也
+        没有 categoryList / brokerTagList。既要按类别 / 标签筛、又要正文，走 list + detail。
 
         行字段（默认）：chiefOpinionId / publishTime / title / brief / author{chiefId,
         chiefName, researchAreaList, brokerID, brokerName} / securityList / industryList /
-        conceptList / llmTagList；author.chiefId / chiefName 在机构点评类观点上为 null。
+        conceptList / categoryList / llmTagList / brokerTagList（三个标签字段取值同下方筛选
+        参数的英文标识，无标签时为 []）；author.chiefId / chiefName 在机构点评类观点上为 null。
 
-        llm_tag 取值 strongRcmd=强烈推荐 / earningsReview=业绩点评 / topBroker=头部券商 /
-        newFortune=新财富团队；source 取值 realTime=实时 / openSource=开放来源。
+        category（观点类别）取值 earningsReview=业绩点评 / abnormalReview=异动点评 /
+        researchUpdate=调研/访谈更新 / tradingDesk=交易台 / industryAnalysis=行业分析，一条
+        观点可同时属于多个类别。llm_tag（投研业务标签）分四组共 28 项——推荐：
+        strongRcmd=强烈推荐 / undervalued=低估值 / highElasticity=高弹性 / highDividend=高股息 /
+        reversal=拐点/反转 / bottom=底部 / beatExpect=超预期 / expectGap=预期差 /
+        oversold=错杀/超跌 / targetPrice=目标股价/市值 / certainty=确定性；业绩侧：
+        highGrowth=高增 / withProfitForecast=含盈利预测 / withGuidance=含指引 /
+        marginalImprovement=边际改善；产业链：priceHike=涨价 / tightSupplyDemand=供需趋紧 /
+        capacityRelease=产能释放 / newOrder=新订单 / orderSurge=订单高增/大单 /
+        keyCustomer=大客户 / soleSupplier=独供/一供 / coreSupplier=核心供应商 /
+        industryEntry=产业导入；壁垒：leader=龙头 / moat=壁垒 / scarcity=稀缺性 /
+        breakthrough=突破。broker_tag（机构标签）取值 topBroker=头部券商 / newFortune=新财富团队。
+        ⚠️ 「业绩点评」「头部券商」「新财富团队」已不在 llm_tag 里：改传
+        category="earningsReview"、broker_tag="topBroker" / "newFortune"，继续传给 llm_tag
+        报 100005。三个参数传非法值都由服务端报 100005；**同一参数传多个值取并集**（命中任一
+        即返回），要两个标签都有，取回后按返回行的 llmTagList 自行过滤。
+        source 取值 realTime=实时 / openSource=开放来源。
         industry 用 citicIndustry 码（1008001xx）；申万码（104xx0000）也生效，但两套码的
         行业成分不同、取回的结果集不一致，同一批查询别混用。research_area 行业用
         citicIndustry 码、方向用 gangtiseIndustry 码（122000xxx），申万码在本端点返 0。
@@ -274,10 +303,14 @@ class Insight:
                 "brokerList": _as_list(broker, "broker"),
                 "industryList": _as_list(industry, "industry"),
                 "conceptList": _as_list(concept, "concept"),
+                "categoryList": _as_list(category, "category"),
                 "llmTagList": _as_list(llm_tag, "llm_tag"),
+                "brokerTagList": _as_list(broker_tag, "broker_tag"),
                 "sourceList": _as_list(source, "source"),
             }
         )
+        if with_content and ("categoryList" in body or "brokerTagList" in body):
+            raise ValidationError(_OPINION_V1_NO_TAG_FILTERS)
         result = self._client._call(
             "insight.opinion.list-with-content" if with_content else "insight.opinion.list",
             body=body,
@@ -381,9 +414,10 @@ class Insight:
         枚举是静默忽略该条件返回全量。research_area 中信码（1008001xx）与申万码
         （104xx0000）都认, 但方向码（122000xxx）在本端点返 0。
 
-        ⚠️ 已知返回口径（实测 2026-08-08）: conceptList 在所有查法下都是空的（当前拿不到
-        主题概念标签, 也没有 concept 过滤参数）; categoryList / marketList 只在用 category 或
-        market 过滤时才回填——所以按这两个维度分组要靠过滤参数取, 别拉全量再本地分组。
+        ⚠️ 已知返回口径: conceptList / categoryList / marketList 三个标签字段稀疏、不保证完整,
+        是否有值随记录和查法而变——不带筛选时常整条为空, 用 category 或 market 过滤时回填率
+        明显更高（没有 concept 过滤参数）。所以按这几个维度分组要靠过滤参数取, 别拉全量再本地
+        分组; 某条为空也不说明它没有该属性。
         """
         body = _request_body(
             {
@@ -527,9 +561,10 @@ class Insight:
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -582,9 +617,10 @@ class Insight:
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -628,9 +664,10 @@ class Insight:
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -668,9 +705,10 @@ class Insight:
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -1220,7 +1258,7 @@ class Insight:
         rank_type 取值 1=综合 2=时间倒序。
         industry 只收申万码（104xx0000）；中信码报 100005，即使 constant-category 里列了它。
 
-        计费 **5 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **1 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
 
@@ -1459,7 +1497,7 @@ class Insight:
     ) -> Path:
         """下载业绩报告原文 PDF（insight.performance-calendar.download）。
 
-        A股 10 积分 / 港美股 20 积分; 仅 hasAttachment=True 的记录可下。
+        A股 1 积分 / 港美股 2 积分; 仅 hasAttachment=True 的记录可下。
         省略 output 时用 title-cache 里的真实标题命名。
 
         resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
@@ -1622,7 +1660,7 @@ class Insight:
 
         文件名：先调过 independent_opinion_list() 时标题已进缓存，下载自动命中（免费）；否则用
         服务端文件名或 ``independent-opinion-<id>``。🔴 **不支持 resolve_title=True**（传了在发请求前
-        报 ValidationError）：它的 list 按 5 积分/条计费，回查 200 条要 1000 积分，只为一个文件名
+        报 ValidationError）：它的 list 按 1 积分/条计费，回查 200 条要 200 积分，只为一个文件名
         （CLI 的该命令同样不提供标题回查）。参数保留只为签名兼容。
         """
         if resolve_title:
@@ -1709,7 +1747,9 @@ class AsyncInsight:
         broker: FilterValue | None = None,
         industry: FilterValue | None = None,
         concept: FilterValue | None = None,
+        category: FilterValue | None = None,
         llm_tag: FilterValue | None = None,
+        broker_tag: FilterValue | None = None,
         source: FilterValue | None = None,
         with_content: bool = False,
         confirm: bool = False,
@@ -1726,14 +1766,33 @@ class AsyncInsight:
         ⚠️ with_content=True 返回的是**旧版结构**：标题与正文在 contentList.title /
         contentList.content（contentList 是对象，不是数组；DataFrame 里是一列
         contentList），顶层没有 title / brief；要统一成 opinion_detail 的结构就走
-        list + detail。
+        list + detail。它的筛选项也不同：**不支持 category / broker_tag**（同时传在本地报
+        ValidationError、不发请求——旧版列表不认这两个字段，会按 30 积分/条返回未经筛选的
+        结果），llm_tag 只收 strongRcmd / earningsReview / topBroker / newFortune，返回行也
+        没有 categoryList / brokerTagList。既要按类别 / 标签筛、又要正文，走 list + detail。
 
         行字段（默认）：chiefOpinionId / publishTime / title / brief / author{chiefId,
         chiefName, researchAreaList, brokerID, brokerName} / securityList / industryList /
-        conceptList / llmTagList；author.chiefId / chiefName 在机构点评类观点上为 null。
+        conceptList / categoryList / llmTagList / brokerTagList（三个标签字段取值同下方筛选
+        参数的英文标识，无标签时为 []）；author.chiefId / chiefName 在机构点评类观点上为 null。
 
-        llm_tag 取值 strongRcmd=强烈推荐 / earningsReview=业绩点评 / topBroker=头部券商 /
-        newFortune=新财富团队；source 取值 realTime=实时 / openSource=开放来源。
+        category（观点类别）取值 earningsReview=业绩点评 / abnormalReview=异动点评 /
+        researchUpdate=调研/访谈更新 / tradingDesk=交易台 / industryAnalysis=行业分析，一条
+        观点可同时属于多个类别。llm_tag（投研业务标签）分四组共 28 项——推荐：
+        strongRcmd=强烈推荐 / undervalued=低估值 / highElasticity=高弹性 / highDividend=高股息 /
+        reversal=拐点/反转 / bottom=底部 / beatExpect=超预期 / expectGap=预期差 /
+        oversold=错杀/超跌 / targetPrice=目标股价/市值 / certainty=确定性；业绩侧：
+        highGrowth=高增 / withProfitForecast=含盈利预测 / withGuidance=含指引 /
+        marginalImprovement=边际改善；产业链：priceHike=涨价 / tightSupplyDemand=供需趋紧 /
+        capacityRelease=产能释放 / newOrder=新订单 / orderSurge=订单高增/大单 /
+        keyCustomer=大客户 / soleSupplier=独供/一供 / coreSupplier=核心供应商 /
+        industryEntry=产业导入；壁垒：leader=龙头 / moat=壁垒 / scarcity=稀缺性 /
+        breakthrough=突破。broker_tag（机构标签）取值 topBroker=头部券商 / newFortune=新财富团队。
+        ⚠️ 「业绩点评」「头部券商」「新财富团队」已不在 llm_tag 里：改传
+        category="earningsReview"、broker_tag="topBroker" / "newFortune"，继续传给 llm_tag
+        报 100005。三个参数传非法值都由服务端报 100005；**同一参数传多个值取并集**（命中任一
+        即返回），要两个标签都有，取回后按返回行的 llmTagList 自行过滤。
+        source 取值 realTime=实时 / openSource=开放来源。
         industry 用 citicIndustry 码（1008001xx）；申万码（104xx0000）也生效，但两套码的
         行业成分不同、取回的结果集不一致，同一批查询别混用。research_area 行业用
         citicIndustry 码、方向用 gangtiseIndustry 码（122000xxx），申万码在本端点返 0。
@@ -1759,10 +1818,14 @@ class AsyncInsight:
                 "brokerList": _as_list(broker, "broker"),
                 "industryList": _as_list(industry, "industry"),
                 "conceptList": _as_list(concept, "concept"),
+                "categoryList": _as_list(category, "category"),
                 "llmTagList": _as_list(llm_tag, "llm_tag"),
+                "brokerTagList": _as_list(broker_tag, "broker_tag"),
                 "sourceList": _as_list(source, "source"),
             }
         )
+        if with_content and ("categoryList" in body or "brokerTagList" in body):
+            raise ValidationError(_OPINION_V1_NO_TAG_FILTERS)
         result = await self._client._call(
             "insight.opinion.list-with-content" if with_content else "insight.opinion.list",
             body=body,
@@ -1864,9 +1927,10 @@ class AsyncInsight:
         枚举是静默忽略该条件返回全量。research_area 中信码（1008001xx）与申万码
         （104xx0000）都认, 但方向码（122000xxx）在本端点返 0。
 
-        ⚠️ 已知返回口径（实测 2026-08-08）: conceptList 在所有查法下都是空的（当前拿不到
-        主题概念标签, 也没有 concept 过滤参数）; categoryList / marketList 只在用 category 或
-        market 过滤时才回填——所以按这两个维度分组要靠过滤参数取, 别拉全量再本地分组。
+        ⚠️ 已知返回口径: conceptList / categoryList / marketList 三个标签字段稀疏、不保证完整,
+        是否有值随记录和查法而变——不带筛选时常整条为空, 用 category 或 market 过滤时回填率
+        明显更高（没有 concept 过滤参数）。所以按这几个维度分组要靠过滤参数取, 别拉全量再本地
+        分组; 某条为空也不说明它没有该属性。
         """
         body = _request_body(
             {
@@ -2006,9 +2070,10 @@ class AsyncInsight:
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -2061,9 +2126,10 @@ class AsyncInsight:
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -2107,9 +2173,10 @@ class AsyncInsight:
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -2147,9 +2214,10 @@ class AsyncInsight:
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
 
-        ⚠️ **`location` 目前不可用**：任何取值服务端都返回 `999999 系统内部错误`（四个日程类接口一致，2026-09-07 实测）。
+        🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
+        `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
-        计费 **20 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **10 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
         """
@@ -2689,7 +2757,7 @@ class AsyncInsight:
         rank_type 取值 1=综合 2=时间倒序。
         industry 只收申万码（104xx0000）；中信码报 100005，即使 constant-category 里列了它。
 
-        计费 **5 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
+        计费 **1 积分/条**（按返回条数计），务必带 size。省略 size 时按 total × 单价估算、
         显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，不再往下拉）；
         传更小的 size 取一部分，或 confirm=True 确认全量。
 
@@ -2930,7 +2998,7 @@ class AsyncInsight:
     ) -> Path:
         """下载业绩报告原文 PDF（insight.performance-calendar.download）。
 
-        A股 10 积分 / 港美股 20 积分; 仅 hasAttachment=True 的记录可下。
+        A股 1 积分 / 港美股 2 积分; 仅 hasAttachment=True 的记录可下。
         省略 output 时用 title-cache 里的真实标题命名。
 
         resolve_title=True 时, 标题缓存未命中会回查 list 接口拿文件名 (额外 4 次请求, 这些 list 多数按条计费), 默认关闭。
@@ -3093,7 +3161,7 @@ class AsyncInsight:
 
         文件名：先调过 independent_opinion_list() 时标题已进缓存，下载自动命中（免费）；否则用
         服务端文件名或 ``independent-opinion-<id>``。🔴 **不支持 resolve_title=True**（传了在发请求前
-        报 ValidationError）：它的 list 按 5 积分/条计费，回查 200 条要 1000 积分，只为一个文件名
+        报 ValidationError）：它的 list 按 1 积分/条计费，回查 200 条要 200 积分，只为一个文件名
         （CLI 的该命令同样不提供标题回查）。参数保留只为签名兼容。
         """
         if resolve_title:

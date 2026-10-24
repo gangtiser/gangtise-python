@@ -227,6 +227,7 @@ class Vault:
         """查询我的会议列表（vault.my-conference.list）。
 
         source 录制来源（数字，可单值或列表）: 1=企微会议助理 2=会议服务微信群。
+        可查范围前溯 1 个月（各档相同）。
         按条计费 0.1 积分/条: 省略 size 时按 total × 单价估算，超过 1000 积分拒绝；
         传 size 取一部分，或 confirm=True 确认全量。
         """
@@ -700,7 +701,7 @@ class Vault:
     ) -> Path:
         """下载会议资源文件（vault.my-conference.download）。
 
-        50 积分/篇, 超时 / 5xx 不自动重发。content_type 取值: asr=语音识别, summary=AI 速记;
+        30 积分/篇, 超时 / 5xx 不自动重发。content_type 取值: asr=语音识别, summary=AI 速记;
         其他取值在本地拒绝、不发请求——接口对错值报的是 130003「没有文件可供下载」,
         容易误读成这场会议没附件。
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。
@@ -822,6 +823,7 @@ class AsyncVault:
         """查询我的会议列表（vault.my-conference.list）。
 
         source 录制来源（数字，可单值或列表）: 1=企微会议助理 2=会议服务微信群。
+        可查范围前溯 1 个月（各档相同）。
         按条计费 0.1 积分/条: 省略 size 时按 total × 单价估算，超过 1000 积分拒绝；
         传 size 取一部分，或 confirm=True 确认全量。
         """
@@ -1305,7 +1307,7 @@ class AsyncVault:
     ) -> Path:
         """下载会议资源文件（vault.my-conference.download）。
 
-        50 积分/篇, 超时 / 5xx 不自动重发。content_type 取值: asr=语音识别, summary=AI 速记;
+        30 积分/篇, 超时 / 5xx 不自动重发。content_type 取值: asr=语音识别, summary=AI 速记;
         其他取值在本地拒绝、不发请求——接口对错值报的是 130003「没有文件可供下载」,
         容易误读成这场会议没附件。
         未指定 output 时文件名按 标题缓存 → Content-Disposition → fallback 自动解析。

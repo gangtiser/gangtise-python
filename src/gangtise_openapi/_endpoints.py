@@ -21,7 +21,7 @@ EndpointKind = Literal["json", "download", "upload"]
 # self-heal retry; 5xx / response timeouts / 999999 fail fast.
 # ⚠️ This is a REPLAY-SAFETY marker, not a billing-model one — do not read it as
 # "per-call billed". Most endpoints carrying it are, but `ai.hot-topic` is not: it
-# prices per item (50 per 篇 = per whole report) and is marked because replaying a
+# prices per item (10 per 篇 = per whole report) and is marked because replaying a
 # page could re-bill rows the server already delivered. Using it as a billing proxy
 # is what made the total-cap probe skip that endpoint (see _pagination.py).
 # ⚠️ Nor does the converse hold: "paginated" does NOT imply "per-item billed" —
@@ -46,8 +46,8 @@ class Pagination:
 # is no usage API). "call" — each request; "page" — each page of the submitted
 # document; "row" — each row returned (a paginated list bills every page's rows);
 # "security" — each requested security that has data; "issuer" — each issuer matched;
-# "document" — each file downloaded.
-BillingUnit = Literal["call", "page", "row", "security", "issuer", "document"]
+# "indicator" — each indicator fetched; "document" — each file downloaded.
+BillingUnit = Literal["call", "page", "row", "security", "issuer", "indicator", "document"]
 
 
 @dataclass(frozen=True)
@@ -187,7 +187,9 @@ class EndpointDef:
     # result partial. An id that comes back on a LATER page with different content
     # marks it partial too (``changedRows``) — unless one page carries it with two
     # contents, which shows the field is no row key for this list (TS v0.43.0).
-    row_id: str | None = None
+    # A tuple of dotted paths (``source.sourceId``) together forms the id of a row that
+    # no single field identifies (TS v0.48.0).
+    row_id: str | tuple[str, ...] | None = None
     # ``row_id`` comes from the response description only, not from real responses:
     # whole-row repeats are still dropped; a repeat with different content is not
     # counted (a field that is not unique would flag every fetch whose repeated pair
@@ -214,7 +216,7 @@ class EndpointDef:
 def worst_request_credits(endpoint: EndpointDef) -> float:
     """The most one request can bill: a page of a paginated list, ``max_units`` of a
     batch endpoint, one unit otherwise — a download is one document; a per-row /
-    per-security / per-issuer endpoint that is not paginated must declare
+    per-security / per-issuer / per-indicator endpoint that is not paginated must declare
     ``max_units`` (test_endpoints.py), so 1 never stands in for an unknown bound."""
     if endpoint.billing is None:
         return 0.0
@@ -241,7 +243,7 @@ def _ep(
     big_int_fields: tuple[str, ...] = (),
     file_types: tuple[int, ...] = (),
     expects: Literal["list", "array"] | None = None,
-    row_id: str | None = None,
+    row_id: str | tuple[str, ...] | None = None,
     row_id_unverified: bool = False,
     billing: Billing | None = None,
     estimate_billed_units: Callable[[dict[str, Any]], float] | None = None,
@@ -317,10 +319,10 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/summary/v2/download/file",
         "Download summary file",
         kind="download",
-        # 50/篇 — same price tier as the AI Agent calls; billing probed non-idempotent.
+        # Billing probed non-idempotent.
         retry="no-replay",
         file_types=(1, 2),
-        billing=Billing("document", 50),
+        billing=Billing("document", 30),
     ),
     "insight.pamirs-summary.list": _ep(
         "insight.pamirs-summary.list",
@@ -343,15 +345,19 @@ ENDPOINTS: dict[str, EndpointDef] = {
         retry="no-replay",
         file_types=(1, 2),
     ),
+    # The four schedule lists name their row id per list (roadshowId, siteVisitId,
+    # strategyMeetingId, forumId), not ``id`` as the response description and TS have
+    # it: no real response carries ``id``, and a row without its id is never deduped.
+    # Still unverified: every sample was one row, so uniqueness on a page is unproven.
     "insight.roadshow.list": _ep(
         "insight.roadshow.list",
         "POST",
         "/application/open-insight/schedule/roadshow/getList",
         "List roadshows",
         paginated=50,
-        row_id="id",
+        row_id="roadshowId",
         row_id_unverified=True,
-        billing=Billing("row", 20),
+        billing=Billing("row", 10),
     ),
     "insight.site-visit.list": _ep(
         "insight.site-visit.list",
@@ -359,9 +365,9 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/schedule/site-visit/getList",
         "List site visits",
         paginated=50,
-        row_id="id",
+        row_id="siteVisitId",
         row_id_unverified=True,
-        billing=Billing("row", 20),
+        billing=Billing("row", 10),
     ),
     "insight.strategy.list": _ep(
         "insight.strategy.list",
@@ -369,9 +375,9 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/schedule/strategy-meeting/getList",
         "List strategy meetings",
         paginated=50,
-        row_id="id",
+        row_id="strategyMeetingId",
         row_id_unverified=True,
-        billing=Billing("row", 20),
+        billing=Billing("row", 10),
     ),
     "insight.forum.list": _ep(
         "insight.forum.list",
@@ -379,9 +385,9 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-insight/schedule/forum/getList",
         "List forums",
         paginated=50,
-        row_id="id",
+        row_id="forumId",
         row_id_unverified=True,
-        billing=Billing("row", 20),
+        billing=Billing("row", 10),
     ),
     "insight.performance-calendar.list": _ep(
         "insight.performance-calendar.list",
@@ -396,9 +402,9 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "insight.performance-calendar.download",
         "GET",
         "/application/open-insight/schedule/performance-calendar/download/file",
-        "Download an earnings report file (A-share 10 credits, HK/US 20)",
+        "Download an earnings report file (A-share 1 credit, HK/US 2)",
         kind="download",
-        billing=Billing("document", 20),
+        billing=Billing("document", 2),
     ),
     "insight.research.list": _ep(
         "insight.research.list",
@@ -435,7 +441,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         kind="download",
         retry="no-replay",
         file_types=(1, 2, 3, 4),
-        billing=Billing("document", 50),
+        billing=Billing("document", 30),
     ),
     "insight.announcement.list": _ep(
         "insight.announcement.list",
@@ -453,7 +459,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download A-share announcement file",
         kind="download",
         file_types=(1, 2),
-        billing=Billing("document", 10),
+        billing=Billing("document", 1),
     ),
     "insight.announcement-hk.list": _ep(
         "insight.announcement-hk.list",
@@ -471,7 +477,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download HK announcement file",
         kind="download",
         file_types=(1, 2),
-        billing=Billing("document", 20),
+        billing=Billing("document", 2),
     ),
     "insight.announcement-us.list": _ep(
         "insight.announcement-us.list",
@@ -489,7 +495,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download US announcement file",
         kind="download",
         file_types=(1, 2),
-        billing=Billing("document", 20),
+        billing=Billing("document", 2),
     ),
     "insight.foreign-opinion.list": _ep(
         "insight.foreign-opinion.list",
@@ -508,7 +514,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         paginated=50,
         row_id="independentOpinionId",
         row_id_unverified=True,
-        billing=Billing("row", 5),
+        billing=Billing("row", 1),
     ),
     "insight.independent-opinion.download": _ep(
         "insight.independent-opinion.download",
@@ -766,7 +772,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-ai/stock-summary/getList",
         "Stock highlights (refined research summary per security)",
-        billing=Billing("row", 3, max_units=6000),
+        billing=Billing("row", 1, max_units=6000),
         retry="no-replay",
         timeout_ms=120_000,
     ),
@@ -800,7 +806,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Generate one pager",
         retry="no-replay",
         timeout_ms=120_000,
-        billing=Billing("call", 50),
+        billing=Billing("call", 10),
     ),
     "ai.investment-logic": _ep(
         "ai.investment-logic",
@@ -809,7 +815,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Generate investment logic",
         retry="no-replay",
         timeout_ms=120_000,
-        billing=Billing("call", 50),
+        billing=Billing("call", 10),
     ),
     "ai.peer-comparison": _ep(
         "ai.peer-comparison",
@@ -818,7 +824,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Generate peer comparison",
         retry="no-replay",
         timeout_ms=120_000,
-        billing=Billing("call", 50),
+        billing=Billing("call", 10),
     ),
     "ai.earnings-review.get-id": _ep(
         "ai.earnings-review.get-id",
@@ -826,7 +832,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-ai/agent/earnings-review-getid",
         "Get earnings review ID",
         retry="no-replay",
-        billing=Billing("call", 50),
+        billing=Billing("call", 20),
     ),
     "ai.earnings-review.get-content": _ep(
         "ai.earnings-review.get-content",
@@ -841,7 +847,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Get theme tracking daily report",
         retry="no-replay",
         timeout_ms=120_000,
-        billing=Billing("call", 50),
+        billing=Billing("call", 10),
     ),
     "ai.research-outline": _ep(
         "ai.research-outline",
@@ -850,7 +856,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Get company research outline",
         retry="no-replay",
         timeout_ms=120_000,
-        billing=Billing("call", 50),
+        billing=Billing("call", 10),
     ),
     "ai.hot-topic": _ep(
         "ai.hot-topic",
@@ -859,7 +865,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "List hot topic reports",
         paginated=20,
         retry="no-replay",
-        billing=Billing("row", 50),
+        billing=Billing("row", 10),
     ),
     "ai.management-discuss-announcement": _ep(
         "ai.management-discuss-announcement",
@@ -868,7 +874,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Management discussion from financial reports (half-year/annual)",
         retry="no-replay",
         timeout_ms=120_000,
-        billing=Billing("call", 10),
+        billing=Billing("call", 5),
     ),
     "ai.management-discuss-earnings-call": _ep(
         "ai.management-discuss-earnings-call",
@@ -879,13 +885,50 @@ ENDPOINTS: dict[str, EndpointDef] = {
         timeout_ms=120_000,
         billing=Billing("call", 10),
     ),
+    # Management sentiment (TS v0.48.0): one row per security x earnings call, newest
+    # first. The two lists page at 100 (size 101 → 100006) and report the real count
+    # (from = total → 0 rows; both probed 2026-10-24); at 5 per row a full page bills
+    # 500, under NO_REPLAY_ABOVE_CREDITS, so they keep the default retry like
+    # security-clue. A row is identified by its security and its source call together
+    # (the response description's granularity; not yet seen unique across a full page).
+    "ai.management-sentiment-indicator": _ep(
+        "ai.management-sentiment-indicator",
+        "POST",
+        "/application/open-ai/management-sentiment/company/indicator",
+        "Management sentiment scores per earnings call (responsiveness / polarity / conviction)",
+        paginated=100,
+        expects="list",
+        row_id=("securityCode", "source.sourceType", "source.sourceId"),
+        row_id_unverified=True,
+        billing=Billing("row", 5),
+    ),
+    "ai.management-sentiment-conclusion": _ep(
+        "ai.management-sentiment-conclusion",
+        "POST",
+        "/application/open-ai/management-sentiment/company/conclusion",
+        "Management sentiment conclusions per earnings call, with changes against the previous call",
+        paginated=100,
+        expects="list",
+        row_id=("securityCode", "source.sourceType", "source.sourceId"),
+        row_id_unverified=True,
+        billing=Billing("row", 5),
+    ),
+    "ai.management-sentiment-detail": _ep(
+        "ai.management-sentiment-detail",
+        "POST",
+        "/application/open-ai/management-sentiment/company/detail",
+        "Per-Q&A management sentiment scores and their supporting quotes, for one earnings call",
+        retry="no-replay",
+        expects="list",
+        billing=Billing("call", 10),
+    ),
     "ai.viewpoint-debate.get-id": _ep(
         "ai.viewpoint-debate.get-id",
         "POST",
         "/application/open-ai/agent/viewpoint-debate-getid",
         "Get viewpoint debate ID",
         retry="no-replay",
-        billing=Billing("call", 50),
+        billing=Billing("call", 20),
     ),
     "ai.viewpoint-debate.get-content": _ep(
         "ai.viewpoint-debate.get-content",
@@ -940,7 +983,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Download my conference resource",
         kind="download",
         retry="no-replay",
-        billing=Billing("document", 50),
+        billing=Billing("document", 30),
     ),
     "vault.wechat-message.list": _ep(
         "vault.wechat-message.list",
@@ -984,6 +1027,8 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-alternative/EDB/getData",
         "Get industry indicator time-series data by indicator ID list",
+        # At most 10 indicators a call, checked by the server.
+        billing=Billing("indicator", 30, max_units=10),
     ),
     "alternative.concept-info": _ep(
         "alternative.concept-info",
@@ -1123,8 +1168,8 @@ ENDPOINTS: dict[str, EndpointDef] = {
         billing=Billing("call", 500),
     ),
     # ─── bond (TS v0.41.0) ───
-    # All twelve are metered (0.4 credits per call, per the 2026-09 spec; three of
-    # them per row / per bond / per issuer instead). Metered + replayable is the
+    # All thirteen are metered (0.4 credits per call per the spec; three of them per
+    # row / per bond / per issuer instead). Metered + replayable is the
     # combination that double-bills, hence `no-replay` across the family. They answer
     # COLUMNAR: `data` is `{fieldList, list}` where each row is an array ordered by
     # `fieldList` — `normalize_rows` zips each row into an object.
@@ -1232,6 +1277,15 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-fundamental/bond/exercise-notice",
         "Query put/call exercise schedules and results for option-embedded bonds",
+        retry="no-replay",
+        expects="list",
+        billing=Billing("call", 0.4),
+    ),
+    "bond.default-list": _ep(
+        "bond.default-list",
+        "POST",
+        "/application/open-fundamental/bond/default-list",
+        "Query bond default records (by default-date range, bond codes or one issuer)",
         retry="no-replay",
         expects="list",
         billing=Billing("call", 0.4),

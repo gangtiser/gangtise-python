@@ -36,7 +36,7 @@ async def main():
     show_result(
         await gangtise.async_.insight.independent_opinion_list(
             security=["GSK.N"],  # 证券代码, 支持单值或列表
-            size=20,  # 按条计费（5 积分/条）: 带 size 取一部分; 要全量改传 confirm=True
+            size=20,  # 按条计费（1 积分/条）: 带 size 取一部分; 要全量改传 confirm=True
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

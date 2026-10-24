@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pandas as pd
 import pytest
@@ -432,3 +434,96 @@ def test_stock_summary_allows_a_batch_at_the_cap(tmp_path):
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             AI(client).stock_summary_list(security=[f"{i:06d}.SZ" for i in range(6000)], raw=True)
+
+
+# ─── management sentiment (TS v0.48.0) ───
+
+_SENTIMENT = "/application/open-ai/management-sentiment/company/"
+
+
+def _sentiment_rows(n: int) -> list[dict]:
+    return [
+        {
+            "securityCode": "300285.SZ",
+            "publishTime": "2026-10-23 12:30:00",
+            "sentimentPolarity": 3.5,
+            "source": {"sourceType": "conference", "sourceId": str(554030 + i)},
+        }
+        for i in range(n)
+    ]
+
+
+def _sentiment_server(total: int):
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        start, size = body.get("from", 0), body.get("size", 100)
+        rows = _sentiment_rows(total)[start : start + size]
+        data = {"total": total, "list": rows}
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+    return answer
+
+
+def test_management_sentiment_lists_map_their_filters_and_page_at_100(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        indicator = router.post(_SENTIMENT + "indicator").mock(side_effect=_sentiment_server(3))
+        conclusion = router.post(_SENTIMENT + "conclusion").mock(side_effect=_sentiment_server(3))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            ai = AI(client)
+            df = ai.management_sentiment_indicator(
+                security="300285.SZ",
+                start_time="2026/08/01",
+                end_time="2026-08-31 23:59:59",
+                size=150,
+            )
+            ai.management_sentiment_conclusion(security="300285.SZ", size=5)
+    assert json.loads(indicator.calls[0].request.content) == {
+        "from": 0,
+        "size": 100,
+        "startTime": "2026-08-01",
+        "endTime": "2026-08-31 23:59:59",
+        "securityList": ["300285.SZ"],
+    }
+    assert json.loads(conclusion.calls[0].request.content) == {
+        "from": 0,
+        "size": 5,
+        "securityList": ["300285.SZ"],
+    }
+    assert isinstance(df, pd.DataFrame)
+    assert df["securityCode"].tolist() == ["300285.SZ"] * 3
+    assert df.iloc[0]["source"] == {"sourceType": "conference", "sourceId": "554030"}
+
+
+def test_management_sentiment_without_size_probes_one_row_and_guards_credits(tmp_path):
+    # A full page bills 500 credits, so an unbounded fetch learns its total from one row;
+    # 201 rows at 5 credits each is past the 1000-credit guard.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SENTIMENT + "indicator").mock(side_effect=_sentiment_server(201))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="1005 credits"):
+                AI(client).management_sentiment_indicator()
+    assert route.call_count == 1
+    assert json.loads(route.calls[0].request.content) == {"from": 0, "size": 1}
+
+
+def test_management_sentiment_detail_defaults_the_source_type(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SENTIMENT + "detail").mock(
+            return_value=_list_response([{"qaId": "1", "qaPolarity": 2.5}])
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = AI(client).management_sentiment_detail(source_id="554030")
+    assert json.loads(route.calls.last.request.content) == {
+        "sourceId": "554030",
+        "sourceType": "conference",
+    }
+    assert df.iloc[0]["qaPolarity"] == 2.5
+
+
+def test_management_sentiment_detail_is_not_replayed_after_a_5xx(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SENTIMENT + "detail").mock(return_value=httpx.Response(502))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ApiError):
+                AI(client).management_sentiment_detail(source_id="554030")
+    assert route.call_count == 1

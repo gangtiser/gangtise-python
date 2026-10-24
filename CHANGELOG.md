@@ -5,6 +5,95 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2] - 2026-10-25
+
+与 `gangtise-openapi-cli` **v0.48.0** 功能对齐（覆盖 v0.46.0–v0.48.0）。**新增 4 个接口，共 153 个上游接口 /
+端点注册表 155 条**（此前 149 / 151）。
+
+### 新增
+
+- **管理层情绪**（管理层在业绩会问答里的正面回应程度、回复乐观度、回复确定度）：
+  - `ai.management_sentiment_indicator`：每场会议的三维评分（0–5）、有效问答数、回避 / 风险 / 低确定度三个
+    占比（百分数，`7.14` 即 7.14%）与按问题类型的拆分。
+  - `ai.management_sentiment_conclusion`：情绪结论文本、三维情绪信号与较上一场会议的问答对照；没有可比的
+    上一场时对照为 `[]`、`previousSource` 为 `None`。
+  - 两个列表一行 = 一只证券 × 一场会议，按发布时间倒序，**5 积分/条**，自动翻页（单页 100）。不传 `security`
+    即全部证券；省略 `size` 时按额度保护估算，超过 1000 积分需 `confirm=True`。`start_time` / `end_time` 写
+    `YYYY-MM-DD`、`YYYY-MM-DD HH:mm:ss` 或 10 / 13 位时间戳，写时刻须带秒（`HH:mm` 报 `110001`）。数据范围
+    正式账号 1 年、试用 6 个月。翻页去重按「证券 + 来源会议」联合判定。
+  - `ai.management_sentiment_detail(source_id=...)`：一场会议的逐条问答评分（`5.0` / `2.5` / `0.0` 三档）与判断
+    依据，`source_id` 取自列表返回的 `source.sourceId`，**10 积分/次**，超时 / 5xx 不自动重发。
+  - ⚠️ **返回的 `publishTime` 比北京时间早 8 小时**（北京时间 20:30 的业绩会返回 `12:30:00`），时间筛选仍按
+    北京时间。按时刻展示、与纪要对齐或按日期归档前先加 8 小时。
+- **`bond.default_list` 违约债券**：债券代码、简称、违约日期、违约金额（亿元）、发行人、违约原因，**0.4 积分/次**。
+  按违约日期区间（两端都给、不超过 1 个自然年）、`security` 或 `issuer` 三选一；混传、都不传或只给一端日期，
+  在发请求前报 `ValidationError`。`issuer` 一次一个，传列表或用逗号拼接同样本地报错。⚠️ **用发行人全称**：传简称
+  也会返回结果，但只返回最匹配的一家主体，核对返回的 `issuerName`。`field` 写错报 `100005`（其余 `bond` 方法为
+  `100003`）；条件下没有记录时抛 `ApiError`（`130001`）。
+- **`insight.opinion_list` 新增 `category`（观点类别）与 `broker_tag`（机构标签）**：`category` 取
+  `earningsReview` 业绩点评 / `abnormalReview` 异动点评 / `researchUpdate` 调研/访谈更新 / `tradingDesk` 交易台 /
+  `industryAnalysis` 行业分析，`broker_tag` 取 `topBroker` 头部券商 / `newFortune` 新财富团队。返回行同时带
+  `categoryList` / `brokerTagList`（无标签时为 `[]`）。
+- **`reference.securities_search(category="bond")`**：按代码或简称搜交易所可转债、国债、地方债、金融债与银行间
+  债券（`.SH` / `.SZ` / `.IB`），代码用于 `gangtise.bond`；`quote`、公告等其余方法不收债券代码。
+
+### 变更
+
+- 🔴 **`insight.opinion_list` 的 `llm_tag` 换为 28 项投研业务标签**（推荐 / 业绩侧 / 产业链 / 壁垒四组，如
+  `strongRcmd` 强烈推荐、`beatExpect` 超预期、`priceHike` 涨价、`leader` 龙头；完整取值见 docstring 与
+  `sample/API_PARAMETERS.md`）。**存量调用要改**：「业绩点评」「头部券商」「新财富团队」改传
+  `category="earningsReview"`、`broker_tag="topBroker"` / `broker_tag="newFortune"`，继续传给 `llm_tag` 服务端报
+  `100005`。同一参数传多个值取并集（命中任一即返回）。
+- `insight.opinion_list(with_content=True)` 不收 `category` / `broker_tag`：同时传在本地报 `ValidationError`、不发
+  请求——旧版列表不认这两个字段，会按 30 积分/条返回未经筛选的结果。它的 `llm_tag` 只收 `strongRcmd` /
+  `earningsReview` / `topBroker` / `newFortune`，返回行也没有两个新字段。既要按新标签筛、又要正文，先
+  `opinion_list` 筛选，再用 `opinion_detail` 取正文。
+- **计费单价按平台最新价目**，额度保护随之按新单价估算：
+  - AI 生成：`one_pager` / `investment_logic` / `peer_comparison` / `research_outline` / `theme_tracking`
+    10 积分/次；`earnings_review` / `viewpoint_debate` 提交 20 积分/次；`management_discuss_announcement` 5 积分/次。
+  - `ai.hot_topic` 10 积分/篇；`ai.stock_summary_list` 1 积分/条（一次最多 6000 积分）。
+  - 路演 / 调研 / 策略会 / 论坛列表 10 积分/条，省略 `size` 时约 100 条以上才触发 1000 积分的拦截；
+    `insight.independent_opinion_list` 1 积分/条，不再先取 1 条估算。
+  - 下载：纪要 / 外资研报 / 我的会议 30 积分/篇；A 股公告 1 积分/篇、港美股公告 2 积分/篇；财报日历 A 股
+    1 积分/篇、港美股 2 积分/篇。
+  - `alternative.edb_data` 30 积分/指标（单次最多 10 个指标，即最多 300 积分）；超时 / 5xx 仍按默认策略重试。
+- `bond.daily_quote` / `bond.valuation`：返回的首行比 `start_date` 晚超过 14 天时发 `UserWarning`（债券上市较晚，
+  或数据起点晚于所查区间），不标 `partial`。告警只看整批最早的首行：多只同查时有一只数据够早就不会告警，
+  逐只的起点按 `securityCode` 核对。
+- 列式响应的字段数与 `fieldList` 对不上时，报错改为「响应结构异常」：先去掉 `field` 重试，仍报错再报障。
+
+### 修复
+
+- **路演 / 调研 / 策略会 / 论坛列表的翻页去重此前不生效。** 四个列表按 `id` 认行，实际返回的行 ID 却是
+  `roadshowId` / `siteVisitId` / `strategyMeetingId` / `forumId`：相邻两页重复出现的行原样保留，同时漏掉的行
+  也不提示，结果看着完整。现在按各自的 ID 去掉整行重复，标 `partial` 并告警；缺的行要缩短时间范围重取。
+
+### 文档
+
+- 四个日程列表的 `location` 可用：传 domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海
+  `156310000`）；传城市名（`"上海"`）服务端返回 `999999`、不是参数错误。此前文档说任何取值都不可用，已不成立。
+- A 股财务报表返回的是**最新版本数值**：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate`
+  是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate`
+  回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。
+- `insight.pamirs_summary_list` 的 `conceptList` / `categoryList` / `marketList` 稀疏、不保证完整，用 `category`
+  或 `market` 过滤时回填率明显更高（此前说 `conceptList` 恒为空，已有非空的记录）。
+- `fundamental.main_business` / `valuation_analysis` 的 `field` 写了不存在的名字（含 `securityCode`）时，服务端
+  整条报 `100005` 并点名；`valuation_analysis` 只传 `tradeDate` 仍返回 0 行、不报错（SDK 发 `UserWarning`）。
+- `indicator`：`parameterList` 标必填的 `fiscalYear` 漏传时报 `100001` 并点名，与其他必填参数一致（此前文档说
+  漏传不报错，`999999` 的提示一并更正）。区间指标的 `changePeriod` / `yieldType` / `riskFreeRate` /
+  `benchmarkCode` 与股东结构类指标的 `rank` / `shareType` 即使 `parameterList` 列了默认值也须显式传，漏传报
+  `100001`。`cross_section` 返回的证券顺序不作保证，按 `security` 列对应；`time_series` 每行一个日期，多只证券
+  时按列头对应，列的顺序同样不作保证。多只基金横向比较分类、复权净值与风险收益指标（夏普 / 最大回撤 /
+  Alpha / 同类排名）用 `indicator.cross_section`（`security` 传基金代码）。
+- 基金名称换代码：`reference.securities_search(category="fund")` 同时返回场内与场外（`.OF`）代码，同一基金的
+  不同份额一起返回，按 `gtsName` 区分（此前说场外代码搜不到，已不成立）。🔴 **可转债可能出现在任何
+  `category` 的结果里**——按公司简称查 `stock` 时同名可转债常排第一，只取返回行 `category` 等于所查类别的那一行；
+  债券代码传给 `fund` 方法返回空结果、不报错。
+- 数据范围：`ai.hot_topic` 前溯 3 个月（各档相同）；`quote.minute_kline` 最近 1 个月；
+  `fundamental.earning_forecast` 前溯 1 年；`vault.my_conference_list` 前溯 1 个月。
+- 常量分类新增 `interestBondSubtype`（利率债子类型），对应 `bond.issuance_plan` 的 `bondType`；`bond.basic_info`
+  的 `bondType` 仍用 `bondType` 这一套码。
+
 ## [0.5.1] - 2026-10-07
 
 与 `gangtise-openapi-cli` **v0.45.0** 功能对齐，无新增接口。

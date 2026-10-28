@@ -1089,3 +1089,43 @@ def test_quotes_go_out_500_codes_a_request_and_daily_closes_1000():
     _fill([row("510300.SH", i, n, 1.0) for i, n in enumerate(names)], api)
     assert sorted(len(batch) for batch in api.quoted) == [1, 500, 500]
     assert sorted(len(batch) for batch in api.asked) == [1, 1000]
+
+
+# 招商银行's first row agrees with both listings, its second with the H share only; the
+# second takes 03968.HK, which leaves the first the A share — so the ETF holds both
+# markets, and 中信银行's A/H tie decides nothing, whichever row comes first.
+AH_TIES = {
+    "招商银行": [("600036.SH", "招商银行"), ("03968.HK", "招商银行")],
+    "中信银行": [("601998.SH", "中信银行"), ("00998.HK", "中信银行")],
+}
+AH_TIE_PRICES = {
+    "600036.SH": [42.5, 42.3],
+    "03968.HK": [39.0, 42.5],
+    "601998.SH": [7.0, 7.1],
+    "00998.HK": [7.0, 6.5],
+}
+
+
+@pytest.mark.parametrize("first", [0, 1])
+def test_a_tie_another_rows_listing_settles_counts_as_market_evidence(first):
+    cmb = [row("517180.SH", 1, "招商银行", 42.5), row("517180.SH", 2, "招商银行", 39.0)]
+    if first:
+        cmb.reverse()
+    rows, _ = _fill([*cmb, row("517180.SH", 3, "中信银行", 7.0)], _Api(AH_TIES, AH_TIE_PRICES))
+    by_close = {r["close"]: r["componentCode"] for r in rows}
+    assert by_close == {42.5: "600036.SH", 39.0: "03968.HK", 7.0: None}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("first", [0, 1])
+async def test_async_driver_counts_a_settled_tie_as_market_evidence(first):
+    cmb = [row("517180.SH", 1, "招商银行", 42.5), row("517180.SH", 2, "招商银行", 39.0)]
+    if first:
+        cmb.reverse()
+    fill = await fill_component_codes_async(
+        _Fill([*cmb, row("517180.SH", 3, "中信银行", 7.0)]),
+        _AsyncApi(_Api(AH_TIES, AH_TIE_PRICES)),
+        concurrency=5,
+    )
+    by_close = {r["close"]: r["componentCode"] for r in fill.result()[0]}
+    assert by_close == {42.5: "600036.SH", 39.0: "03968.HK", 7.0: None}

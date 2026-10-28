@@ -424,8 +424,25 @@ class _Fill:
                 if matched is not _Open.OPEN:
                     self._settle(row, matched, etf)
 
+    def _eliminate(self, own: list[_Row], etf: _Etf) -> None:
+        """Price ties the listings other rows have taken settle without the ETF's
+        market: what is left of a tie in one market (or nothing at all) is final.
+        Repeated until nothing moves, so the outcome does not hang on row order — and
+        done before the market is judged, which may rest on what it settles."""
+        moved = True
+        while moved:
+            moved = False
+            for row in own:
+                if id(row) not in self.tied or id(row) in self.codes:
+                    continue
+                left = [c for c in self.tied[id(row)] if c.code not in etf.used]
+                if len({_market(c.code) for c in left}) <= 1:
+                    self._place(row, _narrow(left, etf) if left else None, etf)
+                    moved = True
+
     def place_by_name(self) -> None:
         for own, etf in self.etfs:
+            self._eliminate(own, etf)
             # The markets this ETF holds, as far as anything shows: listings its prices
             # confirmed, and names whose exact listings all trade in one market. Only
             # when all of it points to one market is that market trusted for what the
@@ -438,11 +455,17 @@ class _Fill:
                     markets |= held
             if len(markets) == 1 and not any(row["componentName"] in self.failed for row in own):
                 etf.market = next(iter(markets))
-            # Price ties first: a listing a row's price agrees with goes to it before a
-            # row of the same name claims it by name alone.
+            # The ties still open span markets; only the ETF's one market breaks them,
+            # and only for a listing in it — so nothing placed from here on adds a market
+            # to the evidence above. Ties first: a listing a row's price agrees with goes
+            # to it before a row of the same name claims it by name alone.
             for row in own:
                 if id(row) in self.tied and id(row) not in self.codes:
-                    left = [c for c in self.tied[id(row)] if c.code not in etf.used]
+                    left = [
+                        c
+                        for c in self.tied[id(row)]
+                        if c.code not in etf.used and _market(c.code) == etf.market
+                    ]
                     self._place(row, _narrow(left, etf) if left else None, etf)
             for row in own:
                 if id(row) not in self.codes:

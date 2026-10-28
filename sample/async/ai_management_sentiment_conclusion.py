@@ -1,6 +1,6 @@
 """ai.management_sentiment_conclusion — 管理层情绪结论（较上一场的变化, 分页, 单页 100, 返回 DataFrame）。
 
-🔴 5 积分/条, 务必带 size; 不传 security 即全部证券。返回的 publishTime 比北京时间早 8 小时。
+🔴 5 积分/条, 务必带 size; 不传 security 即全部证券。返回的 publishTime 是北京时间。
 通过几组示例演示常用参数，可选参数的取值写在注释里；全部参数见 sample/API_PARAMETERS.md。
 异步路径为 gangtise.async_.ai.management_sentiment_conclusion(...)。
 """

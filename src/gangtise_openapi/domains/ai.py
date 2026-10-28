@@ -158,7 +158,8 @@ class AI:
         query_mode 取值: bySecurity=按证券, byIndustry=按行业。
 
         ⚠️ **gts_code 服务端要求非空**（缺省报 `410120 gtsCodeList不能为空`），签名上虽是
-        可选，实际每次调用都要给：bySecurity 传证券代码，byIndustry 传行业码。
+        可选，实际每次调用都要给：bySecurity 传股票代码（如 600519.SH），byIndustry 传申万
+        行业码（如 821035.SWI）。
 
         source 取值 researchReport / conference / announcement / view，支持单值或列表；
         本地校验——接口对错值不报错，会返回不按来源过滤的全部结果并照常计费。
@@ -404,9 +405,9 @@ class AI:
         （"HH:mm" 报 110001）；只写日期的 end_time 含当天整天。数据范围正式账号前溯 1 年、
         试用 6 个月，start_time 早于范围报 110003。
 
-        🔴 **返回的 publishTime 比北京时间早 8 小时**：北京时间 20:30 开的业绩会返回
-        12:30:00。展示时刻、与纪要 / 路演按时间对齐、按日期归档前先加 8 小时——否则北京
-        时间 0–8 点开的会会落到前一天。
+        publishTime（含 management_sentiment_conclusion 的 previousSource.publishTime）是
+        北京时间，与 start_time / end_time 的筛选同一口径：北京时间 20:30 开的业绩会返回
+        20:30:00，start_time="2026-10-23 20:00:00" 取得到这一场。
 
         🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
         单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
@@ -442,8 +443,8 @@ class AI:
         结论文本照常返回、只是不含「较上一次」。
 
         行粒度（一只证券 × 一场会议，按发布时间倒序）、security / start_time / end_time 的
-        写法与数据范围同 management_sentiment_indicator。🔴 publishTime（含
-        previousSource.publishTime）同样**比北京时间早 8 小时**，筛选仍按北京时间。
+        写法与数据范围同 management_sentiment_indicator。publishTime（含
+        previousSource.publishTime）是北京时间，与筛选同一口径。
 
         🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
         单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
@@ -695,7 +696,8 @@ class AsyncAI:
         query_mode 取值: bySecurity=按证券, byIndustry=按行业。
 
         ⚠️ **gts_code 服务端要求非空**（缺省报 `410120 gtsCodeList不能为空`），签名上虽是
-        可选，实际每次调用都要给：bySecurity 传证券代码，byIndustry 传行业码。
+        可选，实际每次调用都要给：bySecurity 传股票代码（如 600519.SH），byIndustry 传申万
+        行业码（如 821035.SWI）。
 
         source 取值 researchReport / conference / announcement / view，支持单值或列表；
         本地校验——接口对错值不报错，会返回不按来源过滤的全部结果并照常计费。
@@ -945,9 +947,9 @@ class AsyncAI:
         （"HH:mm" 报 110001）；只写日期的 end_time 含当天整天。数据范围正式账号前溯 1 年、
         试用 6 个月，start_time 早于范围报 110003。
 
-        🔴 **返回的 publishTime 比北京时间早 8 小时**：北京时间 20:30 开的业绩会返回
-        12:30:00。展示时刻、与纪要 / 路演按时间对齐、按日期归档前先加 8 小时——否则北京
-        时间 0–8 点开的会会落到前一天。
+        publishTime（含 management_sentiment_conclusion 的 previousSource.publishTime）是
+        北京时间，与 start_time / end_time 的筛选同一口径：北京时间 20:30 开的业绩会返回
+        20:30:00，start_time="2026-10-23 20:00:00" 取得到这一场。
 
         🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
         单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，
@@ -983,8 +985,8 @@ class AsyncAI:
         结论文本照常返回、只是不含「较上一次」。
 
         行粒度（一只证券 × 一场会议，按发布时间倒序）、security / start_time / end_time 的
-        写法与数据范围同 management_sentiment_indicator。🔴 publishTime（含
-        previousSource.publishTime）同样**比北京时间早 8 小时**，筛选仍按北京时间。
+        写法与数据范围同 management_sentiment_indicator。publishTime（含
+        previousSource.publishTime）是北京时间，与筛选同一口径。
 
         🔴 计费 **5 积分/条**（按返回条数计），自动翻页（单页 100）。省略 size 时按 total ×
         单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分拒绝（ValidationError，

@@ -404,9 +404,8 @@ def test_all_endpoint_keys_match_ts_source():
 
 def test_row_id_registry_matches_ts_source():
     """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by;
-    v0.48.0: several dotted paths together where no single field identifies a row.
-    The four schedule lists deliberately differ: TS declares ``id``, real responses
-    carry the per-list name."""
+    v0.48.0: several dotted paths together where no single field identifies a row;
+    v0.49.0: the four schedule lists by their per-list id, not ``id``."""
     assert {k: ep.row_id for k, ep in ENDPOINTS.items() if ep.row_id} == {
         "insight.opinion.list": "chiefOpinionId",
         "insight.summary.list": "summaryId",

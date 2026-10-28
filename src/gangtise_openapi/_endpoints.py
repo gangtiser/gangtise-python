@@ -346,8 +346,9 @@ ENDPOINTS: dict[str, EndpointDef] = {
         file_types=(1, 2),
     ),
     # The four schedule lists name their row id per list (roadshowId, siteVisitId,
-    # strategyMeetingId, forumId), not ``id`` as the response description and TS have
-    # it: no real response carries ``id``, and a row without its id is never deduped.
+    # strategyMeetingId, forumId; TS the same since v0.49.0), not ``id`` as the response
+    # description has it: no real response carries ``id``, and a row without its id is
+    # never deduped.
     # Still unverified: every sample was one row, so uniqueness on a page is unproven.
     "insight.roadshow.list": _ep(
         "insight.roadshow.list",

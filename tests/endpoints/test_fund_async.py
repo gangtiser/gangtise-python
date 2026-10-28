@@ -203,3 +203,58 @@ async def test_async_a_5xx_is_not_replayed(seeded_config):
             with pytest.raises(GangtiseError):
                 await AsyncFund(client).nav(security="005827.OF")
     assert route.call_count == 1
+
+
+# ---- etf_pcf_components: componentCode matched by name (TS v0.49.0) ----
+
+_SECTORS = "/application/open-reference/sectors/constituents"
+_REALTIME = "/application/open-quote/quote/realtime"
+_SECTOR_ROWS = {
+    "1000000002": [{"gtsCode": "600941.SH", "gtsName": "中国移动"}],
+    "1000002615": [{"gtsCode": "00941.HK", "gtsName": "中国移动"}],
+    "1000002618": [{"gtsCode": "NVDA.O", "gtsName": "NVDA"}],
+}
+_COMPONENTS = [
+    {"fundCode": "517180.SH", "serialNumber": 1, "componentName": "中国移动", "close": 77.3},
+    {"fundCode": "517180.SH", "serialNumber": 2, "componentName": "中国移动", "close": 101.3},
+    {"fundCode": "517180.SH", "serialNumber": 3, "componentName": "申赎现金", "close": None},
+]
+
+
+def _sector(request: httpx.Request) -> httpx.Response:
+    return _ok(_SECTOR_ROWS[json.loads(request.content)["sectorId"]])
+
+
+@pytest.mark.anyio
+async def test_etf_components_fill_component_code_from_the_name(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_FUNDAMENTAL + "etf-pcf-components").mock(return_value=_ok(_COMPONENTS))
+        sectors = router.post(_SECTORS).mock(side_effect=_sector)
+        router.post("/application/open-reference/securities/search").mock(return_value=_ok([]))
+        router.post(_REALTIME).mock(
+            return_value=_ok(
+                [
+                    {"securityCode": "600941.SH", "preClose": 101.3, "latestPrice": 100.7},
+                    {"securityCode": "00941.HK", "preClose": 77.3, "latestPrice": 78.1},
+                ]
+            )
+        )
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            with pytest.warns(UserWarning, match=r"2 of 3 rows") as caught:
+                df = await AsyncFund(client).etf_pcf_components(security="517180.SH")
+    assert df["componentCode"].tolist()[:2] == ["00941.HK", "600941.SH"]
+    assert df["componentCode"].isna().tolist() == [False, False, True]
+    assert sectors.call_count == 3
+    assert caught[0].filename == __file__
+
+
+@pytest.mark.anyio
+async def test_etf_components_without_component_code_send_one_request(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_FUNDAMENTAL + "etf-pcf-components").mock(return_value=_ok(_COMPONENTS))
+        async with AsyncGangtiseClient(_config=seeded_config) as client:
+            out = await AsyncFund(client).etf_pcf_components(
+                security="517180.SH", component_code=False, raw=True
+            )
+    assert route.call_count == 1
+    assert out == {"list": _COMPONENTS}

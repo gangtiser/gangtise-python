@@ -6,7 +6,9 @@
 Every method is ONE request (none of the eighteen endpoints pages): ``data`` is
 ``{list}`` with no ``total``, past 10000 rows the whole query answers 100006 with no
 partial list, so there is nothing to truncate-flag. All are billed 0.4 credits per
-call and marked ``no-replay`` in the registry.
+call and marked ``no-replay`` in the registry. ``etf_pcf_components`` then sends free
+lookups to fill in ``componentCode`` (``_etf_components``; ``component_code=False``
+skips them).
 
 The enum-valued parameters (``position_type`` / ``industry_standard`` / ``fee_type`` /
 ``asset_level``) and ``field`` are NOT checked locally, exactly like the CLI: the
@@ -23,12 +25,16 @@ import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._errors import ValidationError
+from gangtise_openapi._etf_components import add_component_codes, add_component_codes_async
 from gangtise_openapi.domains._common import (
     _as_list,
     _empty_list_error,
     _request_body,
     _result_to_dataframe,
 )
+
+# Names the method in the warning about the codes add_component_codes filled in.
+_ETF_COMPONENTS = "fund.etf_pcf_components"
 
 
 def _collect(value: str | Sequence[str] | None, *, name: str) -> list[str]:
@@ -302,8 +308,7 @@ class Fund:
         """持有人结构（fund.holder-structure）：持有人户数、户均份额，机构 / 个人 / 员工持有份额
         （**份**）与占比（%）。**只有半年报与年报披露**，季报期没有行。
 
-        - 🔴 ``holderCount`` 是**带千分位逗号的字符串**（如 ``"2,219,140"``），不是数字——数值
-          计算或排序前先去掉逗号再转数字，否则按字符串比较会排错。
+        - ``holderCount`` 为整数（如 ``2219140``）。
         - 占比字段可能为 null。
 
         security: 基金交易代码（后缀大写 .OF / .SH / .SZ），单值或列表。🔴 代码不存在、不带后缀、
@@ -633,24 +638,48 @@ class Fund:
         self,
         *,
         security: str | Sequence[str],
+        component_code: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """ETF 申赎成分清单（fund.etf-pcf-components）：🔴 **只返回最新一份申购赎回清单**，无
         日期参数，查不了历史清单。
 
-        每个成分一行，按 ``serialNumber`` 排序：成分代码 ``componentCode`` 与名称、收盘价、涨跌幅、
-        市值占比（%）、申购数量（股）、``cashSubstituteFlag``（``允许`` / ``必须``，中文）、申购 /
-        赎回现金替代溢价比例（%）、固定替代金额与申购 / 赎回替代金额（元）。🔴 ``componentCode``
-        **不带市场后缀**（如 ``600519``），要接着查行情先补上后缀。
+        每个成分一行，按 ``serialNumber`` 排序：成分代码 ``componentCode``、成分名称
+        ``componentName``、收盘价、涨跌幅、市值占比（%）、申购数量（股）、``cashSubstituteFlag``
+        （``允许`` / ``必须``，中文）、申购 / 赎回现金替代溢价比例（%）、固定替代金额与申购 / 赎回
+        替代金额（元）。
+
+        - 🔴 **接口只返回成分名称，``componentCode`` 是 SDK 按名称匹配补上的**，带市场后缀（如
+          ``600519.SH`` / ``00941.HK`` / ``NVDA.O`` / 国债 ``019848.SH``）。按名称找证券（先查
+          A 股 / 港股 / 美股证券列表，没有再搜索），再用该行的 ``close`` 核对候选证券的最新价或
+          昨收；核对不上的（清单价格滞后于行情、停牌等）改按清单价格所属那天的收盘价核对，A 股
+          与港股各自定日期——A+H 型 ETF 里同名的 A 股与 H 股两行据此分开。价格定不了时（债券、
+          停牌、除权除息当天、行情查询失败），成分都在同一市场的 ETF 取该市场里名称完全一致的
+          那只，同市场多只时取与 ETF 同一交易所的；**A+H 等跨市场 ETF 里这类行为 null**，不按
+          名称猜。
+        - 匹配不到的为 null：现金行（如 ``申赎现金``）、商品（如 ``黄金9999``）、交易所简称与
+          证券名称对不上的（如港股 ``港交所``、``中海油``）。每次匹配发一条 ``UserWarning``，写明
+          匹配了多少行、列出为 null 的行。
+        - 额外请求都免费：A 股 / 港股 / 美股证券列表各 1 次，列表里没有的名称（债券、被截断的
+          简称、现金行等）逐个搜索，另加一两次实时行情；有实时价格核对不上的行时再加一次日 K。
+          ``component_code=False`` 不发这些请求，返回接口原样的行（没有 ``componentCode``）。
+        - ⚠️ 成分的 ``close`` 是清单给出的价格，日期可能早于 ``tradeDate`` 的前一交易日，一天之内
+          还会更新，同一清单里 A 股与港股也可能不同；用价格计算请以 ``quote.day_kline`` /
+          ``quote.realtime`` 为准。
 
         security: ETF 交易代码（后缀大写 .SH / .SZ），单值或列表。🔴 代码不存在、不带后缀、后缀
         小写或传成股票代码都返回空结果、不报错。
 
         宽基 ETF 动辄数百行，多只一起查注意单次 10000 行上限（超出整批报 100006、无部分结果）。
         0.4 积分/次（与行数、只数无关；空结果与报错不扣）；超时 / 5xx / 999999 不自动重发。
-        raw=True 返回原始 data（``{list}``，无 total）。
+        raw=True 返回原始 data（``{list}``，无 total；``componentCode`` 同样已补上）。
         """
-        return self._query("fund.etf-pcf-components", _fund_body(security), raw)
+        result = self._client._call("fund.etf-pcf-components", body=_fund_body(security))
+        if component_code:
+            result = add_component_codes(result, self._client, label=_ETF_COMPONENTS)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
 
     def etf_share_change(
         self,
@@ -886,8 +915,7 @@ class AsyncFund:
         """持有人结构（fund.holder-structure）：持有人户数、户均份额，机构 / 个人 / 员工持有份额
         （**份**）与占比（%）。**只有半年报与年报披露**，季报期没有行。
 
-        - 🔴 ``holderCount`` 是**带千分位逗号的字符串**（如 ``"2,219,140"``），不是数字——数值
-          计算或排序前先去掉逗号再转数字，否则按字符串比较会排错。
+        - ``holderCount`` 为整数（如 ``2219140``）。
         - 占比字段可能为 null。
 
         security: 基金交易代码（后缀大写 .OF / .SH / .SZ），单值或列表。🔴 代码不存在、不带后缀、
@@ -1217,24 +1245,48 @@ class AsyncFund:
         self,
         *,
         security: str | Sequence[str],
+        component_code: bool = True,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
         """ETF 申赎成分清单（fund.etf-pcf-components）：🔴 **只返回最新一份申购赎回清单**，无
         日期参数，查不了历史清单。
 
-        每个成分一行，按 ``serialNumber`` 排序：成分代码 ``componentCode`` 与名称、收盘价、涨跌幅、
-        市值占比（%）、申购数量（股）、``cashSubstituteFlag``（``允许`` / ``必须``，中文）、申购 /
-        赎回现金替代溢价比例（%）、固定替代金额与申购 / 赎回替代金额（元）。🔴 ``componentCode``
-        **不带市场后缀**（如 ``600519``），要接着查行情先补上后缀。
+        每个成分一行，按 ``serialNumber`` 排序：成分代码 ``componentCode``、成分名称
+        ``componentName``、收盘价、涨跌幅、市值占比（%）、申购数量（股）、``cashSubstituteFlag``
+        （``允许`` / ``必须``，中文）、申购 / 赎回现金替代溢价比例（%）、固定替代金额与申购 / 赎回
+        替代金额（元）。
+
+        - 🔴 **接口只返回成分名称，``componentCode`` 是 SDK 按名称匹配补上的**，带市场后缀（如
+          ``600519.SH`` / ``00941.HK`` / ``NVDA.O`` / 国债 ``019848.SH``）。按名称找证券（先查
+          A 股 / 港股 / 美股证券列表，没有再搜索），再用该行的 ``close`` 核对候选证券的最新价或
+          昨收；核对不上的（清单价格滞后于行情、停牌等）改按清单价格所属那天的收盘价核对，A 股
+          与港股各自定日期——A+H 型 ETF 里同名的 A 股与 H 股两行据此分开。价格定不了时（债券、
+          停牌、除权除息当天、行情查询失败），成分都在同一市场的 ETF 取该市场里名称完全一致的
+          那只，同市场多只时取与 ETF 同一交易所的；**A+H 等跨市场 ETF 里这类行为 null**，不按
+          名称猜。
+        - 匹配不到的为 null：现金行（如 ``申赎现金``）、商品（如 ``黄金9999``）、交易所简称与
+          证券名称对不上的（如港股 ``港交所``、``中海油``）。每次匹配发一条 ``UserWarning``，写明
+          匹配了多少行、列出为 null 的行。
+        - 额外请求都免费：A 股 / 港股 / 美股证券列表各 1 次，列表里没有的名称（债券、被截断的
+          简称、现金行等）逐个搜索，另加一两次实时行情；有实时价格核对不上的行时再加一次日 K。
+          ``component_code=False`` 不发这些请求，返回接口原样的行（没有 ``componentCode``）。
+        - ⚠️ 成分的 ``close`` 是清单给出的价格，日期可能早于 ``tradeDate`` 的前一交易日，一天之内
+          还会更新，同一清单里 A 股与港股也可能不同；用价格计算请以 ``quote.day_kline`` /
+          ``quote.realtime`` 为准。
 
         security: ETF 交易代码（后缀大写 .SH / .SZ），单值或列表。🔴 代码不存在、不带后缀、后缀
         小写或传成股票代码都返回空结果、不报错。
 
         宽基 ETF 动辄数百行，多只一起查注意单次 10000 行上限（超出整批报 100006、无部分结果）。
         0.4 积分/次（与行数、只数无关；空结果与报错不扣）；超时 / 5xx / 999999 不自动重发。
-        raw=True 返回原始 data（``{list}``，无 total）。
+        raw=True 返回原始 data（``{list}``，无 total；``componentCode`` 同样已补上）。
         """
-        return await self._query("fund.etf-pcf-components", _fund_body(security), raw)
+        result = await self._client._call("fund.etf-pcf-components", body=_fund_body(security))
+        if component_code:
+            result = await add_component_codes_async(result, self._client, label=_ETF_COMPONENTS)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
 
     async def etf_share_change(
         self,

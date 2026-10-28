@@ -276,3 +276,83 @@ def test_any_sequence_of_codes_is_accepted(seeded_config):
         with GangtiseClient(_config=seeded_config) as client:
             Fund(client).nav(security=UserList(["510300.SH", "510300.SH"]))
     assert _body(route) == {"fundCodeList": ["510300.SH"]}
+
+
+# ---- etf_pcf_components: componentCode matched by name (TS v0.49.0) ----
+
+_SECTORS = "/application/open-reference/sectors/constituents"
+_REALTIME = "/application/open-quote/quote/realtime"
+_SECTOR_ROWS = {
+    "1000000002": [{"gtsCode": "600941.SH", "gtsName": "中国移动"}],
+    "1000002615": [{"gtsCode": "00941.HK", "gtsName": "中国移动"}],
+    "1000002618": [{"gtsCode": "NVDA.O", "gtsName": "NVDA"}],
+}
+# The API's rows: names only, no componentCode.
+_COMPONENTS = [
+    {"fundCode": "517180.SH", "serialNumber": 1, "componentName": "中国移动", "close": 77.3},
+    {"fundCode": "517180.SH", "serialNumber": 2, "componentName": "中国移动", "close": 101.3},
+    {"fundCode": "517180.SH", "serialNumber": 3, "componentName": "申赎现金", "close": None},
+]
+
+
+def _sector(request: httpx.Request) -> httpx.Response:
+    return _ok(_SECTOR_ROWS[json.loads(request.content)["sectorId"]])
+
+
+def _mock_lookups(router: respx.MockRouter) -> dict[str, respx.Route]:
+    return {
+        "sectors": router.post(_SECTORS).mock(side_effect=_sector),
+        "search": router.post("/application/open-reference/securities/search").mock(
+            return_value=_ok([])
+        ),
+        "realtime": router.post(_REALTIME).mock(
+            return_value=_ok(
+                [
+                    {"securityCode": "600941.SH", "preClose": 101.3, "latestPrice": 100.7},
+                    {"securityCode": "00941.HK", "preClose": 77.3, "latestPrice": 78.1},
+                ]
+            )
+        ),
+    }
+
+
+def test_etf_components_fill_component_code_from_the_name(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_FUNDAMENTAL + "etf-pcf-components").mock(return_value=_ok(_COMPONENTS))
+        routes = _mock_lookups(router)
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match=r"componentCode is the SDK's match") as caught:
+                df = Fund(client).etf_pcf_components(security="517180.SH")
+    assert list(df.columns[:3]) == ["fundCode", "serialNumber", "componentCode"]
+    assert df["componentCode"].tolist()[:2] == ["00941.HK", "600941.SH"]
+    assert df["componentCode"].isna().tolist() == [False, False, True]
+    assert routes["sectors"].call_count == 3
+    assert routes["realtime"].call_count == 1
+    assert json.loads(routes["search"].calls.last.request.content) == {
+        "keyword": "申赎现金",
+        "top": 10,
+    }
+    message = str(caught[0].message)
+    assert "2 of 3 rows" in message and "517180.SH 申赎现金" in message
+    assert caught[0].filename == __file__
+
+
+def test_etf_components_raw_carries_the_filled_codes(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_FUNDAMENTAL + "etf-pcf-components").mock(return_value=_ok(_COMPONENTS))
+        _mock_lookups(router)
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match=r"componentCode"):
+                out = Fund(client).etf_pcf_components(security="517180.SH", raw=True)
+    assert [r["componentCode"] for r in out["list"]] == ["00941.HK", "600941.SH", None]
+
+
+def test_etf_components_without_component_code_send_one_request(seeded_config):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_FUNDAMENTAL + "etf-pcf-components").mock(return_value=_ok(_COMPONENTS))
+        with GangtiseClient(_config=seeded_config) as client:
+            out = Fund(client).etf_pcf_components(
+                security="517180.SH", component_code=False, raw=True
+            )
+    assert route.call_count == 1
+    assert out == {"list": _COMPONENTS}

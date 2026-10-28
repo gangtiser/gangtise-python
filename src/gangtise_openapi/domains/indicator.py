@@ -363,7 +363,7 @@ def _flag_dropped(
         f"the server returned no row/column at all for {' and '.join(parts)}; results are "
         "partial. An indicator it merely has no data for still returns a null cell, so "
         "this normally means the code was not recognised — check spelling and market "
-        "suffix (AAPL.O, not AAPL.US).",
+        "suffix (US tickers are .O/.N/.A: AAPL.O, not AAPL.US).",
         stacklevel=3,
     )
 

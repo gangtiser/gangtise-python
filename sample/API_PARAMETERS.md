@@ -1289,10 +1289,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `start_time` | `str` | 是 | - | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
 | `end_time` | `str` | 是 | - | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
-| `query_mode` | `str` | 是 | - | `"bySecurity"` | 线索查询模式，例如 bySecurity。 |
+| `query_mode` | `str` | 是 | - | `"bySecurity"` | 线索查询模式：bySecurity=按证券（gts_code 传股票代码，如 600519.SH），byIndustry=按行业（gts_code 传申万行业码，如 821035.SWI）。 |
 | `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
 | `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
-| `gts_code` | `Any` | 否 | `None` | `["000001.SZ"]` | GTS 证券代码（byIndustry 模式下传行业码）。**服务端要求非空**，缺省报 410120。支持单值或列表。 |
+| `gts_code` | `Any` | 否 | `None` | `["000001.SZ"]` | 股票代码（bySecurity，如 600519.SH）或申万行业码（byIndustry，如 821035.SWI）。**服务端要求非空**，缺省报 410120。支持单值或列表。 |
 | `source` | `Any` | 否 | `None` | `"researchReport"` | 来源：researchReport / conference / announcement / view，支持单值或列表；其他取值本地报错（接口对错值不报错，会返回不按来源过滤的全部结果并照常计费）。请求字段为 source。 |
 | `confirm` | `bool` | 否 | `False` | `False` | 按条计费（5 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1425,7 +1425,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 - 异步示例：`sample/async/ai_management_sentiment_indicator.py`
 - 返回类型：`pd.DataFrame | dict[str, Any]`
 
-管理层在业绩会问答里的三维情绪评分：正面回应程度 `sentimentResponsiveness`、回复乐观度 `sentimentPolarity`、回复确定度 `sentimentConviction`（0–5），有效问答数 `qaCount`，回避 / 风险 / 低确定度占比（百分数，`7.14` 即 7.14%），按问题类型拆分的 `questionCategoryList`。一行 = 一只证券 × 一场会议，按发布时间倒序；`source.sourceId` 传给 `management_sentiment_detail`。🔴 返回的 `publishTime` 比北京时间早 8 小时，按时刻展示或按日期归档前先加 8 小时。
+管理层在业绩会问答里的三维情绪评分：正面回应程度 `sentimentResponsiveness`、回复乐观度 `sentimentPolarity`、回复确定度 `sentimentConviction`（0–5），有效问答数 `qaCount`，回避 / 风险 / 低确定度占比（百分数，`7.14` 即 7.14%），按问题类型拆分的 `questionCategoryList`。一行 = 一只证券 × 一场会议，按发布时间倒序；`source.sourceId` 传给 `management_sentiment_detail`。`publishTime` 是北京时间，与 `start_time` / `end_time` 的筛选同一口径。
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -1444,7 +1444,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 - 异步示例：`sample/async/ai_management_sentiment_conclusion.py`
 - 返回类型：`pd.DataFrame | dict[str, Any]`
 
-每场业绩会的情绪结论文本 `sentimentSummary`、三维信号文本 `sentimentSignal`（不含分数）与较上一场同一事项的问答对照 `qaSentimentContrast`，对比基准见 `previousSource`；没有可比的上一场时 `qaSentimentContrast` 为 `[]`、`previousSource` 为 `null`。行粒度与参数同 `management_sentiment_indicator`；`publishTime`（含 `previousSource.publishTime`）同样比北京时间早 8 小时。
+每场业绩会的情绪结论文本 `sentimentSummary`、三维信号文本 `sentimentSignal`（不含分数）与较上一场同一事项的问答对照 `qaSentimentContrast`，对比基准见 `previousSource`；没有可比的上一场时 `qaSentimentContrast` 为 `[]`、`previousSource` 为 `null`。行粒度与参数同 `management_sentiment_indicator`；`publishTime`（含 `previousSource.publishTime`）是北京时间。
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -2514,7 +2514,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `str \| Sequence[str]` | 是 | - | `"510300.SH"` | ETF 交易代码，后缀大写（.SH / .SZ）；单值或列表（多只请传列表，字符串不拆分），重复值去掉；空值本地报 ValidationError、不发请求。代码不存在、不带后缀、后缀小写或传成股票代码都返回空结果、不报错。 |
-| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（{list}，无 total）；False 时转换为 pandas.DataFrame。 |
+| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出），额外请求都免费（证券列表 3 次、少量搜索、一两次实时行情，必要时一次日 K）。False 不发这些请求，返回接口原样的行。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（{list}，无 total；`componentCode` 同样已补上）；False 时转换为 pandas.DataFrame。 |
 
 ### `fund.etf_share_change`
 

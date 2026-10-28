@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 153 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.48.0 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 153 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.49.0 功能对齐。
 
 - **覆盖面**：观点、研报、公告、纪要与会议、行情 K 线与资金流向、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容与管理层情绪、个人云盘与股票池、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
@@ -12,6 +12,12 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.3 - 2026-10-28
+- 与 CLI **v0.49.0** 对齐，无新增接口。
+- 🔴 **`fund.etf_pcf_components`**：接口只返回成分名称，SDK 按名称匹配、用收盘价核对，补上带市场后缀的 `componentCode`（如 `600519.SH`，A+H 同名两行据此分开）；匹配不到的为 null，并发 `UserWarning` 列出。额外请求都免费，`component_code=False` 关闭。
+- ⚠️ **服务端口径变化**：管理层情绪的 `publishTime` 现为北京时间（按 0.5.2 说明「先加 8 小时」的处理要去掉）；`fund.holder_structure` 的 `holderCount` 现为整数（去千分位逗号的处理要去掉）。
+- 文档：`ai.security_clue_list` 的 `gts_code` 按 `query_mode` 传股票代码或申万行业码；美股后缀 `.A` 写入告警。
 
 ### 0.5.2 - 2026-10-25
 - 与 CLI **v0.48.0** 对齐，新增 4 个接口，共 **153 个**。
@@ -44,11 +50,6 @@
 - `ai.knowledge_batch` 与 A 股 `insight.announcement_list` 的时间按北京时间换算，与运行机器的时区无关。
 - 下载默认不再为了文件名回查列表接口（该回查要发 4 次多半按条计费的请求），改为按需开启 `resolve_title=True`。
 - `quote.minute_kline` 可一次传多只证券；`quote.day_kline` 多只证券超过行数上限时自动拆分；新增 `missingFields` 等完整性标记。
-
-### 0.3.1 - 2026-08-18
-- 与 CLI **v0.35.0–v0.36.0** 对齐。日期参数放宽为三种「年在前」写法并统一规范；「年在后」写法仍在本地拒收。
-- `ai.hot_topic` 全量拉取恢复 `total` 封顶检测（`totalCapped`）。
-- 修正 `indicator.screener` 无日期写法（`indicator_param={"F1": {}}`）的说明。
 
 ## 安装
 

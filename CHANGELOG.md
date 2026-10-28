@@ -5,6 +5,42 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3] - 2026-10-28
+
+与 `gangtise-openapi-cli` **v0.49.0** 功能对齐，无新增接口。
+
+### 变更
+
+- 🔴 **`fund.etf_pcf_components` 补上成分代码**：接口现在只返回成分名称 `componentName`，不再返回
+  `componentCode`。SDK 按名称匹配补上带市场后缀的 `componentCode`（如 `600519.SH` / `00941.HK` /
+  `NVDA.O` / 国债 `019848.SH`），放在 `serialNumber` 之后：
+  - 按名称找证券（先查 A 股 / 港股 / 美股证券列表，没有再搜索），再用该行的 `close` 核对候选证券的最新价
+    或昨收；核对不上的（清单价格滞后于行情、停牌等）改按清单价格所属那天的收盘价核对，A 股与港股各自定
+    日期——A+H 型 ETF 里同名的 A 股与 H 股两行据此分开。
+  - 价格定不了时（债券、停牌、除权除息当天、行情查询失败），成分都在同一市场的 ETF 取该市场里名称完全
+    一致的那只，同市场多只时取与 ETF 同一交易所的；**A+H 等跨市场 ETF 里这类行为 null**，不按名称猜。
+    现金行（如 `申赎现金`）、商品（如 `黄金9999`）与简称对不上的同样为 null。
+  - 每次匹配发一条 `UserWarning`，写明匹配了多少行、列出为 null 的行。
+  - 额外请求都免费：证券列表 3 次，列表里没有的名称（债券、被截断的简称、现金行等）逐个搜索，另加一两次
+    实时行情；有实时价格核对不上的行时再加一次日 K。新参数 `component_code=False` 不发这些请求，返回接口
+    原样的行（没有 `componentCode`）。
+  - ⚠️ 代码现在**带市场后缀**（此前接口返回的是 `600519`）。成分的 `close` 是清单给出的价格，日期可能早于
+    `tradeDate` 的前一交易日、一天之内还会更新，同一清单里 A 股与港股也可能不同；用价格计算请以
+    `quote.day_kline` / `quote.realtime` 为准。
+- **管理层情绪的 `publishTime` 现为北京时间**（服务端已修正）：`ai.management_sentiment_indicator` /
+  `management_sentiment_conclusion` 返回的 `publishTime`（含 `previousSource.publishTime`）与
+  `start_time` / `end_time` 同一口径。⚠️ 按 0.5.2 说明「先加 8 小时」处理过的代码要去掉这一步，否则会多出
+  8 小时。
+- **`fund.holder_structure` 的 `holderCount` 现为整数**（如 `2219140`，服务端变更；此前是带千分位逗号的
+  字符串）。⚠️ 先去掉逗号再转数字的处理要去掉——对整数做字符串替换会报错。
+
+### 文档
+
+- `ai.security_clue_list`：`gts_code` 在 `query_mode="bySecurity"` 下传股票代码（如 `600519.SH`），
+  `byIndustry` 下传申万行业码（如 `821035.SWI`）。
+- `indicator`：返回里缺少某只证券或某个指标时的告警写明美股后缀为 `.O` / `.N` / `.A`（`.A` 为 NYSE
+  American），不是 `.US`。
+
 ## [0.5.2] - 2026-10-25
 
 与 `gangtise-openapi-cli` **v0.48.0** 功能对齐（覆盖 v0.46.0–v0.48.0）。**新增 4 个接口，共 153 个上游接口 /

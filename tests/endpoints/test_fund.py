@@ -225,8 +225,8 @@ def test_local_refusals_send_nothing(seeded_config, call, match):
 
 def test_rows_become_a_dataframe(seeded_config):
     rows = [
-        {"fundCode": "005827.OF", "reportDate": "2026-06-30", "holderCount": "2,219,140"},
-        {"fundCode": "510300.SH", "reportDate": "2026-06-30", "holderCount": "1,000"},
+        {"fundCode": "005827.OF", "reportDate": "2026-06-30", "holderCount": 2219140},
+        {"fundCode": "510300.SH", "reportDate": "2026-06-30", "holderCount": 1000},
     ]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         router.post(_FUNDAMENTAL + "holder-structure").mock(return_value=_ok(rows))
@@ -234,8 +234,8 @@ def test_rows_become_a_dataframe(seeded_config):
             df = Fund(client).holder_structure(security=["005827.OF", "510300.SH"])
     assert isinstance(df, pd.DataFrame)
     assert list(df["fundCode"]) == ["005827.OF", "510300.SH"]
-    # Passed through untouched: the thousands-separated string is the server's shape.
-    assert df.iloc[0]["holderCount"] == "2,219,140"
+    # An integer since 2026-10-27 (before: a thousands-separated string), passed through.
+    assert df["holderCount"].tolist() == [2219140, 1000]
 
 
 def test_empty_result_is_an_empty_dataframe(seeded_config):

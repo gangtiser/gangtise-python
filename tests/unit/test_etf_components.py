@@ -977,3 +977,115 @@ async def test_the_async_table_is_fetched_once_under_concurrent_searches():
     assert [c[1]["keyword"] for c in client.calls if c[0] == "reference.securities-search"] == [
         "比亚迪电"
     ]
+
+
+# ---- beyond the CLI: incomplete lookups, duplicate hits, price ties ----
+
+
+def test_a_failed_lookup_leaves_the_etfs_market_unknown():
+    # 腾讯控股's lookup fails and no quote answers. 贵州茅台 alone points to CN, but the failed
+    # name may trade elsewhere: the 中国移动 (H) row must not be taken for the A share.
+    api = _FailingQuotes({"贵州茅台": [("600519.SH", "贵州茅台")], "中国移动": AH_MOBILE})
+    api._fail_search = "腾讯控股"
+    rows, unresolved = _fill(
+        [
+            row("517180.SH", 1, "贵州茅台", 1349.98),
+            row("517180.SH", 2, "腾讯控股", 386.4),
+            row("517180.SH", 3, "中国移动", 78.1),
+        ],
+        api,
+    )
+    assert codes_of(rows) == [None, None, None]
+    assert len(unresolved) == 3
+
+
+def test_a_name_that_merely_finds_nothing_does_not_hide_the_market():
+    # A cash line finds no listing without any lookup failing: the ETF is still CN.
+    api = _FailingQuotes({"贵州茅台": [("600519.SH", "贵州茅台")], "申赎现金": []})
+    rows, _ = _fill(
+        [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 2, "申赎现金", None)], api
+    )
+    assert codes_of(rows) == ["600519.SH", None]
+
+
+TRI_TWICE = {
+    "TRI": [("TRI.LON", "Trifast")],
+    "TRI.O": [("TRI.O", "汤森路透")],
+    "TRI.N": [("TRI.O", "汤森路透")],
+    "NVDA": [("NVDA.O", "英伟达")],
+}
+TRI_PRICES = {"TRI.O": [122.08, 121], "NVDA.O": [216, 218]}
+
+
+def test_a_listing_two_searches_find_is_one_candidate():
+    rows, _ = _fill(
+        [row("513100.SH", 1, "NVDA", 216), row("513100.SH", 2, "TRI", 122.08)],
+        _Api(TRI_TWICE, TRI_PRICES),
+    )
+    assert codes_of(rows) == ["NVDA.O", "TRI.O"]
+
+
+CMB_TIE = {
+    "贵州茅台": [("600519.SH", "贵州茅台")],
+    "招商银行": [("600036.SH", "招商银行"), ("03968.HK", "招商银行")],
+    "华润啤酒": [("00291.HK", "华润啤酒")],
+}
+# 招商银行's A share (42.5 CNY) and H share (42.5 HKD) both agree with the row.
+CMB_TIE_PRICES = {
+    "600519.SH": [1335, 1349.98],
+    "600036.SH": [42.5, 42.3],
+    "03968.HK": [42.5, 42.6],
+    "00291.HK": [19.48, 19.6],
+}
+
+
+def test_a_price_tie_across_markets_is_settled_by_the_etfs_one_market():
+    rows, _ = _fill(
+        [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)],
+        _Api(CMB_TIE, CMB_TIE_PRICES),
+    )
+    assert codes_of(rows) == ["600519.SH", "600036.SH"]
+
+
+def test_a_price_tie_across_markets_stays_none_in_an_etf_holding_both():
+    rows, _ = _fill(
+        [
+            row("517180.SH", 1, "贵州茅台", 1349.98),
+            row("517180.SH", 2, "华润啤酒", 19.48),
+            row("517180.SH", 3, "招商银行", 42.5),
+        ],
+        _Api(CMB_TIE, CMB_TIE_PRICES),
+    )
+    assert codes_of(rows) == ["600519.SH", "00291.HK", None]
+
+
+@pytest.mark.anyio
+async def test_async_driver_keeps_a_failed_lookups_market_unknown_and_dedupes_hits():
+    api = _FailingQuotes({"贵州茅台": [("600519.SH", "贵州茅台")], "中国移动": AH_MOBILE})
+    api._fail_search = "腾讯控股"
+    fill = await fill_component_codes_async(
+        _Fill(
+            [
+                row("517180.SH", 1, "贵州茅台", 1349.98),
+                row("517180.SH", 2, "腾讯控股", 386.4),
+                row("517180.SH", 3, "中国移动", 78.1),
+            ]
+        ),
+        _AsyncApi(api),
+        concurrency=5,
+    )
+    assert codes_of(fill.result()[0]) == [None, None, None]
+    fill = await fill_component_codes_async(
+        _Fill([row("513100.SH", 1, "NVDA", 216), row("513100.SH", 2, "TRI", 122.08)]),
+        _AsyncApi(_Api(TRI_TWICE, TRI_PRICES)),
+        concurrency=5,
+    )
+    assert codes_of(fill.result()[0]) == ["NVDA.O", "TRI.O"]
+
+
+def test_quotes_go_out_500_codes_a_request_and_daily_closes_1000():
+    names = [f"成分{i}" for i in range(1001)]
+    api = _Api({n: [(f"{600000 + i}.SH", n)] for i, n in enumerate(names)}, {})
+    _fill([row("510300.SH", i, n, 1.0) for i, n in enumerate(names)], api)
+    assert sorted(len(batch) for batch in api.quoted) == [1, 500, 500]
+    assert sorted(len(batch) for batch in api.asked) == [1, 1000]

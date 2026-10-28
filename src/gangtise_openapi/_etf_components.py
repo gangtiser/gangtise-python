@@ -16,6 +16,12 @@ only in an ETF whose components all trade in one market — the ETF's own exchan
 breaking a tie within it; in an ETF holding several markets the row stays null, as
 does anything else still open.
 
+Three departures from the CLI (v0.49.0 gets each wrong): a name whose lookup FAILED
+leaves the ETF's market unknown, where the CLI reads it as "no listing" and may let
+another row stand on its name in the wrong market; a listing several searches find is
+one candidate, not a tie with itself; and a price that agrees with listings in two
+markets waits for the ETF's market instead of settling the row as null at once.
+
 Every extra request is free (securities lists, search, realtime quote, day kline).
 The matching itself lives in :class:`_Fill`; the sync and async drivers only send
 the requests. Nothing here raises: the component list was fetched (and billed)
@@ -172,14 +178,18 @@ def _with_prefixes(found: list[_Candidate], exact: list[_Candidate], key: str) -
     and names that only start with it — the exchange truncates long names ("比亚迪电"),
     and a Hong Kong listing can carry a longer name than the A share ("中国石油" /
     "中国石油股份"). A prefix match needs its price to agree (see :func:`_by_price` /
-    :func:`_by_name`)."""
+    :func:`_by_name`). A listing is one candidate however many searches find it (the
+    ``.O`` and the ``.N`` search can both answer TRI.O): counted twice, it would tie
+    with itself and leave the row null."""
     name = _base(key)
-    prefix = (
-        [c for c in found if c not in exact and _base(c.name).startswith(name)]
-        if len(name) >= 2
-        else []
-    )
-    return exact + [replace(c, prefix=True) for c in prefix]
+    listed: dict[str, _Candidate] = {}
+    for c in exact:
+        listed.setdefault(c.code, c)
+    if len(name) >= 2:
+        for c in found:
+            if c.code not in listed and _base(c.name).startswith(name):
+                listed[c.code] = replace(c, prefix=True)
+    return list(listed.values())
 
 
 def _narrow(candidates: list[_Candidate], etf: _Etf) -> str | None:
@@ -206,11 +216,12 @@ def _by_price(
     prices: _Prices,
     etf: _Etf,
     unchecked: Callable[[_Candidate], bool],
-) -> str | None | _Open:
-    """The listing whose price agrees with the row's close: exact matches first, then
-    prefix matches. ``OPEN`` when none agrees — and when a listing of the tier has no
-    price to check (none, or 0 while suspended) and ``unchecked`` says it could still
-    be the row: a match beside it settles nothing."""
+) -> list[_Candidate] | _Open:
+    """The listings whose price agrees with the row's close: exact matches first, then
+    prefix matches (:meth:`_Fill._settle` picks among them). ``OPEN`` when none
+    agrees — and when a listing of the tier has no price to check (none, or 0 while
+    suspended) and ``unchecked`` says it could still be the row: a match beside it
+    settles nothing."""
     close = _number(row.get("close"))
     if close is None:
         return _Open.OPEN
@@ -220,7 +231,7 @@ def _by_price(
             return _Open.OPEN
         matched = [c for c in tier if any(_agrees(close, p) for p in prices.get(c.code, ()))]
         if matched:
-            return _narrow(matched, etf)
+            return matched
     return _Open.OPEN
 
 
@@ -314,6 +325,11 @@ class _Fill:
         self.names = list(dict.fromkeys(row["componentName"] for row in self.pending))
         self.candidates: dict[str, list[_Candidate]] = {}
         self.codes: dict[int, str | None] = {}
+        # Names whose lookup failed: they may trade in any market.
+        self.failed: set[str] = set()
+        # Rows whose price agrees with listings in more than one market, waiting for
+        # the ETF's market (place_by_name).
+        self.tied: dict[int, list[_Candidate]] = {}
         self.etfs: list[tuple[list[_Row], _Etf]] = []
         self.lagging: list[tuple[list[_Row], _Etf]] = []
 
@@ -324,6 +340,23 @@ class _Fill:
         self.codes[id(row)] = code
         if code:
             etf.used.add(code)
+
+    def _settle(self, row: _Row, matched: list[_Candidate], etf: _Etf) -> None:
+        """The listings the row's price agrees with. A tie across markets (an A share
+        and an H share at the same number) waits for :meth:`place_by_name`, where the
+        ETF's market can break it; any other outcome is final."""
+        code = _narrow(matched, etf)
+        if code is None and len({_market(c.code) for c in matched}) > 1:
+            self.tied[id(row)] = matched
+        else:
+            self._place(row, code, etf)
+
+    def take_candidates(self, found: list[list[_Candidate] | None]) -> None:
+        """Each name's candidates, in ``names`` order; ``None`` for a failed lookup."""
+        for name, listed in zip(self.names, found, strict=True):
+            self.candidates[name] = listed or []
+            if listed is None:
+                self.failed.add(name)
 
     def quotable(self) -> list[str]:
         return list(
@@ -342,15 +375,16 @@ class _Fill:
             etf = _Etf(exchange=_exchange(str(fund_code)))
             self.etfs.append((own, etf))
             for row in own:
-                code = _by_price(row, self._of(row), prices, etf, _is_quotable)
-                if code is not _Open.OPEN:
-                    self._place(row, code, etf)
+                matched = _by_price(row, self._of(row), prices, etf, _is_quotable)
+                if matched is not _Open.OPEN:
+                    self._settle(row, matched, etf)
 
     def _open(self, own: list[_Row]) -> list[_Row]:
         return [
             row
             for row in own
             if id(row) not in self.codes
+            and id(row) not in self.tied
             and _number(row.get("close")) is not None
             and any(_is_quotable(c) for c in self._of(row))
         ]
@@ -386,23 +420,30 @@ class _Fill:
                     recent = series is None or any(_agrees(close, p) for _day, p in series)
                     return _is_quotable(c) and recent
 
-                code = _by_price(row, self._of(row), on_date, etf, unchecked)
-                if code is not _Open.OPEN:
-                    self._place(row, code, etf)
+                matched = _by_price(row, self._of(row), on_date, etf, unchecked)
+                if matched is not _Open.OPEN:
+                    self._settle(row, matched, etf)
 
     def place_by_name(self) -> None:
         for own, etf in self.etfs:
             # The markets this ETF holds, as far as anything shows: listings its prices
             # confirmed, and names whose exact listings all trade in one market. Only
             # when all of it points to one market is that market trusted for what the
-            # prices could not settle.
+            # prices could not settle — and not when a name's lookup failed: that
+            # component may trade anywhere, so the markets are unknown.
             markets = {_market(code) for code in etf.used}
             for row in own:
                 held = {_market(c.code) for c in self._of(row) if not c.prefix}
                 if len(held) == 1:
                     markets |= held
-            if len(markets) == 1:
+            if len(markets) == 1 and not any(row["componentName"] in self.failed for row in own):
                 etf.market = next(iter(markets))
+            # Price ties first: a listing a row's price agrees with goes to it before a
+            # row of the same name claims it by name alone.
+            for row in own:
+                if id(row) in self.tied and id(row) not in self.codes:
+                    left = [c for c in self.tied[id(row)] if c.code not in etf.used]
+                    self._place(row, _narrow(left, etf) if left else None, etf)
             for row in own:
                 if id(row) not in self.codes:
                     self._place(row, _by_name(self._of(row), etf), etf)
@@ -667,7 +708,8 @@ def _splitting(codes: list[str], fetch: Callable[[list[str]], dict[str, _T]]) ->
         return {**first, **_splitting(codes[half:], fetch)}
 
 
-def _candidates_for(name: str, lookup: CodeLookup) -> list[_Candidate]:
+def _candidates_for(name: str, lookup: CodeLookup) -> list[_Candidate] | None:
+    """``None`` when a lookup failed (not the same as finding nothing)."""
     try:
         key = _squash(name)
         found = _to_candidates(lookup.search(key))
@@ -677,13 +719,11 @@ def _candidates_for(name: str, lookup: CodeLookup) -> list[_Candidate]:
                 exact += _by_ticker(lookup.search(f"{key}.{suffix}"), key)
         return _with_prefixes(found, exact, key)
     except Exception:
-        # A failed lookup leaves that name without candidates.
-        return []
+        return None
 
 
 def fill_component_codes(fill: _Fill, lookup: CodeLookup, *, concurrency: int) -> _Fill:
-    found = _run(fill.names, lambda name: _candidates_for(name, lookup), concurrency)
-    fill.candidates = dict(zip(fill.names, found, strict=True))
+    fill.take_candidates(_run(fill.names, lambda name: _candidates_for(name, lookup), concurrency))
     fill.place_by_price(
         _merged(
             _run(
@@ -810,7 +850,8 @@ async def _splitting_async(
         return {**first, **await _splitting_async(codes[half:], fetch)}
 
 
-async def _candidates_for_async(name: str, lookup: AsyncCodeLookup) -> list[_Candidate]:
+async def _candidates_for_async(name: str, lookup: AsyncCodeLookup) -> list[_Candidate] | None:
+    """Async mirror of :func:`_candidates_for`."""
     try:
         key = _squash(name)
         found = _to_candidates(await lookup.search(key))
@@ -820,7 +861,7 @@ async def _candidates_for_async(name: str, lookup: AsyncCodeLookup) -> list[_Can
                 exact += _by_ticker(await lookup.search(f"{key}.{suffix}"), key)
         return _with_prefixes(found, exact, key)
     except Exception:
-        return []
+        return None
 
 
 async def fill_component_codes_async(
@@ -828,14 +869,13 @@ async def fill_component_codes_async(
 ) -> _Fill:
     """Async mirror of :func:`fill_component_codes`."""
 
-    async def candidates(name: str) -> list[_Candidate]:
+    async def candidates(name: str) -> list[_Candidate] | None:
         return await _candidates_for_async(name, lookup)
 
     async def quoted(batch: list[str]) -> _Prices:
         return await _splitting_async(batch, lookup.quotes)
 
-    found = await _run_async(fill.names, candidates, concurrency)
-    fill.candidates = dict(zip(fill.names, found, strict=True))
+    fill.take_candidates(await _run_async(fill.names, candidates, concurrency))
     batches = _in_batches(fill.quotable(), _QUOTE_BATCH)
     fill.place_by_price(_merged(await _run_async(batches, quoted, concurrency)))
     wanted = fill.lagging_codes()

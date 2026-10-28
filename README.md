@@ -17,7 +17,7 @@
 - 与 CLI **v0.49.0** 对齐，无新增接口。
 - 🔴 **`fund.etf_pcf_components`**：接口只返回成分名称，SDK 按名称匹配、用收盘价核对，补上带市场后缀的 `componentCode`（如 `600519.SH`，A+H 同名两行据此分开）；匹配不到的为 null，并发 `UserWarning` 列出。额外请求都免费，`component_code=False` 关闭。
 - ⚠️ **服务端口径变化**：管理层情绪的 `publishTime` 现为北京时间（按 0.5.2 说明「先加 8 小时」的处理要去掉）；`fund.holder_structure` 的 `holderCount` 现为整数（去千分位逗号的处理要去掉）。
-- 文档：`ai.security_clue_list` 的 `gts_code` 按 `query_mode` 传股票代码或申万行业码；美股后缀 `.A` 写入告警。
+- 文档：`ai.security_clue_list` 的 `gts_code` 按 `query_mode` 传股票代码或申万行业码。
 
 ### 0.5.2 - 2026-10-25
 - 与 CLI **v0.48.0** 对齐，新增 4 个接口，共 **153 个**。

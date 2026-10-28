@@ -979,7 +979,7 @@ async def test_the_async_table_is_fetched_once_under_concurrent_searches():
     ]
 
 
-# ---- beyond the CLI: incomplete lookups, duplicate hits, price ties ----
+# ---- paths the CLI's cases leave out: failed lookups, duplicate hits, price ties ----
 
 
 def test_a_failed_lookup_leaves_the_etfs_market_unknown():

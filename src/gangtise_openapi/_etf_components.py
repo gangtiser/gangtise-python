@@ -16,11 +16,11 @@ only in an ETF whose components all trade in one market — the ETF's own exchan
 breaking a tie within it; in an ETF holding several markets the row stays null, as
 does anything else still open.
 
-Three departures from the CLI (v0.49.0 gets each wrong): a name whose lookup FAILED
-leaves the ETF's market unknown, where the CLI reads it as "no listing" and may let
-another row stand on its name in the wrong market; a listing several searches find is
+Three deliberate differences from the CLI (v0.49.0): a name whose lookup failed
+leaves the ETF's market unknown (the CLI treats it as having no listing, so another
+row may be matched by name in the wrong market); a listing several searches find is
 one candidate, not a tie with itself; and a price that agrees with listings in two
-markets waits for the ETF's market instead of settling the row as null at once.
+markets is settled once the ETF's market is known, rather than left null at once.
 
 Every extra request is free (securities lists, search, realtime quote, day kline).
 The matching itself lives in :class:`_Fill`; the sync and async drivers only send

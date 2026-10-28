@@ -2514,7 +2514,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `str \| Sequence[str]` | 是 | - | `"510300.SH"` | ETF 交易代码，后缀大写（.SH / .SZ）；单值或列表（多只请传列表，字符串不拆分），重复值去掉；空值本地报 ValidationError、不发请求。代码不存在、不带后缀、后缀小写或传成股票代码都返回空结果、不报错。 |
-| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出）。额外请求都免费：证券列表 3 次，表里没有的名称逐个搜索，实时行情每 500 个候选一次，需要时日 K 每 1000 个候选一次，某批含无效代码（`120001`）时对半拆开重查。False 不发这些请求，返回接口原样的行。 |
+| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出）。额外请求都免费：证券列表 3 次，表里没有的名称逐个搜索，实时行情每 500 个候选一次、需要时日 K 每 1000 个候选一次（某批含无效代码时拆开重查）。False 不发这些请求，返回接口原样的行。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（{list}，无 total；`componentCode` 同样已补上）；False 时转换为 pandas.DataFrame。 |
 
 ### `fund.etf_share_change`

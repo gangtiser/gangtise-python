@@ -425,21 +425,7 @@ async def test_async_indicator_param_referencing_an_unbound_code_is_refused(tmp_
             )
 
 
-# ───────────── time-series calendar auto-selection (TS v0.40.0 ⑬-⑮) ─────────────
-
-_PARAMS = {
-    "qte_close": ["tradeDate", "adjustType"],
-    "qte_vol": ["tradeDate"],
-    "is_op_rev": ["reportDate", "reportType"],
-}
-
-
-def _search_by_keyword(request: httpx.Request) -> httpx.Response:
-    keyword = json.loads(request.read())["keyword"]
-    rows = [
-        {"indicatorCode": keyword, "parameterList": [{"paramKey": k} for k in _PARAMS[keyword]]}
-    ]
-    return _ede_response(rows)
+# ───────────── time-series date axis (TS v0.50.0) ─────────────
 
 
 def _series_matrix(*codes: str) -> dict:
@@ -452,29 +438,9 @@ def _series_matrix(*codes: str) -> dict:
 
 
 @pytest.mark.anyio
-async def test_async_time_series_sends_td_when_every_indicator_takes_trade_date(tmp_path):
-    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        search = router.post(_SEARCH).mock(side_effect=_search_by_keyword)
-        series = router.post(_TIME).mock(
-            return_value=_ede_response(_series_matrix("qte_close", "qte_vol"))
-        )
-        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            await AsyncIndicator(client).time_series(
-                start_date="2026-05-18",
-                end_date="2026-05-18",
-                indicator=["qte_close", "qte_vol"],
-                security="600519.SH",
-            )
-        body = json.loads(series.calls.last.request.read())
-        probed = sorted(json.loads(c.request.read())["keyword"] for c in search.calls)
-    assert body["calendarType"] == "TD"
-    assert probed == ["qte_close", "qte_vol"]
-
-
-@pytest.mark.anyio
-async def test_async_time_series_leaves_calendar_off_for_a_report_period(tmp_path):
-    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(_SEARCH).mock(side_effect=_search_by_keyword)
+async def test_async_time_series_leaves_the_calendar_to_the_server_without_a_search(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        search = router.post(_SEARCH).mock(return_value=_ede_response([]))
         series = router.post(_TIME).mock(
             return_value=_ede_response(_series_matrix("qte_close", "is_op_rev"))
         )
@@ -488,6 +454,7 @@ async def test_async_time_series_leaves_calendar_off_for_a_report_period(tmp_pat
             )
         body = json.loads(series.calls.last.request.read())
     assert "calendarType" not in body
+    assert not search.called
     # The param date was normalized on the way (TS v0.44.0 ⑧).
     assert body["indicatorParamList"] == [
         {
@@ -498,9 +465,8 @@ async def test_async_time_series_leaves_calendar_off_for_a_report_period(tmp_pat
 
 
 @pytest.mark.anyio
-async def test_async_time_series_explicit_calendar_type_costs_no_probe(tmp_path):
-    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
-        search = router.post(_SEARCH).mock(side_effect=_search_by_keyword)
+async def test_async_time_series_explicit_calendar_type_is_sent_as_given(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         series = router.post(_TIME).mock(return_value=_ede_response(_series_matrix("qte_close")))
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             await AsyncIndicator(client).time_series(
@@ -512,24 +478,21 @@ async def test_async_time_series_explicit_calendar_type_costs_no_probe(tmp_path)
             )
         body = json.loads(series.calls.last.request.read())
     assert body["calendarType"] == "ND"
-    assert not search.called
 
 
 @pytest.mark.anyio
-async def test_async_time_series_probe_failure_falls_back_to_the_server_default(tmp_path):
-    failed = {"code": "000000", "status": True, "data": {"code": "100003", "msg": "x"}}
+async def test_async_time_series_empty_answer_points_at_the_date_axis(tmp_path):
+    empty = {"dates": [], "indicatorList": [], "securityCodeList": [], "values": []}
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(_SEARCH).mock(return_value=httpx.Response(200, json=failed))
-        series = router.post(_TIME).mock(return_value=_ede_response(_series_matrix("qte_close")))
+        router.post(_TIME).mock(return_value=_ede_response(empty))
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            await AsyncIndicator(client).time_series(
-                start_date="2026-05-18",
-                end_date="2026-05-18",
-                indicator="qte_close",
-                security="600519.SH",
-            )
-        body = json.loads(series.calls.last.request.read())
-    assert "calendarType" not in body
+            with pytest.warns(UserWarning, match="no date of its calendar"):
+                await AsyncIndicator(client).time_series(
+                    start_date="2026-05-01",
+                    end_date="2026-05-31",
+                    indicator="is_op_rev",
+                    security="600519.SH",
+                )
 
 
 # ───────────── indicator_param date values (TS v0.44.0 ⑧) ─────────────

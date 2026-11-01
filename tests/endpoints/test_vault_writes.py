@@ -139,6 +139,121 @@ def test_stock_pool_delete_failures_key_on_pool_id(seeded_config):
     assert result["partial"] is True
 
 
+# ─────────────────── stock-pool spaces and stock notes (CLI v0.50.0) ───────────────────
+
+
+def test_stock_pool_queries_send_space_type_only_when_given(seeded_config):
+    with respx.mock(base_url=_BASE, assert_all_called=True) as router:
+        pools = router.post(f"{_POOL}/getPoolList").mock(return_value=_ok({"poolList": []}))
+        stocks = router.post(f"{_POOL}/getStockList").mock(return_value=_ok([]))
+        with GangtiseClient(_config=seeded_config) as client:
+            vault = Vault(client)
+            vault.stock_pool_list()
+            assert _body(pools) == {}
+            vault.stock_pool_list(space_type=2)
+            assert _body(pools) == {"spaceType": 2}
+            vault.stock_pool_stocks()
+            assert _body(stocks) == {"poolIdList": ["all"]}
+            vault.stock_pool_stocks(pool_id="p9", space_type=2)
+            assert _body(stocks) == {"spaceType": 2, "poolIdList": ["p9"]}
+
+
+@pytest.mark.parametrize("space_type", [0, 3, "2", True])
+def test_stock_pool_space_type_is_refused_locally(seeded_config, space_type):
+    with respx.mock(base_url=_BASE, assert_all_called=False) as router:
+        route = router.post(url__regex=r".*")
+        with GangtiseClient(_config=seeded_config) as client:
+            with pytest.raises(ValidationError, match="space_type"):
+                Vault(client).stock_pool_list(space_type=space_type)
+            with pytest.raises(ValidationError, match="space_type"):
+                Vault(client).stock_pool_stocks(space_type=space_type)
+    assert not route.called
+
+
+def test_stock_note_list_filters_and_pages(seeded_config):
+    page = {"total": 1, "list": [{"stockNoteId": "n1", "securityList": ["600519.SH"]}]}
+    with respx.mock(base_url=_BASE, assert_all_called=True) as router:
+        route = router.post(f"{_POOL}/getNoteList").mock(return_value=_ok(page))
+        with GangtiseClient(_config=seeded_config) as client:
+            vault = Vault(client)
+            df = vault.stock_note_list()
+            assert _body(route) == {"securityList": ["all"], "from": 0, "size": 50}
+            vault.stock_note_list(security=["600519.SH", "00700.HK"], size=10)
+            assert _body(route) == {
+                "securityList": ["600519.SH", "00700.HK"],
+                "from": 0,
+                "size": 10,
+            }
+            vault.stock_note_list(note_id="n1")
+            assert _body(route) == {"stockNoteIdList": ["n1"], "from": 0, "size": 50}
+    assert df.iloc[0]["stockNoteId"] == "n1"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"security": "600519.SH", "note_id": "n1"}, "not both"),
+        ({"security": []}, "security is an empty list"),
+        ({"note_id": " "}, "note_id is an empty list"),
+    ],
+)
+def test_stock_note_list_refuses_both_filters_or_an_empty_one(seeded_config, kwargs, match):
+    with respx.mock(base_url=_BASE, assert_all_called=False) as router:
+        route = router.post(f"{_POOL}/getNoteList")
+        with GangtiseClient(_config=seeded_config) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match=match):
+                Vault(client).stock_note_list(**kwargs)
+    assert not route.called
+
+
+def test_stock_note_add_and_update_bodies(seeded_config):
+    with respx.mock(base_url=_BASE, assert_all_called=True) as router:
+        add = router.post(f"{_POOL}/addNote").mock(
+            return_value=_ok({"stockNoteId": "n1", "securityList": ["00700.HK", "600519.SH"]})
+        )
+        update = router.post(f"{_POOL}/updateNote").mock(return_value=_ok({}))
+        with GangtiseClient(_config=seeded_config) as client:
+            added = Vault(client).stock_note_add(
+                security=["600519.SH", "00700.HK"], content="第一行\n第二行"
+            )
+            updated = Vault(client).stock_note_update(note_id="n1", content="改写")
+    assert _body(add) == {"securityList": ["600519.SH", "00700.HK"], "content": "第一行\n第二行"}
+    assert added["stockNoteId"] == "n1"
+    assert _body(update) == {"stockNoteId": "n1", "content": "改写"}
+    assert updated == {}
+
+
+def test_stock_note_add_is_not_replayed_but_update_is(seeded_config):
+    # No idempotency key: a replayed add whose first attempt landed is a second note.
+    with respx.mock(base_url=_BASE, assert_all_called=True) as router:
+        add = router.post(f"{_POOL}/addNote").mock(return_value=httpx.Response(503))
+        update = router.post(f"{_POOL}/updateNote").mock(side_effect=[httpx.Response(503), _ok({})])
+        with GangtiseClient(_config=seeded_config) as client:
+            with pytest.raises(ApiError):
+                Vault(client).stock_note_add(security="600519.SH", content="x")
+            Vault(client).stock_note_update(note_id="n1", content="x")
+    assert add.call_count == 1
+    assert update.call_count == 2
+
+
+def test_stock_note_delete_needs_confirm_and_flags_failures_by_note_id(seeded_config):
+    data = {"successList": ["n1"], "failList": [{"stockNoteId": "n2", "failReason": "系统繁忙"}]}
+    with respx.mock(base_url=_BASE, assert_all_called=False) as router:
+        route = router.post(f"{_POOL}/deleteNote").mock(return_value=_ok(data))
+        with GangtiseClient(_config=seeded_config) as client:
+            with pytest.raises(ValidationError, match="confirm=True"):
+                Vault(client).stock_note_delete(note_id="n1")
+            with pytest.raises(ValidationError, match="confirm=True"):
+                client._call("vault.stock-note.delete", body={"stockNoteIdList": ["n1"]})
+            assert route.call_count == 0
+            with pytest.raises(ValidationError, match="note_id is an empty list"):
+                Vault(client).stock_note_delete(note_id=[], confirm=True)
+            with pytest.warns(UserWarning, match="n2（系统繁忙）"):
+                result = Vault(client).stock_note_delete(note_id=["n1", "n2"], confirm=True)
+    assert _body(route) == {"stockNoteIdList": ["n1", "n2"]}
+    assert result["partial"] is True
+
+
 # ─────────────────────────────── drive management ───────────────────────────────
 
 

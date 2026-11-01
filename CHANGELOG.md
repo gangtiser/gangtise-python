@@ -5,6 +5,57 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.4] - 2026-11-02
+
+与 `gangtise-openapi-cli` **v0.50.0** 功能对齐。**新增 5 个接口，共 158 个上游接口 / 端点注册表 160 条**（此前 153 / 155）。
+
+### 新增
+
+- **个股投资笔记**（全部免费，只操作当前账号本人写的笔记）。一条笔记关联 1~50 只证券，同一只证券可以有多条笔记；
+  笔记与自选关注相互独立，删股票池不影响笔记。
+  - `vault.stock_note_list`：不传筛选即本人全部笔记；`security`（笔记关联的证券含其中任一只即命中）或 `note_id`
+    二选一，同传在本地报 `ValidationError`。自动翻页，按创建时间倒序；返回每条笔记完整的关联证券、正文与创建 /
+    修改时间（北京时间）。代码写错、不存在或类型不支持时整次报 `120001`，不会当成「没有笔记」返回空。
+  - `vault.stock_note_add(security=..., content=...)`：关联证券建好后不能改；正文为纯文本，最长 10000 个字符。
+    服务端没有防重机制，**超时或 5xx 不自动重发**，重跑前先用 `stock_note_list` 确认是否已写入。
+  - `vault.stock_note_update(note_id=..., content=...)`：整体替换正文；不存在或不属于本人报 `130002`。
+  - `vault.stock_note_delete(note_id=..., confirm=True)`：不可恢复，必须 `confirm=True`。部分失败时同股票池写操作：
+    标 `partial` 并发 `UserWarning`，失败项在 `failList`。
+- **`quote.sector_fund_flow` 板块日资金流向**（免费）：`sector` 传板块 ID（`reference.sector_search` 查），每个值是
+  该板块当日成分股的加总、只计沪深京上市公司；返回小 / 中 / 大 / 特大单、主力与全单的流入流出，没有占比字段。
+  `limit` 默认 6000、最大 10000，撞满标 `partial`。查询太重报 `100006`：缩短日期区间、减少板块或字段，调小
+  `limit` 无效。`field` 只给 `sectorId` / `tradeDate` 时接口返回 0 行、不报错，SDK 发 `UserWarning` 提示至少带一个
+  资金字段。
+- **`vault.stock_pool_list` / `stock_pool_stocks` 新增 `space_type`**：`1` 个人股票池（不传即此项）、`2` 所属租户的
+  股票池（无租户股票池查询权限时报 `999004`）。查明细时 `pool_id` 要取自同一 `space_type` 的列表——另一种空间的 ID
+  不会被匹配：与有效 ID 一起传时被静默忽略，全部不匹配时报 `999004`。增删改仍只操作个人股票池。
+- **路演 / 调研 / 策略会 / 论坛列表新增 `publish_start_time` / `publish_end_time`**：按收录时间（返回字段
+  `publishTime`）筛选，与按举办时间筛的 `start_time` / `end_time` 同时生效；只写日期的结束时间覆盖当天整天。
+
+### 变更
+
+- **`indicator.time_series` 不传 `calendar_type` 时不再先调 `indicator.search`**：0.5.3 会先按各指标的
+  parameterList 判断，全部为交易日类时发 `calendarType=TD`，其余情况不发；现在一律不发，由服务端选日期轴。纯交易日类
+  序列的结果不变，也省掉了此前每个不同指标各一次的（免费的）搜索请求；传了 `calendar_type` 时照旧原样发送。
+- 时序返回空结果、且日期轴不是 `ND` 时，`UserWarning` 先提示区间里可能没有该日期轴的日期（放宽区间或传
+  `calendar_type="ND"`），再提示核对代码。`calendar_type` 补上取值说明 `RD`（报告期）；时序输出按日期倒序（最新在前，
+  此前即如此）。
+- ⚠️ **服务端口径变化（与 SDK 版本无关，0.5.3 同样受影响）**：不传 `calendarType` 时，服务端不再一律按自然日，改为按
+  指标定日期轴——行情类给交易日、报告期类给报告期、两类混查给两者日期的并集。报告期类与混查的请求 0.5.3 本来就不发
+  `calendarType`，结果的变化来自服务端：
+  - 报告期类指标不再返回大量全 null 的自然日行；区间里没有报告期末（如只查 5 月）时返回**空结果**，此前是逐日的 null 行。
+  - 一致预期类指标（`frcst_*`）走交易日，节假日也会变的预测值不在其中；要逐日序列请显式传 `calendar_type="ND"`。
+- **`fund.etf_pcf_components` 补码在跨市场情形下更稳妥**：
+  - 同名证券在两个市场都有（A / H 股，或港股名称更长的同一公司）时，实时价对上的一方要另一市场那只的近期收盘价都
+    对不上才采用；否则改按清单价格所属那天的收盘价核对。
+  - 没补上代码的行里有一行可能在两个市场时——含价格同时对得上 A 股与 H 股、或实时价对上而另一市场那只排除不了的行——
+    不再按其余行推断 ETF 的市场，这类行为 null。⚠️ 0.5.3 会把价格同时对得上两个市场的行按其余行显示的市场补上；
+    现在要另一市场那只的近期收盘价对不上（或已被别的行占用）才补。
+  - 含 A / H 同名成分的 ETF 每次都会查日 K（免费）；0.5.3 只在有行与实时价对不上时才查。
+- 指标报错提示适配服务端参数报错的新写法（`is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空`）：
+  报告期类指标的提示恢复为改用 `reportDate`；旧写法照常识别。
+- 报错提示：`100006` 补上 `quote.sector_fund_flow` 的处理方法；`130002` 写明笔记 ID 用 `vault.stock_note_list` 核对。
+
 ## [0.5.3] - 2026-10-28
 
 与 `gangtise-openapi-cli` **v0.49.0** 功能对齐，无新增接口。
@@ -374,8 +425,7 @@
 
 ### 文档
 
-- `indicator.screener` 对无日期指标的豁免写法（`indicator_param={"F1": {}}` 或 `{"F1": {"tradeDate": None}}`，以**变量**为键）自 0.3.0 起就可用，但一处内部 docstring 称该接口不存在这种写法——现已与代码对齐。`parameterList` 未声明 `tradeDate` 的指标（`pty_*` / `scr_*` 静态属性系列、`div_cash_paid_ratio`、`div_cash_yr`、`pty_shr_reg`）既可通过 `cross_section` 访问，也可通过选股器访问。CLI 在 v0.35.0（截面查询上的 `--indicator-param "<code>:"`）和 v0.36.0（选股器上的 `--indicator-param "<var>:"`，同样以变量为键）中加入了相同能力；两边现已对齐。
-- `_errors.py` 和 `domains/indicator.py` 中对上游行为的过时引用（这些行为在 CLI v0.35.0 / v0.36.0 中已变更）已更正。
+- `indicator.screener` 对无日期指标的豁免写法（`indicator_param={"F1": {}}` 或 `{"F1": {"tradeDate": None}}`，以**变量**为键）自 0.3.0 起就可用，方法 docstring 此前误称不支持，现已更正。`parameterList` 未声明 `tradeDate` 的指标（`pty_*` / `scr_*` 静态属性系列、`div_cash_paid_ratio`、`div_cash_yr`、`pty_shr_reg`）既可通过 `cross_section` 访问，也可通过选股器访问。CLI 在 v0.35.0（截面查询上的 `--indicator-param "<code>:"`）和 v0.36.0（选股器上的 `--indicator-param "<var>:"`，同样以变量为键）中加入了相同能力；两边现已对齐。
 
 ## [0.3.0] - 2026-08-15
 
@@ -418,7 +468,7 @@
 ### 变更（破坏性）
 - **`indicator.cross_section` / `time_series` 必须传 `indicator` 和 `security`。** 两者名义上可选，但不传会在一次往返之后得到 `100001`。
 - **列式行的长度与 `fieldList` 不一致时，现在抛异常。** 以前会补齐（偏短）或截断（偏长），导致值被贴到错误的字段上：`quote.realtime` 传 `field=["securityCode","close","turnoverRate"]`（realtime 没有 `close`）时返回 2 个值，把换手率 28.5573 放到了 `close` 下——读起来像茅台收盘价 28.56，而真实价格是 1297.41。没有报错、数字看似合理，却是完全不同的指标。适用于 `normalize_rows`、行情路径和 `alternative.edb_data`。
-- **`search_type` / `rank_type` 白名单限定为 1/2，`file_type` 限定为所属接口的取值。** 服务端把越界的枚举值当作未知字段处理：丢掉该条件，以 HTTP 200 返回未经筛选的结果集。最坏的情况会连 `keyword` 一起失效：`search_type=99` 时，`summary_list(keyword=…)` 不再返回该关键字的结果，而是返回整个库——**行数多出三个数量级**，且是 HTTP 200，自动化流水线几乎不可能察觉。`research_list` 行为相同。该校验挂在 `_request_body` 上——所有方法本就必经的那个汇合点——因此也覆盖以后新增的方法。
+- **`search_type` / `rank_type` 白名单限定为 1/2，`file_type` 限定为所属接口的取值。** 服务端把越界的枚举值当作未知字段处理：丢掉该条件，以 HTTP 200 返回未经筛选的结果集。最坏的情况会连 `keyword` 一起失效：`search_type=99` 时，`summary_list(keyword=…)` 不再返回该关键字的结果，而是返回整个库——**行数多出三个数量级**，且是 HTTP 200，自动化流水线几乎不可能察觉。`research_list` 行为相同。
 - **`indicator.time_series` 遇到无法归属的响应时直接失败**：同时包含多只证券和多个指标的响应（该接口并不支持这种形状的请求）会悄悄丢掉其中一个维度的标识，而请求与响应的比对也看不出差异，没有别的机制能报出来。
 - **矩阵的标识轴不再做强制转换。** `securityCodeList` 或 `dates` 中的 `None` 以前会变成字面标签 `"null"`，作为一个看似完全合理的标识交给调用方；`indicatorList` 中没有 `code` 的条目会塌缩成 `col0`。两者现在都抛异常——伪造的标识比缺失的数据更危险。
 - **矩阵形状在两个维度上都做检查。** 行数和每行的单元格数必须与轴长度严格一致；服务端会用 `null` 补齐而不是截断，所以参差不齐的行意味着结构变化，而非数据缺失。
@@ -430,8 +480,8 @@
 - **`securityNameList` 异常时丢弃名称，而不是给行贴错标签。** 名称按位置对应，所以对两只代码给出 `["泡泡玛特"]` 时，会把茅台那一行标成泡泡玛特。现在长度不匹配时丢弃全部名称、回退为证券代码，并发出告警——这与其他护栏刻意不对称，因为那些护栏保护的是数值，必须直接报错。
 - **板块 ID 不再丢失证券轴。** 单个 `sectorId` 会在服务端展开，所以请求里的数量说明不了各列属于哪个轴；板块请求现在一律取证券轴。
 - **报告服务端无法识别的代码。** 自 2026-08-07 起，真正的覆盖缺口会以 `null` 单元格返回、行列保持完整，因此轴上消失的项意味着代码拼错或市场后缀错误（`AAPL.US` 会消失，`AAPL.O` 能返回）——否则这是看不见的，因为 `key_by="code"` 根本找不到对应的键，而不是得到一个 null。标记为 `partial` + `omittedIndicators` / `omittedSecurities`。
-- **形状错误不再丢失 traceId。** `unwrap_envelope` 会丢弃信封，连同其中的 `traceId`——这是 Gangtise 技术支持追查故障的唯一线索。在传输层之后抛出的失败受影响最大，而矩阵形状护栏恰恰就在那里。解包后的响应现在把信封的 id 挂在一个属性上（一个 `dict` 子类，因此序列化、比较和制表都与它所替代的普通 dict 一致），`ApiError.trace_id` 会回退取用它。双层包装的 EDE 响应会向下传递外层的 id，因为内层信封本身不带 id。
-- **日期校验跟随 `date=` 到了它的新位置。** 它不再是请求体字段，所以 `_request_body` 的检查看不到它了；`cross_section` / `screener` 现在显式校验它。
+- **形状错误不再丢失 traceId。** 解包时会丢弃信封，连同其中的 `traceId`——这是 Gangtise 技术支持追查故障的唯一线索。在传输层之后抛出的失败受影响最大，而矩阵形状护栏恰恰就在那里。解包后的响应现在把信封的 id 挂在一个属性上（一个 `dict` 子类，因此序列化、比较和制表都与它所替代的普通 dict 一致），`ApiError.trace_id` 会回退取用它。双层包装的 EDE 响应会向下传递外层的 id，因为内层信封本身不带 id。
+- **日期校验跟随 `date=` 到了它的新位置。** 它不再是请求体字段，`cross_section` / `screener` 现在仍在发请求前校验它。
 
 ### 错误提示
 - `100006` 现在也涵盖单页 size 上限（50），而不只是「请求的行数过多」。
@@ -467,7 +517,7 @@
 - **EDE `999999`「无数据」提示现在只作用于取数接口**（`indicator.cross-section` / `time-series`）。`indicator.search` 共用 `no-999999` 重试策略，但只接受关键字，因此保留通用提示，而不给出与之无关的日期/范围/参数指引。提示文本现在指向真正的首要原因——日期是否与指标周期匹配（财务/MRQ = 报告期末，如 `2025-12-31`；日频估值 = 交易日）、`scopeList` 覆盖范围，以及 `parameterList` 中的必填参数。
 
 ### 修复
-- **没有显示名称的指标不再落到字面名为 `None` 的列下。** 服务端确实会返回这种情况——2026-07-24 实测，`qte_open` 返回为 `indicatorNameList: [None, "日收盘价"]`——而矩阵展平逻辑在 `_build_headers` 回退到代码之前就把列表转成了字符串，于是 `"None"` 成了一个真值列头。这类列现在使用 `indicatorCode`（`qte_open`），`securityNameList` 中的 null 条目保持为 null，而不会变成文本 `"None"`。位置保持不变：这些列表与 `values` 的行一一平行。这是与 CLI 的刻意差异——CLI 有同样的 bug，并把该列命名为 `"null"`。
+- **没有显示名称的指标不再落到字面名为 `None` 的列下。** 服务端确实会返回这种情况——2026-07-24 实测，`qte_open` 返回为 `indicatorNameList: [None, "日收盘价"]`——而列头在回退到指标代码之前就被转成了字符串，于是 `"None"` 成了一个真值列头。这类列现在使用 `indicatorCode`（`qte_open`），`securityNameList` 中的 null 条目保持为 null，而不会变成文本 `"None"`。位置保持不变：这些列表与 `values` 的行一一平行。这是与 CLI 的刻意差异——CLI 有同样的 bug，并把该列命名为 `"null"`。
 - **sdist 不再包含 `sample/README.md`。** `include` 模式 `README.md` 没有锚定，匹配到了它，导致源码包里带了一份示例索引，而其中提到的脚本和 `API_PARAMETERS.md` 并不在包里。四个根目录文件的模式现在都已锚定（`/README.md` 等）。
 
 ### 文档
@@ -526,10 +576,10 @@
 - **重定向目标若返回 `200` + JSON，不再被当作「文件」写入磁盘。** 下载 `302` 到一个返回 `application/json` 业务错误信封的 URL 时，JSON 字节会被保存成例如 `report.pdf`，调用却返回成功（已计费，文件损坏）。跟随后的请求现在执行与直接下载路径相同的信封检查——失败信封抛出 `ApiError`，`{url}` 元数据信封则继续链式跟随——与 TS `client.ts` 一致。
 - **重定向那一跳上 CDN 的临时 `429/5xx` 会重试，而不再让整次下载失败。** 跟随 URL 的请求此前只重试网络错误；一次偶发的 `503`/`429`（签名 URL 仍有效）会立即中止，尽管重放签名 URL 不产生任何费用。可重试的 HTTP 状态现在按默认策略重试（遵循 `Retry-After`）；`403/404` 仍快速失败（过期的签名无法复活），计费的上游请求绝不重放。
 - **同源重定向保留 bearer token。** 手动重定向跳转对任何被跟随的 `Location` 都不发送 `Authorization`，因此 `302` 到 API 源上另一个需认证的路径时会得到 `401/403`。现在当且仅当 `Location` 仍在 API 源上（scheme+host+port 完全一致）时才转发 bearer；跨源 CDN 仍然永远拿不到它。恢复与 v0.1.16 / TS `client.ts` 的一致性。
-- **`_require_fetchable_url` 现在真正 fail-closed。** 它此前用标准库 `urlsplit` 校验，比 httpx 宽松：带控制字符的 URL、格式错误的点分四段 / IDNA 主机、超长内容或带前导空白的 URL 都能通过检查，却会在请求时让 `httpx.URL` 抛出 `httpx.InvalidURL`（不是 `httpx.HTTPError`），未经包装就逃出了下载路径的 except 链。现在直接用 `httpx.URL` 本身校验，并加上首尾空白的精确检查，抛出已脱敏的 `DownloadError`。
+- **签名 URL 的请求前校验现在真正 fail-closed。** 此前的校验比 httpx 宽松：带控制字符的 URL、格式错误的点分四段 / IDNA 主机、超长内容或带前导空白的 URL 都能通过检查，却会在请求时让 `httpx.URL` 抛出 `httpx.InvalidURL`（不是 `httpx.HTTPError`），未经包装就逃出了下载路径的 except 链。现在直接用 `httpx.URL` 本身校验，并加上首尾空白的精确检查，抛出已脱敏的 `DownloadError`。
 - **`.part` 清理失败不再掩盖成功的下载。** `os.link` 提交完整文件之后，`finally` 中对 `.part` 的 unlink 却会左右最终结果：一旦它抛错（杀毒软件锁定、只读挂载），原始 `OSError` 会越过 `except OSError` 向外传出，对已经落盘的文件报告虚假失败（并诱发 `no-replay` 接口的重复计费）。清理现在改为尽力而为。
-- **被跟随目标抛出的任何错误都不再重放计费的上游，且 `{url}` 链有跳数上限。** 把被跟随目标的 JSON 信封作为 `ApiError` 抛出（见上文修复）从另一侧重新打开了重复计费的口子：来自已成功上游*之后*的错误，仍可能驱动 `download_to_path` 的外层循环重发上游请求。这类错误现在会被打上标记，并短路**所有**外层重放——既包括针对*认证*信封（`0000001008`/`8000014`/`8000015`）的 token 刷新路径，**也**包括针对可重试 `999999` 的默认策略重试路径（正是这种情况让 `insight.report-image.download`——一个 0.1 积分/张的默认重试接口——被重复计费了三次）。直接（非跟随）路径上的认证自愈和 `999999` 重试不变。自引用/循环的 `{url}` 链现在以有界的 `DownloadError` 失败（最多 5 跳），而不是递归到 `RecursionError` 并引发请求风暴；同源 bearer 转发在每一跳重新判定（第 2 个同源跳不再丢失它）；`_redact_url` 以 `httpx.URL` 的判定为准，所以非 ASCII / 格式错误的 authority（错误的 IDNA、无效的点分四段如 `1.2.3.999`）会折叠为 `redacted-url`，而不是被原样回显。
-- **被跟随目标的错误现在带有计费安全的提示，占位回退能扛住关闭时的故障，同源判断把显式 `:0` 视为不同端口。** (1) 打了标记的被跟随目标错误仍沿用通用的 `.hint`——`999999` 的「请稍后重试」和认证码的「会自动重新登录重试」——两者都会诱导手动重发，从而对已执行的上游再次计费（而且这里根本不会自动重新登录）；现在给出专门的提示，说明计费的上游已经执行，不可盲目重试。(2) 在无硬链接的占位提交中，对 `O_EXCL` 预留 fd 的 `os.close()` 没有保护：关闭时的 `OSError`（如不稳定的 SMB/exFAT 挂载上的 `EIO`——恰恰是本版所针对的文件系统）会在 rename 之前中止，于是完整的 `.part` 被外层 `finally` 删除，只留下一个 0 字节文件。关闭现在改为尽力而为——这个 fd 只用于占住文件名，真正关键的 rename 仍会把完整内容落盘。(3) `_same_origin` 用 `port or default` 计算实际端口，把显式的 `:0` 折叠为默认端口，从而把 `https://api.test:0` 判为与 `https://api.test` 同源；现在改用 `port if not None else default`，实现真正精确的 scheme+host+port 匹配。
+- **被跟随目标抛出的任何错误都不再重放计费的上游，且 `{url}` 链有跳数上限。** 把被跟随目标的 JSON 信封作为 `ApiError` 抛出（见上文修复）从另一侧重新打开了重复计费的口子：来自已成功上游*之后*的错误，仍可能驱动下载的外层循环重发上游请求。这类错误现在会被打上标记，并短路**所有**外层重放——既包括针对*认证*信封（`0000001008`/`8000014`/`8000015`）的 token 刷新路径，**也**包括针对可重试 `999999` 的默认策略重试路径（正是这种情况让 `insight.report-image.download`——一个 0.1 积分/张的默认重试接口——被重复计费了三次）。直接（非跟随）路径上的认证自愈和 `999999` 重试不变。自引用/循环的 `{url}` 链现在以有界的 `DownloadError` 失败（最多 5 跳），而不是递归到 `RecursionError` 并引发请求风暴；同源 bearer 转发在每一跳重新判定（第 2 个同源跳不再丢失它）；URL 脱敏以 `httpx.URL` 的判定为准，所以非 ASCII / 格式错误的 authority（错误的 IDNA、无效的点分四段如 `1.2.3.999`）会折叠为 `redacted-url`，而不是被原样回显。
+- **被跟随目标的错误现在带有计费安全的提示，占位回退能扛住关闭时的故障，同源判断把显式 `:0` 视为不同端口。** (1) 打了标记的被跟随目标错误仍沿用通用的 `.hint`——`999999` 的「请稍后重试」和认证码的「会自动重新登录重试」——两者都会诱导手动重发，从而对已执行的上游再次计费（而且这里根本不会自动重新登录）；现在给出专门的提示，说明计费的上游已经执行，不可盲目重试。(2) 在无硬链接的占位提交中，对 `O_EXCL` 预留 fd 的 `os.close()` 没有保护：关闭时的 `OSError`（如不稳定的 SMB/exFAT 挂载上的 `EIO`——恰恰是本版所针对的文件系统）会在 rename 之前中止，于是完整的 `.part` 被外层 `finally` 删除，只留下一个 0 字节文件。关闭现在改为尽力而为——这个 fd 只用于占住文件名，真正关键的 rename 仍会把完整内容落盘。(3) 同源判断此前把显式的 `:0` 折叠为默认端口，从而把 `https://api.test:0` 判为与 `https://api.test` 同源；现在按 scheme+host+port 精确匹配。
 
 ## [0.1.17] - 2026-07-12
 
@@ -537,7 +587,7 @@
 
 ### 修复
 - **302 跳转到 CDN 不再导致计费的下载接口被重放。** 上游下载请求此前让 httpx 内联自动跟随重定向；CDN 那一跳失败时，看起来就像*上游*请求的连接阶段错误——对于 `no-replay`（按篇计费）的接口，这会触发对计费接口的重发。现在上游请求停在 3xx，并把 `Location` 交给签名 URL 获取器，其重试循环只会重放不计费的 CDN URL。（这是与 TS `client.ts` 的有意分歧：后者内联跟随，存在同样的隐患。）被跟随的 URL 现在也受 10× 传输时限约束，此前它绕过了这一时限。
-- **签名 URL 脱敏现在 fail-closed。** `_redact_url` 只保留 `scheme://host/path`，但裸的 `alice:SECRET@host/p` 会被解析为 scheme 是 `alice`，所以旧的基于 netloc 的路径会泄露 `alice://SECRET@…`；无效端口也会以未包装的 `httpx.InvalidURL` 逃出，并携带原始值。现在凡不是带主机和有效端口的绝对 http(s) URL，一律折叠为 `redacted-url`；签名 URL 在请求前先校验，格式错误的会抛出已脱敏的 `DownloadError`，而不会泄露。
+- **签名 URL 脱敏现在 fail-closed。** 脱敏只保留 `scheme://host/path`，但裸的 `alice:SECRET@host/p` 会被解析为 scheme 是 `alice`，所以旧的基于 netloc 的路径会泄露 `alice://SECRET@…`；无效端口也会以未包装的 `httpx.InvalidURL` 逃出，并携带原始值。现在凡不是带主机和有效端口的绝对 http(s) URL，一律折叠为 `redacted-url`；签名 URL 在请求前先校验，格式错误的会抛出已脱敏的 `DownloadError`，而不会泄露。
 - **自动命名的下载恢复原子发布，后缀也正确了。** v0.1.16 的 `O_CREAT|O_EXCL` 预留会在 rename 之前把最终路径建成 0 字节占位（崩溃时可能留下一个空的假「成功」文件），而且 `report-1.pdf` 冲突时生成的是 `report-1-1.pdf` 而不是 `report-2.pdf`。现在提交时把完成的 `.part` 硬链接到目标路径（完整文件一步出现；`-1..-99` 后缀从原始文件名开始扫描），仅在不支持硬链接的文件系统上回退到 O_EXCL 占位（仍不会覆盖已有文件）。
 - **EDE 内层信封的 `999999` 现在给出「无数据」提示。** 双层信封的内层错误在传输层之后才解包，所以一直沿用通用的「稍后重试」提示；现在与外层错误码一样，提示检查查询时间窗。
 
@@ -547,7 +597,7 @@
 
 ### 修复
 - **签名 URL 不再泄露到异常消息中。** 预签名 URL 请求失败时，`DownloadError` 文本曾嵌入完整 URL——包括 `X-Amz-Signature` 查询参数和任何 `user:password@` authority——终端、CI 日志和错误收集器都会把它记录下来。现在消息只包含 `scheme://host[:port]/path`（去掉 userinfo、query 和 fragment；IPv6 主机重新加方括号）。
-- **自动命名的下载不再互相覆盖。** 两个并发的 `output=None` 下载若标题解析为同一文件名，会在 `_unique_path` 先检查后使用的窗口内发生竞争：后一个 `replace()` 会悄悄覆盖前一个文件。自动生成的文件名现在通过原子的 `O_CREAT|O_EXCL` 预留提交——竞争失败的一方重新扫描下一个 `-1..-99` 后缀——最终移动失败时会清理其占位文件。适用于所有文件系统（不依赖硬链接）；显式 `output=` 路径保持文档所述的覆盖语义。
+- **自动命名的下载不再互相覆盖。** 两个并发的 `output=None` 下载若标题解析为同一文件名，会在挑选不重名文件名时「先检查后使用」的窗口内发生竞争：后一个 `replace()` 会悄悄覆盖前一个文件。自动生成的文件名现在通过原子的 `O_CREAT|O_EXCL` 预留提交——竞争失败的一方重新扫描下一个 `-1..-99` 后缀——最终移动失败时会清理其占位文件。适用于所有文件系统（不依赖硬链接）；显式 `output=` 路径保持文档所述的覆盖语义。
 - **预签名 URL 请求现在会重试临时网络故障**（默认策略，每次尝试有 10× 硬时限）。重放签名 URL 始终安全——计费的上游接口绝不会被重新请求；签名 URL 返回 HTTP >= 400 时仍快速失败（签名 URL 会过期，重放 403 毫无意义）。
 - **`report_image_download` 的自动命名现在带扩展名**：`image/png` / `image/jpeg` / `image/gif` / `image/webp` / `image/svg+xml` 加入了 MIME→扩展名映射（与 TS 一致），因此自动命名的图片会落盘为 `report-image-<id>.jpg`，而不是没有扩展名。
 - **不自动重发接口上的 999999 不再提示「稍后重试」。** SDK 有意不重试（请求可能已经执行并计费）；提示现在改为先核实结果/计费情况，再手动重试。
@@ -616,7 +666,7 @@
 ## [0.1.12] - 2026-07-02
 
 ### 变更
-- **`insight.announcement_list` 的纯日期字符串改用本地午夜**（与 `"YYYY-MM-DD 00:00:00"` 锚点相同），不再用 UTC 午夜，与 TS HEAD 一致，避免 UTC 以外时区的用户在边界日上出现偏移。
+- **`insight.announcement_list` 的纯日期字符串改用本地午夜**（与 `"YYYY-MM-DD 00:00:00"` 锚点相同），不再用 UTC 午夜，与 CLI 一致，避免 UTC 以外时区的用户在边界日上出现偏移。
 
 ### 修复
 - **模块级异步门面（facade）** 不再在不同的 `asyncio.run()` 事件循环之间复用同一个 `httpx.AsyncClient`；`reset()`/`configure(replace=True)` 现在会尽可能关闭缓存的异步客户端。
@@ -625,11 +675,8 @@
 - **下载的鉴权重试** 现在复用其他请求已刷新好的 token，不再强制重新登录，与 JSON 请求路径一致。
 - **分页** 现在在生成并发请求时即执行 `MAX_PAGES` 上限；异步并发拉取中格式异常/`None` 的页标记为 `partial`；顺序翻页中出现形状丢失也标记为 `partial`；首页为空或不满一页时直接停止，不再重复请求同一偏移。
 - **`fundamental.earning_forecast` 默认时间窗口** 在只提供 `end_date` 时，现在以该 `end_date` 为锚点推算 `start_date`。
-- **`normalize_token`** 将 `bearer ...` / `BEARER ...` 规范化为 `Bearer ...`，不再生成 `Bearer bearer ...`。
+- **token 规范化**：将 `bearer ...` / `BEARER ...` 规范化为 `Bearer ...`，不再生成 `Bearer bearer ...`。
 - **异步下载清理** 在 `finally` 中同步删除 `.part-*` 文件，取消操作也无法跳过删除。
-
-### 安全
-- 发布 CI 现在用 `uv --locked` 同步依赖，发布前检查 README/CHANGELOG 是否提及该 tag，并将 PyPI 发布 action 固定到某个 commit SHA，而不是可变的 `release/v1` 分支。
 
 ## [0.1.11] - 2026-06-29
 
@@ -669,16 +716,15 @@
 ## [0.1.8] - 2026-06-16
 
 ### 修复
-- **服务端使 token 失效后自动恢复**（`0000001008`）：当服务端吊销了一个按本地过期时间看仍然有效的 token 时——例如账号在别处登录、挤掉了本会话——SDK 现在会强制重新登录并重放请求一次，覆盖 `_call` 与下载两条路径（同步 + 异步），而不是在手动重新登录之前每个请求都失败。同时补充了对应的中文错误提示。移植自 CLI v0.17.2。
+- **服务端使 token 失效后自动恢复**（`0000001008`）：当服务端吊销了一个按本地过期时间看仍然有效的 token 时——例如账号在别处登录、挤掉了本会话——SDK 现在会强制重新登录并重放请求一次，覆盖普通请求与下载两条路径（同步 + 异步），而不是在手动重新登录之前每个请求都失败。同时补充了对应的中文错误提示。移植自 CLI v0.17.2。
 
 ## [0.1.7] - 2026-06-16
 
 ### 修复
-- **并发下载临时文件冲突**：`download_to_path` / `download_to_path_async` 以前流式写入固定的 `<target>.part` 临时文件。两个并发下载若解析到同一目标文件名（同一 id 下载两次、两份标题相同的文档，或显式传了相同的 `output=`），会写入同一个文件句柄——字节交错——且各自的清理会删掉对方的文件，表现为 `DownloadError: ... No such file or directory`。临时文件现在带每次调用唯一的后缀（`.part-<uuid>`），让每次下载都具备 token / 标题缓存早已具备的隔离性。
+- **并发下载临时文件冲突**：下载以前流式写入固定的 `<target>.part` 临时文件。两个并发下载若解析到同一目标文件名（同一 id 下载两次、两份标题相同的文档，或显式传了相同的 `output=`），会写入同一个文件句柄——字节交错——且各自的清理会删掉对方的文件，表现为 `DownloadError: ... No such file or directory`。临时文件现在带每次调用唯一的后缀（`.part-<uuid>`），让每次下载都具备 token / 标题缓存早已具备的隔离性。
 
 ### 变更
 - **异步下载不再因文件系统元数据操作阻塞事件循环**：异步写入路径中的 `mkdir` / `replace` / `unlink` 现在通过 `anyio.to_thread.run_sync` 执行（流式写入正文本就使用 `anyio.open_file`）。
-- **行提取逻辑合并**：`reference.securities_search` 和 `alternative.edb_search`（同步 + 异步）现在使用共享的 `_extract_rows` 辅助函数，取代各自定制的 `isinstance` 判断链——对这些接口返回的形状输出完全相同，还顺带获得列式矩阵的兜底处理。
 
 ## [0.1.6] - 2026-06-15
 
@@ -700,8 +746,8 @@
   - `strategy_list`——收窄为仅 `institution` + `location`。
   - `forum_list`——收窄为仅 `research_area` + `location`。
 - **`insight.announcement_list` / `announcement_hk_list`**（与 TS v0.17.0 对齐）：移除 `announcement_type` 参数——服务端一直忽略它。
-- **`ai.knowledge_batch` 的空 `resource_type`**：此前传 `resource_type=[]` 会在请求中发送 `"resourceTypes": []`；TS CLI 在列表为空时省略该字段（`.length` 判断）。已用 `_as_list(...) or None` 修复。
-- **`_quote_sharding.is_all_market` 遇到混合列表**：`security=["all", "000001.SZ"]` 会错误地触发全市场分片。TS 仅在 `securityList` 恰好为 `["all"]` 时分片；已修复为 `list(security) == ["all"]`。
+- **`ai.knowledge_batch` 的空 `resource_type`**：此前传 `resource_type=[]` 会在请求中发送 `"resourceTypes": []`；现在与 CLI 一致，列表为空时省略该字段。
+- **全市场分片遇到混合列表**：`security=["all", "000001.SZ"]` 会错误地触发全市场分片。现在与 CLI 一致，仅在 `security` 恰好为 `["all"]` 时分片。
 - **`410110`/`410111` 的错误提示文案** 与 TS `errors.ts` 对齐（提及 `*-check` 命令，终态失败码的提示中使用「终态」）。
 
 ### 移除
@@ -710,7 +756,7 @@
 ## [0.1.5] - 2026-06-12
 
 ### 修复
-- **并发下的 token 处理**：N 个并发调用方遇到过期 token 时，现在只触发一次登录（与 TS `refreshPromise` 对齐）；被拒的 `GANGTISE_TOKEN` 环境变量 token 在首次失败后即被跳过，不再让此后每次调用都永久变成三倍请求；token 缓存的临时文件现在按写入方唯一（多进程安全）；`__enter__`/`__aenter__` 复用惰性创建的 HTTP 客户端，不再泄漏旧连接池。
+- **并发下的 token 处理**：N 个并发调用方遇到过期 token 时，现在只触发一次登录（与 CLI 一致）；被拒的 `GANGTISE_TOKEN` 环境变量 token 在首次失败后即被跳过，不再让此后每次调用都永久变成三倍请求；token 缓存的临时文件现在按写入方唯一（多进程安全）；`with` / `async with` 复用已创建的 HTTP 客户端，不再泄漏旧连接池。
 - **异步错误契约**：分页/分片并发拉取失败时，现在抛出原始的 `ApiError`，而不是 anyio 的 `ExceptionGroup`，因此 `except ApiError` 在同步和异步代码中行为一致。
 - **K 线分片**（与 CLI 对齐）：单个分片失败不再丢弃全部已拉取的数据——成功的分片会合并，并带上 `partial: true` + `failedShards` 标记，同时发出 `UserWarning`；只有全部分片都失败时才抛异常。
 - **下载路径**（与 TS 对齐）：鉴权自愈（8000014/8000015 → 刷新 → 重试一次）、瞬时错误带退避重试、预签名 `{url}` 响应现在会去取文件而不是报错、4xx JSON 信封保留业务码和中文提示、流式传输失败时清理 `.part` 临时文件，且异步版本写盘时不再阻塞事件循环。
@@ -739,7 +785,7 @@
 ## [0.1.3] - 2026-05-29
 
 ### 修复
-- **`quote.realtime` 和 `quote.minute_kline` 返回全为 None 的 DataFrame。** 这两个接口返回列式矩阵 `{fieldList, list:[[...]]}`，但行数据是按一份硬编码 schema 制表的，而 schema 中的字段名与 API 对不上，导致每个单元格都是 null。现在按响应中的 `fieldList` 转置每一行（共享的 `_quote_rows_and_fields` 辅助函数）。
+- **`quote.realtime` 和 `quote.minute_kline` 返回全为 None 的 DataFrame。** 这两个接口返回列式矩阵 `{fieldList, list:[[...]]}`，但行数据是按一份硬编码 schema 制表的，而 schema 中的字段名与 API 对不上，导致每个单元格都是 null。现在按响应中的 `fieldList` 转置每一行。
 - **`quote.day_kline` 列名已更正。** 硬编码 schema 凭空造出了 `turnover` / `changePct`，还丢掉了真实字段；A 股日 K 线并没有 `turnover` 列——真实字段是 `pctChange` 和 `adjustFactor`。
 - **`reference.securities_search` 返回的列大多为 None。** schema 用的是 `code/name/market/...`，而 API 实际返回 `gtsCode/gtsName/category/matchScore/matchType`。
 - 移除全部三个硬编码的行情 schema 以及字段别名重映射；行情与证券检索现在原样返回 API 的字段名（`schema=None`），与 0.1.2 中为 fundamental 接口上线的列式修复一致。
@@ -747,7 +793,7 @@
 ## [0.1.2] - 2026-05-29
 
 ### 修复
-- **列式响应的 DataFrame 转换。** 许多数据接口（fundamental 的利润表 / 资产负债表 / 现金流量表、估值分析、主营业务）返回列式矩阵 `{fieldList, list:[[...]]}`。新增的 `normalize_rows`（移植自 TS CLI）会将其转置为具名列；此前这些接口产出的是空 DataFrame 或列名为整数的 DataFrame。
+- **列式响应的 DataFrame 转换。** 许多数据接口（fundamental 的利润表 / 资产负债表 / 现金流量表、估值分析、主营业务）返回列式矩阵 `{fieldList, list:[[...]]}`。SDK 现在会将其转置为具名列（移植自 CLI）；此前这些接口产出的是空 DataFrame 或列名为整数的 DataFrame。
 - `fundamental.valuation_analysis` 的列 schema 已更正为真实字段（`tradeDate, value, percentileRank, average, median, upper1Std, lower1Std`）。
 - `GANGTISE_VERBOSE` 现在真正会输出调试日志——同步与异步传输层都挂上了 stderr handler（此前只设置了日志级别却没有 handler，日志记录被丢弃）。客户端会遵循 `Config.verbose`。
 - 异步客户端在 token / 标题缓存的磁盘 I/O 上不再阻塞事件循环（通过 `anyio.to_thread` 移到线程中执行）。
@@ -759,9 +805,7 @@
 - 异步传输层现在会记录请求耗时日志，与同步路径一致。
 
 ### 变更
-- 领域辅助函数（`_as_list`、`_strip_none`、`_extract_rows`）合并到 `domains/_common.py`（此前在每个领域模块中重复存在）。
 - 分页结果在 `MAX_PAGES` 处被截断时会记录一条告警日志。
-- 从传输层的请求函数中删去了一个未使用的 `config` 参数。
 
 ## [0.1.1] - 2026-05-28
 

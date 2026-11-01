@@ -1,6 +1,6 @@
 # API 参数说明
 
-本文档按 SDK 的方法签名整理，覆盖 152 个公开方法，对应 153 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
+本文档按 SDK 的方法签名整理，覆盖 157 个公开方法，对应 158 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
 
 运行示例前请配置：
 
@@ -35,6 +35,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `quote` | `minute_kline` | [quote_minute_kline.py](sync/quote_minute_kline.py) | [quote_minute_kline.py](async/quote_minute_kline.py) |
 | `quote` | `realtime` | [quote_realtime.py](sync/quote_realtime.py) | [quote_realtime.py](async/quote_realtime.py) |
 | `quote` | `fund_flow` | [quote_fund_flow.py](sync/quote_fund_flow.py) | [quote_fund_flow.py](async/quote_fund_flow.py) |
+| `quote` | `sector_fund_flow` | [quote_sector_fund_flow.py](sync/quote_sector_fund_flow.py) | [quote_sector_fund_flow.py](async/quote_sector_fund_flow.py) |
 | `insight` | `opinion_list` | [insight_opinion_list.py](sync/insight_opinion_list.py) | [insight_opinion_list.py](async/insight_opinion_list.py) |
 | `insight` | `summary_list` | [insight_summary_list.py](sync/insight_summary_list.py) | [insight_summary_list.py](async/insight_summary_list.py) |
 | `insight` | `roadshow_list` | [insight_roadshow_list.py](sync/insight_roadshow_list.py) | [insight_roadshow_list.py](async/insight_roadshow_list.py) |
@@ -112,6 +113,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `vault` | `stock_pool_add_stock` | [vault_stock_pool_add_stock.py](sync/vault_stock_pool_add_stock.py) | [vault_stock_pool_add_stock.py](async/vault_stock_pool_add_stock.py) |
 | `vault` | `stock_pool_remove_stock` | [vault_stock_pool_remove_stock.py](sync/vault_stock_pool_remove_stock.py) | [vault_stock_pool_remove_stock.py](async/vault_stock_pool_remove_stock.py) |
 | `vault` | `stock_pool_delete` | [vault_stock_pool_delete.py](sync/vault_stock_pool_delete.py) | [vault_stock_pool_delete.py](async/vault_stock_pool_delete.py) |
+| `vault` | `stock_note_list` | [vault_stock_note_list.py](sync/vault_stock_note_list.py) | [vault_stock_note_list.py](async/vault_stock_note_list.py) |
+| `vault` | `stock_note_add` | [vault_stock_note_add.py](sync/vault_stock_note_add.py) | [vault_stock_note_add.py](async/vault_stock_note_add.py) |
+| `vault` | `stock_note_update` | [vault_stock_note_update.py](sync/vault_stock_note_update.py) | [vault_stock_note_update.py](async/vault_stock_note_update.py) |
+| `vault` | `stock_note_delete` | [vault_stock_note_delete.py](sync/vault_stock_note_delete.py) | [vault_stock_note_delete.py](async/vault_stock_note_delete.py) |
 | `vault` | `drive_folder_list` | [vault_drive_folder_list.py](sync/vault_drive_folder_list.py) | [vault_drive_folder_list.py](async/vault_drive_folder_list.py) |
 | `vault` | `drive_upload` | [vault_drive_upload.py](sync/vault_drive_upload.py) | [vault_drive_upload.py](async/vault_drive_upload.py) |
 | `vault` | `drive_create_folder` | [vault_drive_create_folder.py](sync/vault_drive_create_folder.py) | [vault_drive_create_folder.py](async/vault_drive_create_folder.py) |
@@ -445,6 +450,24 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `field` | `Any` | 否 | `None` | `["mainNetInflow", "largeInflow"]` | 返回字段名或字段名列表；None 表示使用服务端默认字段。securityCode / tradeDate 由服务端自动附带，SDK 不另补。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
+### `quote.sector_fund_flow`
+
+- 接口：`quote.sector-fund-flow` `POST /application/open-quote/fund-flow/sector-daily`
+- 同步示例：`sample/sync/quote_sector_fund_flow.py`
+- 异步示例：`sample/async/quote_sector_fund_flow.py`
+- 返回类型：`pd.DataFrame | dict[str, Any] | list[Any]`
+
+板块日资金流向（免费）：每个值是该板块**当日成分股**资金流向的加总，**只计沪深京上市公司**；返回按板块、日期倒序，每行 `sectorId` / `tradeDate` 在最前。没有占比字段，也没有全市场关键词。🔴 查询太重报 `100006`、不返回部分数据：缩短日期区间、减少 `sector` 或 `field`，调小 `limit` 无效。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `sector` | `Any` | 是 | - | `"<sectorId>"` | 板块 ID 或 ID 列表（重复的自动去掉），用 reference.sector_search 查；ID 不存在报 100003。 |
+| `start_date` | `str \| date` | 否 | `None` | `"2026-10-01"` | 开始日期 YYYY-MM-DD；省略默认结束日往前 1 年。超出账号数据窗口报 110003（跨过下界也整段报错）。 |
+| `end_date` | `str \| date` | 否 | `None` | `"2026-10-30"` | 结束日期 YYYY-MM-DD；省略默认最新已入库交易日。 |
+| `limit` | `int` | 否 | `None` | `6000` | 返回行数上限，默认 6000、最大 10000；只截返回行数、不减计算量。撞上限标 `partial` 并告警。 |
+| `field` | `Any` | 否 | `None` | `["sectorMainNetInflow", "sectorLargeInflow"]` | 资金字段名或列表（小 / 中 / 大 / 特大单 `sector{Small\|Medium\|Large\|Xlarge}{Inflow\|Outflow\|NetInflow}`、主力 `sectorMain*`、全单 `sectorTotalInflow` / `sectorTotalOutflow`，单位元）；None 返回全部，写错报 100005。⚠️ 只传 sectorId / tradeDate 时返回 0 行、不报错（SDK 发 warning）。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
 ## 投研资讯（`gangtise.insight`）
 
 ### `insight.opinion_list`
@@ -515,6 +538,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `publish_start_time` | `str \| None` | 否 | `None` | `"2026-10-01"` | 收录时间起（返回字段 publishTime，日程首次收录的时间，不是举办时间），写法同 start_time；与按举办时间筛的 start_time / end_time 同时生效。 |
+| `publish_end_time` | `str \| None` | 否 | `None` | `"2026-10-31"` | 收录时间止；只写日期时覆盖当天整天。 |
 | `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
@@ -541,6 +566,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `publish_start_time` | `str \| None` | 否 | `None` | `"2026-10-01"` | 收录时间起（返回字段 publishTime，日程首次收录的时间，不是举办时间），写法同 start_time；与按举办时间筛的 start_time / end_time 同时生效。 |
+| `publish_end_time` | `str \| None` | 否 | `None` | `"2026-10-31"` | 收录时间止；只写日期时覆盖当天整天。 |
 | `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
@@ -566,6 +593,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `publish_start_time` | `str \| None` | 否 | `None` | `"2026-10-01"` | 收录时间起（返回字段 publishTime，日程首次收录的时间，不是举办时间），写法同 start_time；与按举办时间筛的 start_time / end_time 同时生效。 |
+| `publish_end_time` | `str \| None` | 否 | `None` | `"2026-10-31"` | 收录时间止；只写日期时覆盖当天整天。 |
 | `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `institution` | `Any` | 否 | `None` | `None` | 机构过滤，支持单值或列表。 |
 | `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点，domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海 `156310000`）；支持单值或列表。传城市名（`"上海"`）返回 999999 系统内部错误，不是参数错误。 |
@@ -585,6 +614,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `size` | `int \| None` | 否 | `None` | `5` | 分页大小；部分接口会按 endpoint 最大页大小自动分页。 |
 | `start_time` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始时间过滤；多数列表接口接受日期或时间字符串。 |
 | `end_time` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束时间过滤；多数列表接口接受日期或时间字符串。 |
+| `publish_start_time` | `str \| None` | 否 | `None` | `"2026-10-01"` | 收录时间起（返回字段 publishTime，日程首次收录的时间，不是举办时间），写法同 start_time；与按举办时间筛的 start_time / end_time 同时生效。 |
+| `publish_end_time` | `str \| None` | 否 | `None` | `"2026-10-31"` | 收录时间止；只写日期时覆盖当天整天。 |
 | `keyword` | `str \| None` | 否 | `None` | `"平安银行"` | 搜索关键词。 |
 | `research_area` | `Any` | 否 | `None` | `None` | 研究领域 ID，支持单值或列表。 |
 | `location` | `Any` | 否 | `None` | `"156440000"` | 举办地点，domesticCity 码（`reference.constant_list(category="domesticCity")`，如上海 `156310000`）；支持单值或列表。传城市名（`"上海"`）返回 999999 系统内部错误，不是参数错误。 |
@@ -1639,6 +1670,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
+| `space_type` | `int \| None` | 否 | `None` | `2` | 1=个人自选股股票池（不传即此项），2=所属租户的股票池；一次只查一种。无租户股票池查询权限时报 999004。其他值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `vault.stock_pool_stocks`
@@ -1650,7 +1682,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `pool_id` | `Any` | 否 | `'all'` | `"all"` | 股票池 ID 或 ID 列表；默认 all。 |
+| `pool_id` | `Any` | 否 | `'all'` | `"all"` | 股票池 ID 或 ID 列表；默认 all（该 space_type 下全部可见的池）。🔴 要取自同一 space_type 的 stock_pool_list：另一种空间的 ID 不会被匹配——与有效 ID 一起传时被静默忽略，全部不匹配时报 999004。 |
+| `space_type` | `int \| None` | 否 | `None` | `2` | 同 stock_pool_list：1=个人（不传即此项），2=租户。租户池的明细要传 2。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `vault.drive_download`
@@ -1756,6 +1789,62 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `pool_id` | `Any` | 是 | - | `["<poolId>"]` | 要删除的股票池 ID，支持单值或列表；删不存在的池算成功。 |
 | `confirm` | `bool` | 否 | `False` | `True` | 必须为 True：删池会移除池内全部证券的关注关系且不可恢复；False 时在发请求前抛 ValidationError。 |
+| `raw` | `bool` | 否 | `False` | `False` | 写操作总是返回服务端原始 data（{successList, failList}）；raw 仅为签名统一。 |
+
+### `vault.stock_note_list`
+
+- 接口：`vault.stock-note.list` `POST /application/open-vault/stock-pool/getNoteList`
+- 同步示例：`sample/sync/vault_stock_note_list.py`
+- 异步示例：`sample/async/vault_stock_note_list.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+本人的个股投资笔记（免费），按 createTime 倒序，自动翻页（单页 50）。返回 stockNoteId / securityList（该笔记完整的关联证券）/ content / createTime / updateTime（北京时间）。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `security` | `Any` | 否 | `None` | `"600519.SH"` | 按证券筛，笔记关联的证券含其中任一只即命中；最多 100 个。代码写错、不存在或类型不支持时整次报 120001。与 note_id 二选一，都不传 = 本人全部笔记。 |
+| `note_id` | `Any` | 否 | `None` | `"<stockNoteId>"` | 按笔记 ID 精确查，最多 100 个；不存在或不属于本人的 ID 被直接过滤、不报错。与 security 同传在发请求前抛 ValidationError。 |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int \| None` | 否 | `None` | `20` | 省略则拉取全部（按 total 并发翻页）；传 N 仅取前 N 条。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `vault.stock_note_add`
+
+- 接口：`vault.stock-note.add` `POST /application/open-vault/stock-pool/addNote`
+- 同步示例：`sample/sync/vault_stock_note_add.py`
+- 异步示例：`sample/async/vault_stock_note_add.py`
+- 返回类型：`dict[str, Any]`
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `security` | `Any` | 是 | - | `["600519.SH", "00700.HK"]` | 关联 1~50 只证券（建后不能改）：A 股、港股、美股、ETF、交易所 / 概念 / 中信行业 / 全球指数，可混传；申万行业指数（.SWI）不支持。任一只无效则整条不建（120001）。 |
+| `content` | `str` | 是 | - | `"笔记正文"` | 纯文本正文，不能为空或全是空白，最长 10000 个字符（按 Unicode 码点计）；原样保存。超时 / 5xx 不自动重发（没有防重机制），重跑前先 stock_note_list 确认是否已写入。 |
+| `raw` | `bool` | 否 | `False` | `False` | 写操作总是返回服务端原始 data（{stockNoteId, securityList}）；raw 仅为签名统一。 |
+
+### `vault.stock_note_update`
+
+- 接口：`vault.stock-note.update` `POST /application/open-vault/stock-pool/updateNote`
+- 同步示例：`sample/sync/vault_stock_note_update.py`
+- 异步示例：`sample/async/vault_stock_note_update.py`
+- 返回类型：`dict[str, Any]`
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `note_id` | `str` | 是 | - | `"<stockNoteId>"` | 笔记 ID，取自 stock_note_list；不存在或不属于本人报 130002。 |
+| `content` | `str` | 是 | - | `"新正文"` | 整体替换旧正文（不是追加），规则同 stock_note_add；关联证券不变。 |
+| `raw` | `bool` | 否 | `False` | `False` | 写操作总是返回服务端原始 data（成功为 {}）；raw 仅为签名统一。 |
+
+### `vault.stock_note_delete`
+
+- 接口：`vault.stock-note.delete` `POST /application/open-vault/stock-pool/deleteNote`
+- 同步示例：`sample/sync/vault_stock_note_delete.py`
+- 异步示例：`sample/async/vault_stock_note_delete.py`
+- 返回类型：`dict[str, Any]`
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `note_id` | `Any` | 是 | - | `["<stockNoteId>"]` | 要删除的笔记 ID，支持单值或列表，一次最多 100 个；没有 "all"。已删掉、不存在或不属于本人的 ID 都算成功。 |
+| `confirm` | `bool` | 否 | `False` | `True` | 必须为 True：删除整条笔记连同它与全部证券的关联，不可恢复；False 时在发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 写操作总是返回服务端原始 data（{successList, failList}）；raw 仅为签名统一。 |
 
 ### `vault.drive_folder_list`
@@ -2056,7 +2145,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `end_date` | `str` | 是 | - | `"2025-06-30"` | 结束日期，格式 YYYY-MM-DD。 |
 | `indicator` | `Any` | 是 | - | `"qte_close"` | 指标码或列表；用 indicator.search 查询。缺失在本地报 ValidationError。 |
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（仅单指标时；服务端展开成全部成分股，此时列头按证券出）。🔴 单次上限 30000 单元格（序列数 × 日期数），超出报 100006、不返回部分结果，缩短区间或拆证券分批取。 |
-| `calendar_type` | `str \| None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日，服务端默认 ND。**省略时 SDK 自动选**：用免费的 indicator.search 读各指标 parameterList（每个指标码一次，并发 ≤ 5），全部声明 tradeDate 且都不声明 reportDate / fiscalYear 才发 TD，否则不发（报告期类指标在 TD 轴上会整行全 null）。显式传了原样发送、不查询。 |
+| `calendar_type` | `str \| None` | 否 | `None` | `"TD"` | 日历：ND=自然日 TD=交易日 WD=工作日 RD=报告期（03-31 / 06-30 / 09-30 / 12-31）。**省略时由服务端按指标定日期轴**：行情类给交易日、报告期类给报告期、两类混查给两者日期的并集。⚠️ 一致预期类指标（frcst_*）这样会走交易日，节假日也会变的预测值不在其中，要逐日序列就传 `"ND"`。区间里没有该日期轴的日期时返回空结果并发 UserWarning，放宽区间或传 `"ND"`。显式传了原样发送。 |
 | `currency` | `str \| None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
 | `scale` | `str \| None` | 否 | `None` | `"0"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。只作用于支持该参数的指标。 |
 | `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引），规则同 cross_section（参数名以 parameterList 为准、写错报 100003；*Date 键的值校验并统一成 YYYY-MM-DD；必填参数漏传报 100001）。区间由 start_date / end_date 统管，不要再传 tradeDate。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
@@ -2514,7 +2603,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `str \| Sequence[str]` | 是 | - | `"510300.SH"` | ETF 交易代码，后缀大写（.SH / .SZ）；单值或列表（多只请传列表，字符串不拆分），重复值去掉；空值本地报 ValidationError、不发请求。代码不存在、不带后缀、后缀小写或传成股票代码都返回空结果、不报错。 |
-| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出）。额外请求都免费：证券列表 3 次，表里没有的名称逐个搜索，实时行情每 500 个候选一次、需要时日 K 每 1000 个候选一次（某批含无效代码时拆开重查）。False 不发这些请求，返回接口原样的行。 |
+| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出）。额外请求都免费：证券列表 3 次，表里没有的名称逐个搜索，实时行情每 500 个候选一次、需要时日 K 每 1000 个候选一次（某批含无效代码时拆开重查）；同名证券在两个市场都有时，实时价对上的一方要另一市场那只的近期收盘价对不上才采用。False 不发这些请求，返回接口原样的行。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（{list}，无 total；`componentCode` 同样已补上）；False 时转换为 pandas.DataFrame。 |
 
 ### `fund.etf_share_change`

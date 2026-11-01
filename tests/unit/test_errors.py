@@ -191,6 +191,18 @@ def test_900002_hint_states_the_probed_meaning():
         ),
         # 半句「缺 tradeDate」：两个日期都必填那类。
         ("缺少必填参数: tradeDate", "还需要 tradeDate", "不接受"),
+        # 新写法（CLI v0.50.0 起见到）：指标名只写一次，缺参写成「必填参数 K 不能为空」。
+        (
+            "is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空",
+            "要的是 reportDate",
+            "不接受 tradeDate，而 cross_section",
+        ),
+        (
+            "qte_close: 不支持参数 reportDate; 必填参数 tradeDate 不能为空",
+            "要的是 tradeDate",
+            "还需要 tradeDate",
+        ),
+        ("F1 (指标代码 div_cash_yld): 必填参数 tradeDate 不能为空", "还需要 tradeDate", "不接受"),
     ],
 )
 def test_message_hint_rules_do_not_assert_a_key_the_message_does_not_name(

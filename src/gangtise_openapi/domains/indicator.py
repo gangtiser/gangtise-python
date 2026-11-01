@@ -6,10 +6,8 @@ from __future__ import annotations
 import re
 import warnings
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-import anyio
 import pandas as pd
 
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
@@ -24,7 +22,6 @@ from gangtise_openapi._indicator_matrix import (
     require_indicator_matrix,
     screener_expression_fields,
 )
-from gangtise_openapi._logging import get_logger
 from gangtise_openapi.domains._common import (
     FilterValue,
     _as_list,
@@ -34,8 +31,6 @@ from gangtise_openapi.domains._common import (
     _validate_top,
 )
 
-logger = get_logger()
-
 _KEY_BY_CHOICES = ("name", "code")
 
 # A parameter whose KEY ends in "date" (any case — reportDate, tradeDate, sDate,
@@ -43,22 +38,6 @@ _KEY_BY_CHOICES = ("name", "code")
 # normalized to YYYY-MM-DD and a year-last one is refused, because the API reads
 # "01-07-2026" as 7 January (TS v0.44.0 ⑧, ``/date$/i`` in parseParamSpecs).
 _DATE_PARAM_SUFFIX = re.compile(r"date\Z", re.IGNORECASE)
-
-# ── time-series calendar auto-selection (TS v0.40.0 ⑬-⑮, core/calendarType.ts) ──
-# `tradeDate` is the only key that makes a trading-day axis correct; the other two
-# mark an indicator whose values land on dates the trading calendar may not contain.
-# `fiscalYear` stays although it names a forecast year, not a date: the indicators
-# that take it with `tradeDate` (frcst_*) carry values on every calendar day, holidays
-# included, and those values move (CLI probe 2026-09-30: frcst_pe, 600519.SH,
-# 2025-09-25..10-15 — ND 21 of 21 cells filled; TD keeps 11 and drops the changes).
-_TRADE_DATE_KEY = "tradeDate"
-_PERIOD_DATE_KEYS = frozenset({"reportDate", "fiscalYear"})
-# How many `indicator.search` probes run at once. They are free and read-only, and a
-# time series takes at most a handful of indicators, so this only bounds the burst.
-_PROBE_CONCURRENCY = 5
-# `indicator.search` matches on a keyword, so the code itself is the query and the
-# answer is picked out of the hits by exact code (near-matches come back too).
-_PROBE_LIMIT = 100
 
 # Date parameters an indicator may already carry: if the caller named the period
 # themselves, the query date must not be injected on top.
@@ -315,12 +294,34 @@ def _screener_indicator_list(
     return indicators
 
 
-def _note_empty_matrix(data: Any) -> None:
+def _off_nd(calendar_type: str | None) -> bool:
+    """Whether a time series is on an axis that can hold no date in a range: every axis
+    but ND, including the server's own pick when none was sent."""
+    return not (isinstance(calendar_type, str) and calendar_type.upper() == "ND")
+
+
+def _note_empty_matrix(data: Any, *, time_series: bool = False) -> None:
     """An all-empty matrix is not a known answer.
 
     Since 2026-08-07 a real coverage gap comes back as a null cell with its row and
     column intact, and an unrecognised code or parameter name as an error (100003,
-    re-probed by the CLI 2026-09-25) — so an empty answer is neither (TS v0.43.0 ⑩)."""
+    re-probed by the CLI 2026-09-25) — so an empty answer is neither (TS v0.43.0 ⑩).
+    A time series off the ND axis comes back empty when its range holds no date of
+    that axis (CLI probe 2026-11-01: is_op_rev over 2026-05 with no calendar_type,
+    qte_close over 2026-10-01..07), so that is named first (TS v0.50.0)."""
+    if time_series:
+        warnings.warn(
+            "the time series returned no data at all. That usually means the range holds no "
+            "date of its calendar: no trading day for a trading-day indicator (a holiday "
+            "range), no report-period end (03-31 / 06-30 / 09-30 / 12-31) for a report-period "
+            "one when calendar_type is left out or 'RD'. Widen the range, or pass "
+            "calendar_type='ND' for one row per day. If the range does hold such dates, "
+            "cross-check the codes against gangtise.indicator.search(...) and "
+            "gangtise.reference.securities_search(...); if they are right, report it with "
+            "the call.",
+            stacklevel=3,
+        )
+        return
     warnings.warn(
         "the indicator query returned no data at all. A missing value comes back as a "
         "null cell and an unrecognised code or parameter name as an error (100003), so an "
@@ -332,7 +333,12 @@ def _note_empty_matrix(data: Any) -> None:
 
 
 def _flag_dropped(
-    rows: dict[str, Any], data: Any, securities: list[str], indicators: list[str]
+    rows: dict[str, Any],
+    data: Any,
+    securities: list[str],
+    indicators: list[str],
+    *,
+    time_series: bool = False,
 ) -> None:
     """Mark and announce the codes the server did not resolve.
 
@@ -344,7 +350,7 @@ def _flag_dropped(
     keys) — the same partial contract ``_pagination`` and ``quote`` already use.
     """
     if is_empty_matrix(data):
-        _note_empty_matrix(data)
+        _note_empty_matrix(data, time_series=time_series)
         return
     dropped_securities, dropped_indicators = dropped_from_matrix(data, securities, indicators)
     if not dropped_securities and not dropped_indicators:
@@ -445,113 +451,6 @@ def _matrix_payload(result: Any) -> dict[str, Any]:
         if error.code == "999999":
             error.hint = EDE_NO_DATA_HINT
         raise
-
-
-def _probe_codes(indicators: Sequence[str]) -> list[str]:
-    """Each distinct, non-empty indicator code once, in request order."""
-    return list(dict.fromkeys(code for code in indicators if isinstance(code, str) and code))
-
-
-def _is_trading_day_typed(result: Any, code: str) -> bool:
-    """One indicator's verdict from its ``indicator.search`` answer.
-
-    ``False`` covers every form of "not proven": the code missing from the hits, an
-    empty ``parameterList`` (the static-attribute families report one, and so does
-    ``cdr_conv_ratio``, which takes a date anyway), any ``reportDate`` / ``fiscalYear``
-    key — ``div_cash_yld`` declares BOTH reportDate and tradeDate, so a check that
-    merely looked for tradeDate would pick TD and lose every value.
-    """
-    data = _search_result(result)
-    rows = data.get("list") if isinstance(data, dict) else data
-    if not isinstance(rows, list):
-        return False
-    entry = next(
-        (row for row in rows if isinstance(row, dict) and row.get("indicatorCode") == code), None
-    )
-    if entry is None:
-        return False
-    params = entry.get("parameterList")
-    keys = (
-        [
-            p["paramKey"]
-            for p in params
-            if isinstance(p, dict) and isinstance(p.get("paramKey"), str)
-        ]
-        if isinstance(params, list)
-        else []
-    )
-    if not keys or any(key in _PERIOD_DATE_KEYS for key in keys):
-        return False
-    return _TRADE_DATE_KEY in keys
-
-
-def _probe_body(code: str) -> dict[str, Any]:
-    return {"keyword": code, "limit": _PROBE_LIMIT}
-
-
-def _note_calendar_choice() -> None:
-    logger.info(
-        "[gangtise] indicator.time_series: every requested indicator takes tradeDate, so the "
-        "series is fetched on the trading-day calendar (calendarType=TD) instead of the "
-        "server default ND — no all-null non-trading rows, and fewer cells against the "
-        "30000 cap. Pass calendar_type='ND' to override."
-    )
-
-
-def _resolve_calendar_type(client: GangtiseClient, indicators: Sequence[str]) -> str | None:
-    """The ``calendarType`` for a time series the caller left unset: ``"TD"`` when EVERY
-    indicator is provably trading-day typed, otherwise ``None`` (send nothing and let the
-    server apply its default ``ND``).
-
-    The server default is deliberately the SAFE one: report-period indicators carry
-    values on dates like 2024-03-31 and 2024-06-30, both Sundays, which a trading-day
-    axis does not contain — ``TD`` there answers 200 with a full grid of ``null`` (CLI
-    probe 2026-09-19: ``is_op_rev`` 2024-03-25..07-05 gives 72 all-null columns under
-    ``TD``). But ``ND`` on a pure quote series is waste: a year is 366 columns against
-    248 (``qte_close``), a third of them weekend nulls billed and counted against the
-    30000-cell cap. Guessing ``ND`` wrong only wastes cells, guessing ``TD`` wrong
-    silently empties the result — so an empty ``parameterList``, an unresolvable code
-    or a failed probe all land on ``ND``: a search outage must not change the axis.
-    """
-    codes = _probe_codes(indicators)
-    if not codes:
-        return None
-
-    def verdict(code: str) -> bool:
-        try:
-            return _is_trading_day_typed(
-                client._call("indicator.search", body=_probe_body(code)), code
-            )
-        except Exception:
-            return False
-
-    with ThreadPoolExecutor(max_workers=min(_PROBE_CONCURRENCY, len(codes))) as pool:
-        verdicts = list(pool.map(verdict, codes))
-    return "TD" if all(verdicts) else None
-
-
-async def _resolve_calendar_type_async(
-    client: AsyncGangtiseClient, indicators: Sequence[str]
-) -> str | None:
-    """Async mirror of :func:`_resolve_calendar_type` (same verdicts, same concurrency cap)."""
-    codes = _probe_codes(indicators)
-    if not codes:
-        return None
-    semaphore = anyio.Semaphore(_PROBE_CONCURRENCY)
-    verdicts = [False] * len(codes)
-
-    async def run_one(index: int, code: str) -> None:
-        async with semaphore:
-            try:
-                result = await client._call("indicator.search", body=_probe_body(code))
-                verdicts[index] = _is_trading_day_typed(result, code)
-            except Exception:
-                verdicts[index] = False
-
-    async with anyio.create_task_group() as tg:
-        for index, code in enumerate(codes):
-            tg.start_soon(run_one, index, code)
-    return "TD" if all(verdicts) else None
 
 
 class Indicator:
@@ -681,14 +580,13 @@ class Indicator:
         校验、100003 / 100001 / null 的含义都相同）; 时序的区间由
         start_date / end_date 统管, 不要再用 indicator_param 传 tradeDate。
 
-        calendar_type 取值 ND=自然日 TD=交易日 WD=工作日, **服务端默认 ND**; TD 且跨市场时
-        日期列是各市场交易日的并集。**不传时 SDK 自动选**: 先用免费的 indicator.search 读
-        各指标的 parameterList（去重后每个指标码查一次, 并发 ≤ 5）——**全部**声明 tradeDate
-        且**都不**声明 reportDate / fiscalYear 才发 TD（行情 / 日频估值序列, 省掉非交易日的
-        null 行与单元格）; 任一指标声明 reportDate 或 fiscalYear、parameterList 为空、
-        查不到该 code 或这次查询失败, 都不发（服务端按 ND）。报告期末常落在非交易日, TD 会
-        让报告期类指标整行全 null 且不报错, 所以只往 ND 一边兜底。**显式传了就原样发送,
-        不查询也不改。**
+        calendar_type 取值 ND=自然日 TD=交易日 WD=工作日 RD=报告期（03-31 / 06-30 / 09-30 /
+        12-31）; TD 且跨市场时日期列是各市场交易日的并集。**不传时由服务端按指标定日期轴**:
+        行情类给交易日、报告期类给报告期、两类混查给两者日期的并集。⚠️ 一致预期类指标
+        （frcst_*）这样会走交易日, 节假日也会变的预测值不在其中, 要逐日序列就显式传 "ND"。
+        区间里没有该日期轴的日期时（如只查 5 月的报告期类指标、或整段是节假日的行情类指标）
+        返回空结果, SDK 发 warning; 放宽区间或传 calendar_type="ND"（每天一行）。显式传了就
+        原样发送。输出按日期倒序（最新在前）。
 
         🔴 **单次 30000 单元格上限**: 序列数 × 日期数（序列 = 单指标时的证券数, 或单证券
         时的指标数）超过 30000 报 100006, 不返回部分结果、不截断; 缩短区间或拆证券分批取。
@@ -701,8 +599,6 @@ class Indicator:
         indicators, securities = _require_scope(indicator, security)
         _assert_param_codes_bound(indicator_param, indicators)
         params = _normalize_param_dates(indicator_param)
-        # Build first: every local check has to fire before ANY request goes out —
-        # including the free calendar probe below.
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -716,11 +612,6 @@ class Indicator:
                 "indicatorParamList": list(_param_groups(params).values()),
             }
         )
-        # Then pick the date axis, and only when the caller left it unset: an explicit
-        # value is an instruction, not a default to improve on.
-        if calendar_type is None and _resolve_calendar_type(self._client, indicators) == "TD":
-            body["calendarType"] = "TD"
-            _note_calendar_choice()
         result = self._client._call("indicator.time-series", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -729,7 +620,9 @@ class Indicator:
         # whether a sector ID was asked for, since the server expands it and the
         # request count then says nothing about which axis the columns are.
         rows = flatten_time_series(data, key_by, securities)
-        _flag_dropped(rows, data, securities, indicators)
+        # An ND axis has a date for every day of the range, so an empty answer there is
+        # not the axis.
+        _flag_dropped(rows, data, securities, indicators, time_series=_off_nd(calendar_type))
         return _result_to_dataframe(rows)
 
     def screener(
@@ -922,14 +815,13 @@ class AsyncIndicator:
         校验、100003 / 100001 / null 的含义都相同）; 时序的区间由
         start_date / end_date 统管, 不要再用 indicator_param 传 tradeDate。
 
-        calendar_type 取值 ND=自然日 TD=交易日 WD=工作日, **服务端默认 ND**; TD 且跨市场时
-        日期列是各市场交易日的并集。**不传时 SDK 自动选**: 先用免费的 indicator.search 读
-        各指标的 parameterList（去重后每个指标码查一次, 并发 ≤ 5）——**全部**声明 tradeDate
-        且**都不**声明 reportDate / fiscalYear 才发 TD（行情 / 日频估值序列, 省掉非交易日的
-        null 行与单元格）; 任一指标声明 reportDate 或 fiscalYear、parameterList 为空、
-        查不到该 code 或这次查询失败, 都不发（服务端按 ND）。报告期末常落在非交易日, TD 会
-        让报告期类指标整行全 null 且不报错, 所以只往 ND 一边兜底。**显式传了就原样发送,
-        不查询也不改。**
+        calendar_type 取值 ND=自然日 TD=交易日 WD=工作日 RD=报告期（03-31 / 06-30 / 09-30 /
+        12-31）; TD 且跨市场时日期列是各市场交易日的并集。**不传时由服务端按指标定日期轴**:
+        行情类给交易日、报告期类给报告期、两类混查给两者日期的并集。⚠️ 一致预期类指标
+        （frcst_*）这样会走交易日, 节假日也会变的预测值不在其中, 要逐日序列就显式传 "ND"。
+        区间里没有该日期轴的日期时（如只查 5 月的报告期类指标、或整段是节假日的行情类指标）
+        返回空结果, SDK 发 warning; 放宽区间或传 calendar_type="ND"（每天一行）。显式传了就
+        原样发送。输出按日期倒序（最新在前）。
 
         🔴 **单次 30000 单元格上限**: 序列数 × 日期数（序列 = 单指标时的证券数, 或单证券
         时的指标数）超过 30000 报 100006, 不返回部分结果、不截断; 缩短区间或拆证券分批取。
@@ -942,8 +834,6 @@ class AsyncIndicator:
         indicators, securities = _require_scope(indicator, security)
         _assert_param_codes_bound(indicator_param, indicators)
         params = _normalize_param_dates(indicator_param)
-        # Build first: every local check has to fire before ANY request goes out —
-        # including the free calendar probe below.
         body = _request_body(
             {
                 "indicatorCodeList": indicators,
@@ -957,14 +847,6 @@ class AsyncIndicator:
                 "indicatorParamList": list(_param_groups(params).values()),
             }
         )
-        # Then pick the date axis, and only when the caller left it unset: an explicit
-        # value is an instruction, not a default to improve on.
-        if (
-            calendar_type is None
-            and await _resolve_calendar_type_async(self._client, indicators) == "TD"
-        ):
-            body["calendarType"] = "TD"
-            _note_calendar_choice()
         result = await self._client._call("indicator.time-series", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -973,7 +855,9 @@ class AsyncIndicator:
         # whether a sector ID was asked for, since the server expands it and the
         # request count then says nothing about which axis the columns are.
         rows = flatten_time_series(data, key_by, securities)
-        _flag_dropped(rows, data, securities, indicators)
+        # An ND axis has a date for every day of the range, so an empty answer there is
+        # not the axis.
+        _flag_dropped(rows, data, securities, indicators, time_series=_off_nd(calendar_type))
         return _result_to_dataframe(rows)
 
     async def screener(

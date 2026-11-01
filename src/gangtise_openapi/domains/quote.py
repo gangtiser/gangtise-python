@@ -786,6 +786,57 @@ def _flag_single_truncation(result: Any, rows: list[Any], limit: int, label: str
     )
 
 
+# A sector-fund-flow field list naming only these key columns comes back as an empty
+# list, not an error (CLI probe 2026-11-01: ["tradeDate"] and ["sectorId"] give 0 rows
+# where a value field gives 5), so an empty answer then says nothing about the data.
+_SECTOR_FLOW_KEYS = frozenset({"sectorId", "tradeDate"})
+
+
+def _sector_fund_flow_body(
+    sector: Any, start_date: Any, end_date: Any, limit: int | None, field: Any
+) -> tuple[dict[str, Any], list[Any] | None, int]:
+    """The request body, the field list and the limit actually sent. The limit goes out
+    explicitly so the truncation check compares against the one in use (TS v0.50.0)."""
+    _validate_limit(limit)
+    sent = limit if limit is not None else DEFAULT_QUOTE_LIMIT
+    sectors = _unique(_as_list(sector, "sector"))
+    if sectors is None:
+        raise ValidationError(
+            "sector is required: pass one or more sector IDs from reference.sector_search"
+        )
+    fields = _unique(_as_list(field, "field"))
+    body = _request_body(
+        {
+            "sectorList": sectors,
+            "startDate": _date_to_iso(start_date, "startDate"),
+            "endDate": _date_to_iso(end_date, "endDate"),
+            "limit": sent,
+            "fieldList": fields,
+        }
+    )
+    return body, fields, sent
+
+
+def _finish_sector_fund_flow(
+    result: Any, fields: list[Any] | None, limit: int, raw: bool
+) -> pd.DataFrame | dict[str, Any] | list[Any]:
+    """Note a key-columns-only empty answer, flag a limit-truncated one, render."""
+    warn_if_server_partial(result, "quote sector-fund-flow")
+    rows, row_fields = _quote_rows_and_fields(result)
+    if fields and not rows and all(str(name) in _SECTOR_FLOW_KEYS for name in fields):
+        warnings.warn(
+            f"quote sector-fund-flow: no rows came back, and field names no fund-flow column "
+            f"({', '.join(map(str, fields))}). This endpoint answers such a request with an "
+            "empty list rather than an error, so it says nothing about whether data exists: "
+            "add a value field such as sectorMainNetInflow, or leave field out.",
+            stacklevel=3,
+        )
+    _flag_single_truncation(result, rows, limit, "sector-fund-flow")
+    if raw:
+        return result  # type: ignore[no-any-return]
+    return _kline_dataframe(rows, row_fields, result)
+
+
 class Quote:
     """`gangtise.quote.*` — K-line + realtime quote endpoints."""
 
@@ -1032,6 +1083,41 @@ class Quote:
             raw=raw,
             identity=(),
         )
+
+    def sector_fund_flow(
+        self,
+        *,
+        sector: FilterValue,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """查询板块日资金流向（quote.sector-fund-flow），免费。
+
+        行业 / 概念 / 指数类板块的**日频**资金流向，仅历史数据。每个值是该板块**当日成分股**
+        （历史哪天就用哪天的成分名单）资金流向的加总，**只计沪深京上市公司**——板块里的港股、
+        美股等不计入。返回按板块、日期倒序，每行 sectorId / tradeDate 在最前；小 / 中 / 大 /
+        特大单（sector{Small|Medium|Large|Xlarge}{Inflow|Outflow|NetInflow}）、主力
+        （sectorMain*，大单 + 特大单）与全单（sectorTotalInflow / sectorTotalOutflow）的流入
+        流出，金额单位元。与 fund_flow 不同，**没有占比字段**，也没有全市场关键词。
+
+        sector: 板块 ID（必填），单值或列表（重复的自动去掉），用 reference.sector_search 查，
+        与 indicator 的板块 ID 同一套；ID 不存在报 100003。start_date / end_date 省略时
+        end_date 默认最新已入库交易日、start_date 默认往前 1 年；超出账号的数据窗口报 110003
+        （区间跨过下界也整段报错，不截短返回），可回溯范围可能短于 fund_flow。field 省略返回
+        全部，写错报 100005 并点名；⚠️ 只传 sectorId / tradeDate、不带任何资金字段时返回 0 行、
+        不报错（SDK 发 warning）——至少带一个资金字段。
+
+        limit 默认 6000、最大 10000，**只截返回行数，不减计算量**；无翻页，返回行数撞上 limit
+        时结果标 partial（raw 可见）并发 warning。🔴 **查询太重报 100006、不返回部分数据**：
+        计算量随板块数、成分股数、日期跨度和字段数增长，没有固定的最大天数；缩短日期区间、减少
+        sector 或 field，分成不重叠的区间分批查——调小 limit 无效，原样重试也无效（不是限流）。
+        """
+        body, fields, sent = _sector_fund_flow_body(sector, start_date, end_date, limit, field)
+        result = self._client._call("quote.sector-fund-flow", body=body)
+        return _finish_sector_fund_flow(result, fields, sent, raw)
 
     def minute_kline(
         self,
@@ -1408,6 +1494,41 @@ class AsyncQuote:
             raw=raw,
             identity=(),
         )
+
+    async def sector_fund_flow(
+        self,
+        *,
+        sector: FilterValue,
+        start_date: str | dt.date | None = None,
+        end_date: str | dt.date | None = None,
+        limit: int | None = None,
+        field: FilterValue | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """查询板块日资金流向（quote.sector-fund-flow），免费。
+
+        行业 / 概念 / 指数类板块的**日频**资金流向，仅历史数据。每个值是该板块**当日成分股**
+        （历史哪天就用哪天的成分名单）资金流向的加总，**只计沪深京上市公司**——板块里的港股、
+        美股等不计入。返回按板块、日期倒序，每行 sectorId / tradeDate 在最前；小 / 中 / 大 /
+        特大单（sector{Small|Medium|Large|Xlarge}{Inflow|Outflow|NetInflow}）、主力
+        （sectorMain*，大单 + 特大单）与全单（sectorTotalInflow / sectorTotalOutflow）的流入
+        流出，金额单位元。与 fund_flow 不同，**没有占比字段**，也没有全市场关键词。
+
+        sector: 板块 ID（必填），单值或列表（重复的自动去掉），用 reference.sector_search 查，
+        与 indicator 的板块 ID 同一套；ID 不存在报 100003。start_date / end_date 省略时
+        end_date 默认最新已入库交易日、start_date 默认往前 1 年；超出账号的数据窗口报 110003
+        （区间跨过下界也整段报错，不截短返回），可回溯范围可能短于 fund_flow。field 省略返回
+        全部，写错报 100005 并点名；⚠️ 只传 sectorId / tradeDate、不带任何资金字段时返回 0 行、
+        不报错（SDK 发 warning）——至少带一个资金字段。
+
+        limit 默认 6000、最大 10000，**只截返回行数，不减计算量**；无翻页，返回行数撞上 limit
+        时结果标 partial（raw 可见）并发 warning。🔴 **查询太重报 100006、不返回部分数据**：
+        计算量随板块数、成分股数、日期跨度和字段数增长，没有固定的最大天数；缩短日期区间、减少
+        sector 或 field，分成不重叠的区间分批查——调小 limit 无效，原样重试也无效（不是限流）。
+        """
+        body, fields, sent = _sector_fund_flow_body(sector, start_date, end_date, limit, field)
+        result = await self._client._call("quote.sector-fund-flow", body=body)
+        return _finish_sector_fund_flow(result, fields, sent, raw)
 
     async def minute_kline(
         self,

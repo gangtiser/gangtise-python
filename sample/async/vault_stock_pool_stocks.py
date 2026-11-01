@@ -21,6 +21,7 @@ async def main():
     show_result(
         await gangtise.async_.vault.stock_pool_stocks(
             pool_id=["all"],  # 股票池 ID, 支持单值或列表; 真实 ID 见 vault.stock_pool_list
+            space_type=2,  # 1=个人（默认）, 2=租户; pool_id 要取自同一 space_type 的列表
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

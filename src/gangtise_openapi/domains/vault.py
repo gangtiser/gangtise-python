@@ -40,6 +40,9 @@ _DRIVE_RENAME_TYPES = ("file", "folder")
 # file" (probed by the CLI 2026-09-25), so it is refused locally (TS v0.43.0 ⑧).
 _RECORD_CONTENT_TYPES = ("original", "asr", "summary")
 _CONFERENCE_CONTENT_TYPES = ("asr", "summary")
+# Stock-pool queries: 1 = the user's own pools, 2 = the tenant's. Left out of the body
+# when not given — the server reads a missing spaceType as 1 (TS v0.50.0).
+_POOL_SPACES = (1, 2)
 
 
 def _check_choice(value: Any, *, name: str, allowed: tuple[str, ...]) -> str:
@@ -89,6 +92,19 @@ def _read_drive_upload(
     if title is not None:
         fields.append(("title", title))
     return UploadFile(filename=path.name, data=path.read_bytes(), fields=tuple(fields))
+
+
+def _stock_note_filter(security: Any, note_id: Any) -> dict[str, Any]:
+    """The note list needs exactly one of the two lists and refuses both (100003);
+    neither means every note, sent as ``securityList: ["all"]`` (TS v0.50.0). An explicit
+    empty list is refused rather than read as "every note"."""
+    securities = _as_named_list(security, "security")
+    notes = _as_named_list(note_id, "note_id")
+    if securities is not None and notes is not None:
+        raise ValidationError("pass security or note_id, not both")
+    if notes is not None:
+        return {"stockNoteIdList": notes}
+    return {"securityList": securities or ["all"]}
 
 
 def _drive_copy_body(
@@ -332,9 +348,18 @@ class Vault:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
 
-    def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
-        """查询用户股票池 ID 与名称列表（vault.stock-pool.list）。"""
-        result = self._client._call("vault.stock-pool.list", body={})
+    def stock_pool_list(
+        self, *, space_type: int | None = None, raw: bool = False
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询股票池 ID 与名称列表（vault.stock-pool.list），返回 poolId / poolName / spaceType。
+
+        space_type: 1=个人自选股股票池（不传即此项）, 2=所属租户的股票池（终端租户页签下的池，
+        页签名不是池名）；一次只查一种。无租户股票池查询权限时报 999004；有权限但没有可见的池
+        返回空表。增删改只操作个人股票池，pool_id 取自不传 space_type 的列表。
+        """
+        _validate_enum(space_type, name="space_type", allowed=_POOL_SPACES)
+        body = _request_body({"spaceType": space_type})
+        result = self._client._call("vault.stock-pool.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         # TS returns {poolList: [...]}; treat poolList as the row collection.
@@ -351,15 +376,24 @@ class Vault:
         self,
         *,
         pool_id: FilterValue = "all",
+        space_type: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询股票池内的证券列表（vault.stock-pool.stocks）。
+        """查询股票池内的证券列表（vault.stock-pool.stocks），返回 securityCode / securityName。
 
-        pool_id 默认 "all" 表示全部股票池, 显式传空列表或空白字符串同样查全部股票池;
-        真实 ID 见 stock_pool_list。
+        pool_id 默认 "all" 表示该 space_type 下全部可见的股票池, 显式传空列表或空白字符串同样
+        查全部; 真实 ID 见 stock_pool_list。space_type 同 stock_pool_list（1=个人, 默认; 2=租户）。
+
+        🔴 pool_id 要取自同一 space_type 的 stock_pool_list: 另一种空间的 ID 不会被匹配——与其他
+        有效 ID 一起传时被静默忽略, 全部不匹配时报 999004「股票池不存在或无权访问」。租户池的明细
+        要传 space_type=2。按完整 securityCode 去重合并、不标注来自哪个池; 单次最多 10000 只,
+        超出截断且没有截断标记, 返回恰好 10000 只时不能当作已取全（逐池查可降低截断）。
         """
+        _validate_enum(space_type, name="space_type", allowed=_POOL_SPACES)
         # TS sends ["all"] for an omitted AND an empty --pool-id.
-        body = {"poolIdList": _as_list(pool_id, "pool_id") or ["all"]}
+        body = _request_body(
+            {"spaceType": space_type, "poolIdList": _as_list(pool_id, "pool_id") or ["all"]}
+        )
         result = self._client._call("vault.stock-pool.stocks", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -453,6 +487,101 @@ class Vault:
         body = _request_body({"poolIdList": _as_list(pool_id, "pool_id")})
         return self._client._call(  # type: ignore[no-any-return]
             "vault.stock-pool.delete", body=body, confirm=confirm
+        )
+
+    # ---- stock notes (TS v0.50.0) ----
+    # The user's own notes, all free. A note links 1-50 securities, fixed at creation;
+    # content is plain text of at most 10000 code points. The server checks every limit,
+    # so none is checked here.
+
+    def stock_note_list(
+        self,
+        *,
+        security: FilterValue | None = None,
+        note_id: FilterValue | None = None,
+        from_: int = 0,
+        size: int | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询本人的个股投资笔记（vault.stock-note.list，免费）。
+
+        只查当前账号本人写的笔记（别人的笔记查不到，也不暴露是否存在）。security 与 note_id 都
+        不传 = 本人全部笔记（含已取消关注的证券下仍保留的笔记）；security 按证券筛，笔记关联的
+        证券里含其中任一只即命中；note_id 按笔记 ID 精确查。两者二选一，同传在发请求前抛
+        ValidationError；各最多 100 个，支持单值或列表。
+
+        代码大小写、首尾空格不影响匹配，但港股要 5 位（00700.HK）、美股要用交易所后缀（AAPL.O，
+        AAPL.US 不会转换）。**代码写错、不存在或类型不支持时整次报 120001**，不会当成「没有笔记」
+        返回空；有效代码没有笔记才是空结果。不存在或不属于本人的笔记 ID 被直接过滤，不计入 total、
+        不报错。
+
+        自动翻页（单页 50），省略 size 取全部；按 createTime 倒序，同时命中多只证券的笔记只出现
+        一次；翻页期间有增删时偏移会变，不保证跨页一致。返回 stockNoteId / securityList（该笔记
+        **完整**的关联证券，按代码升序，不只是筛选的那几只）/ content（纯文本原样，保留换行）/
+        createTime / updateTime（北京时间，精确到秒；正文没变的提交不刷新 updateTime）。
+        """
+        body = _request_body({**_stock_note_filter(security, note_id), "from": from_, "size": size})
+        result = self._client._call("vault.stock-note.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def stock_note_add(
+        self, *, security: FilterValue, content: str, raw: bool = False
+    ) -> dict[str, Any]:
+        """新增个股投资笔记（vault.stock-note.add，免费），返回 {stockNoteId, securityList}。
+
+        security: 关联 1~50 只证券（规范化去重后计数），支持单值或列表；可关联 A 股、港股、美股
+        （.O / .N 等）、ETF、交易所指数、概念指数（.GT）、中信行业指数（.CI）、全球指数（如
+        SPX.SPI），可混传；**申万行业指数（.SWI）不支持**。任一只无效则整条不建，报 120001 并点名。
+        content: 纯文本（Markdown 只是文字），不能为空或全是空白，最长 10000 个字符（按 Unicode
+        码点计，首尾空白和换行都算）；原样保存，不裁剪。返回的 securityList 为规范化代码、升序。
+
+        🔴 关联的证券建好后不能改：要换关联范围就新增一条、核对无误后再 stock_note_delete 旧的
+        （两步不是原子操作）。
+        🔴 服务端没有防重机制: 该端点标 no-replay，超时 / 5xx 不自动重发；别直接重跑，先
+        stock_note_list(security=...) 看是否已经写入，否则会多出一条。
+
+        返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
+        """
+        body = _request_body(
+            {"securityList": _as_named_list(security, "security"), "content": content}
+        )
+        return self._client._call("vault.stock-note.add", body=body)  # type: ignore[no-any-return]
+
+    def stock_note_update(self, *, note_id: str, content: str, raw: bool = False) -> dict[str, Any]:
+        """改写个股投资笔记的正文（vault.stock-note.update，免费），成功返回 {}。
+
+        note_id 取自 stock_note_list；content **整体替换**旧正文（不是追加），规则同
+        stock_note_add。只改正文，关联证券不变；一条笔记关联多只证券时，改动在每只证券下都可见。
+        updateTime 从 stock_note_list 看。不存在或不属于本人报 130002「笔记不存在或无权操作」。
+        没有版本控制，并发改写以最后提交的为准；重复提交同样内容算成功，保留默认重试。
+
+        返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
+        """
+        body = _request_body({"stockNoteId": note_id, "content": content})
+        return self._client._call("vault.stock-note.update", body=body)  # type: ignore[no-any-return]
+
+    def stock_note_delete(
+        self, *, note_id: FilterValue, confirm: bool = False, raw: bool = False
+    ) -> dict[str, Any]:
+        """批量删除个股投资笔记（vault.stock-note.delete），返回 {successList, failList}。
+
+        🔴 不可恢复: 删除的是整条笔记连同它与全部证券的关联。必须传 confirm=True，否则在发请求前
+        抛 ValidationError（直接调 client._call 同样要 confirm）。先用
+        stock_note_list(note_id=...) 核对内容；被拒后别自动补 confirm=True 重跑，先把要删的笔记
+        给用户确认。
+
+        note_id 支持单值或列表，一次最多 100 个；只接受明确的 ID，没有 "all"。幂等: 已删掉的、
+        不存在的、不属于本人的 ID 都进 successList（不会删到别人的笔记）。单条失败进 failList
+        （{stockNoteId, failReason}），非空时发 UserWarning 并标 partial=True；只需对 failList
+        里的 ID 重试。
+
+        返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
+        """
+        body = _request_body({"stockNoteIdList": _as_named_list(note_id, "note_id")})
+        return self._client._call(  # type: ignore[no-any-return]
+            "vault.stock-note.delete", body=body, confirm=confirm
         )
 
     # ---- drive management (TS v0.41.0 ③) ----
@@ -928,9 +1057,18 @@ class AsyncVault:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
 
-    async def stock_pool_list(self, *, raw: bool = False) -> pd.DataFrame | dict[str, Any]:
-        """查询用户股票池 ID 与名称列表（vault.stock-pool.list）。"""
-        result = await self._client._call("vault.stock-pool.list", body={})
+    async def stock_pool_list(
+        self, *, space_type: int | None = None, raw: bool = False
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询股票池 ID 与名称列表（vault.stock-pool.list），返回 poolId / poolName / spaceType。
+
+        space_type: 1=个人自选股股票池（不传即此项）, 2=所属租户的股票池（终端租户页签下的池，
+        页签名不是池名）；一次只查一种。无租户股票池查询权限时报 999004；有权限但没有可见的池
+        返回空表。增删改只操作个人股票池，pool_id 取自不传 space_type 的列表。
+        """
+        _validate_enum(space_type, name="space_type", allowed=_POOL_SPACES)
+        body = _request_body({"spaceType": space_type})
+        result = await self._client._call("vault.stock-pool.list", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         rows: list[Any] = []
@@ -946,15 +1084,24 @@ class AsyncVault:
         self,
         *,
         pool_id: FilterValue = "all",
+        space_type: int | None = None,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any]:
-        """查询股票池内的证券列表（vault.stock-pool.stocks）。
+        """查询股票池内的证券列表（vault.stock-pool.stocks），返回 securityCode / securityName。
 
-        pool_id 默认 "all" 表示全部股票池, 显式传空列表或空白字符串同样查全部股票池;
-        真实 ID 见 stock_pool_list。
+        pool_id 默认 "all" 表示该 space_type 下全部可见的股票池, 显式传空列表或空白字符串同样
+        查全部; 真实 ID 见 stock_pool_list。space_type 同 stock_pool_list（1=个人, 默认; 2=租户）。
+
+        🔴 pool_id 要取自同一 space_type 的 stock_pool_list: 另一种空间的 ID 不会被匹配——与其他
+        有效 ID 一起传时被静默忽略, 全部不匹配时报 999004「股票池不存在或无权访问」。租户池的明细
+        要传 space_type=2。按完整 securityCode 去重合并、不标注来自哪个池; 单次最多 10000 只,
+        超出截断且没有截断标记, 返回恰好 10000 只时不能当作已取全（逐池查可降低截断）。
         """
+        _validate_enum(space_type, name="space_type", allowed=_POOL_SPACES)
         # TS sends ["all"] for an omitted AND an empty --pool-id.
-        body = {"poolIdList": _as_list(pool_id, "pool_id") or ["all"]}
+        body = _request_body(
+            {"spaceType": space_type, "poolIdList": _as_list(pool_id, "pool_id") or ["all"]}
+        )
         result = await self._client._call("vault.stock-pool.stocks", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
@@ -1050,6 +1197,103 @@ class AsyncVault:
         body = _request_body({"poolIdList": _as_list(pool_id, "pool_id")})
         return await self._client._call(  # type: ignore[no-any-return]
             "vault.stock-pool.delete", body=body, confirm=confirm
+        )
+
+    # ---- stock notes (TS v0.50.0) ----
+    # The user's own notes, all free. A note links 1-50 securities, fixed at creation;
+    # content is plain text of at most 10000 code points. The server checks every limit,
+    # so none is checked here.
+
+    async def stock_note_list(
+        self,
+        *,
+        security: FilterValue | None = None,
+        note_id: FilterValue | None = None,
+        from_: int = 0,
+        size: int | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询本人的个股投资笔记（vault.stock-note.list，免费）。
+
+        只查当前账号本人写的笔记（别人的笔记查不到，也不暴露是否存在）。security 与 note_id 都
+        不传 = 本人全部笔记（含已取消关注的证券下仍保留的笔记）；security 按证券筛，笔记关联的
+        证券里含其中任一只即命中；note_id 按笔记 ID 精确查。两者二选一，同传在发请求前抛
+        ValidationError；各最多 100 个，支持单值或列表。
+
+        代码大小写、首尾空格不影响匹配，但港股要 5 位（00700.HK）、美股要用交易所后缀（AAPL.O，
+        AAPL.US 不会转换）。**代码写错、不存在或类型不支持时整次报 120001**，不会当成「没有笔记」
+        返回空；有效代码没有笔记才是空结果。不存在或不属于本人的笔记 ID 被直接过滤，不计入 total、
+        不报错。
+
+        自动翻页（单页 50），省略 size 取全部；按 createTime 倒序，同时命中多只证券的笔记只出现
+        一次；翻页期间有增删时偏移会变，不保证跨页一致。返回 stockNoteId / securityList（该笔记
+        **完整**的关联证券，按代码升序，不只是筛选的那几只）/ content（纯文本原样，保留换行）/
+        createTime / updateTime（北京时间，精确到秒；正文没变的提交不刷新 updateTime）。
+        """
+        body = _request_body({**_stock_note_filter(security, note_id), "from": from_, "size": size})
+        result = await self._client._call("vault.stock-note.list", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def stock_note_add(
+        self, *, security: FilterValue, content: str, raw: bool = False
+    ) -> dict[str, Any]:
+        """新增个股投资笔记（vault.stock-note.add，免费），返回 {stockNoteId, securityList}。
+
+        security: 关联 1~50 只证券（规范化去重后计数），支持单值或列表；可关联 A 股、港股、美股
+        （.O / .N 等）、ETF、交易所指数、概念指数（.GT）、中信行业指数（.CI）、全球指数（如
+        SPX.SPI），可混传；**申万行业指数（.SWI）不支持**。任一只无效则整条不建，报 120001 并点名。
+        content: 纯文本（Markdown 只是文字），不能为空或全是空白，最长 10000 个字符（按 Unicode
+        码点计，首尾空白和换行都算）；原样保存，不裁剪。返回的 securityList 为规范化代码、升序。
+
+        🔴 关联的证券建好后不能改：要换关联范围就新增一条、核对无误后再 stock_note_delete 旧的
+        （两步不是原子操作）。
+        🔴 服务端没有防重机制: 该端点标 no-replay，超时 / 5xx 不自动重发；别直接重跑，先
+        stock_note_list(security=...) 看是否已经写入，否则会多出一条。
+
+        返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
+        """
+        body = _request_body(
+            {"securityList": _as_named_list(security, "security"), "content": content}
+        )
+        return await self._client._call("vault.stock-note.add", body=body)  # type: ignore[no-any-return]
+
+    async def stock_note_update(
+        self, *, note_id: str, content: str, raw: bool = False
+    ) -> dict[str, Any]:
+        """改写个股投资笔记的正文（vault.stock-note.update，免费），成功返回 {}。
+
+        note_id 取自 stock_note_list；content **整体替换**旧正文（不是追加），规则同
+        stock_note_add。只改正文，关联证券不变；一条笔记关联多只证券时，改动在每只证券下都可见。
+        updateTime 从 stock_note_list 看。不存在或不属于本人报 130002「笔记不存在或无权操作」。
+        没有版本控制，并发改写以最后提交的为准；重复提交同样内容算成功，保留默认重试。
+
+        返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
+        """
+        body = _request_body({"stockNoteId": note_id, "content": content})
+        return await self._client._call("vault.stock-note.update", body=body)  # type: ignore[no-any-return]
+
+    async def stock_note_delete(
+        self, *, note_id: FilterValue, confirm: bool = False, raw: bool = False
+    ) -> dict[str, Any]:
+        """批量删除个股投资笔记（vault.stock-note.delete），返回 {successList, failList}。
+
+        🔴 不可恢复: 删除的是整条笔记连同它与全部证券的关联。必须传 confirm=True，否则在发请求前
+        抛 ValidationError（直接调 client._call 同样要 confirm）。先用
+        stock_note_list(note_id=...) 核对内容；被拒后别自动补 confirm=True 重跑，先把要删的笔记
+        给用户确认。
+
+        note_id 支持单值或列表，一次最多 100 个；只接受明确的 ID，没有 "all"。幂等: 已删掉的、
+        不存在的、不属于本人的 ID 都进 successList（不会删到别人的笔记）。单条失败进 failList
+        （{stockNoteId, failReason}），非空时发 UserWarning 并标 partial=True；只需对 failList
+        里的 ID 重试。
+
+        返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
+        """
+        body = _request_body({"stockNoteIdList": _as_named_list(note_id, "note_id")})
+        return await self._client._call(  # type: ignore[no-any-return]
+            "vault.stock-note.delete", body=body, confirm=confirm
         )
 
     # ---- drive management (TS v0.41.0 ③) ----

@@ -538,6 +538,8 @@ class Insight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         research_area: FilterValue | None = None,
         institution: FilterValue | None = None,
@@ -561,6 +563,10 @@ class Insight:
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
 
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
+
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
@@ -574,6 +580,8 @@ class Insight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "researchAreaList": _as_list(research_area, "research_area"),
                 "institutionList": _as_list(institution, "institution"),
@@ -598,6 +606,8 @@ class Insight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         research_area: FilterValue | None = None,
         institution: FilterValue | None = None,
@@ -617,6 +627,10 @@ class Insight:
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
 
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
+
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
@@ -630,6 +644,8 @@ class Insight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "researchAreaList": _as_list(research_area, "research_area"),
                 "institutionList": _as_list(institution, "institution"),
@@ -653,6 +669,8 @@ class Insight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         institution: FilterValue | None = None,
         location: FilterValue | None = None,
@@ -663,6 +681,10 @@ class Insight:
 
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
+
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
 
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
@@ -677,6 +699,8 @@ class Insight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "institutionList": _as_list(institution, "institution"),
                 "locationList": _as_list(location, "location"),
@@ -694,6 +718,8 @@ class Insight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         research_area: FilterValue | None = None,
         location: FilterValue | None = None,
@@ -704,6 +730,10 @@ class Insight:
 
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
+
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
 
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
@@ -718,6 +748,8 @@ class Insight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "researchAreaList": _as_list(research_area, "research_area"),
                 "locationList": _as_list(location, "location"),
@@ -2047,6 +2079,8 @@ class AsyncInsight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         research_area: FilterValue | None = None,
         institution: FilterValue | None = None,
@@ -2070,6 +2104,10 @@ class AsyncInsight:
         research_area 用 gangtiseIndustry 码（reference.constant_list 查询）；
         location 用 domesticCity 码。
 
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
+
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
@@ -2083,6 +2121,8 @@ class AsyncInsight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "researchAreaList": _as_list(research_area, "research_area"),
                 "institutionList": _as_list(institution, "institution"),
@@ -2107,6 +2147,8 @@ class AsyncInsight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         research_area: FilterValue | None = None,
         institution: FilterValue | None = None,
@@ -2126,6 +2168,10 @@ class AsyncInsight:
         usChinaConcept（site-visit 无 usStocks）；permission 取值 1=公开 / 2=私密；
         research_area 用 gangtiseIndustry 码；location 用 domesticCity 码。
 
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
+
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
 
@@ -2139,6 +2185,8 @@ class AsyncInsight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "researchAreaList": _as_list(research_area, "research_area"),
                 "institutionList": _as_list(institution, "institution"),
@@ -2162,6 +2210,8 @@ class AsyncInsight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         institution: FilterValue | None = None,
         location: FilterValue | None = None,
@@ -2172,6 +2222,10 @@ class AsyncInsight:
 
         服务端仅按 institution（主办机构 ID）和 location（domesticCity 城市/省份 ID）
         筛选，无 research_area / security / category 等。
+
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
 
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
@@ -2186,6 +2240,8 @@ class AsyncInsight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "institutionList": _as_list(institution, "institution"),
                 "locationList": _as_list(location, "location"),
@@ -2203,6 +2259,8 @@ class AsyncInsight:
         size: int | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
+        publish_start_time: str | None = None,
+        publish_end_time: str | None = None,
         keyword: str | None = None,
         research_area: FilterValue | None = None,
         location: FilterValue | None = None,
@@ -2213,6 +2271,10 @@ class AsyncInsight:
 
         服务端仅按 research_area（gangtiseIndustry 码）和 location（domesticCity 码）
         筛选，无 institution / security / category 等。
+
+        start_time / end_time 按举办时间筛选；publish_start_time / publish_end_time 按收录时间
+        （返回字段 publishTime，日程首次收录的时间，不是举办时间）筛选，两组同时生效；
+        只写日期的 publish_end_time 覆盖当天整天。
 
         🔴 `location` 只收 domesticCity 码（如上海 `156310000`）；传城市名（`"上海"`）服务端返回
         `999999 系统内部错误`、而不是参数错误（四个日程类接口一致，2026-10 实测）。
@@ -2227,6 +2289,8 @@ class AsyncInsight:
                 "size": size,
                 "startTime": start_time,
                 "endTime": end_time,
+                "publishStartTime": publish_start_time,
+                "publishEndTime": publish_end_time,
                 "keyword": keyword,
                 "researchAreaList": _as_list(research_area, "research_area"),
                 "locationList": _as_list(location, "location"),

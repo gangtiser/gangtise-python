@@ -24,6 +24,8 @@ async def main():
             size=10,  # 分页大小; 省略则按端点最大页 50 自动翻页
             start_time="2026-05-01",  # 起始时间
             end_time="2026-05-28",  # 结束时间
+            publish_start_time="2026-04-01",  # 收录时间起（publishTime, 日程首次收录的时间）, 与举办时间同时生效
+            publish_end_time="2026-05-28",  # 收录时间止; 只写日期时覆盖当天整天
             keyword="新能源",  # 关键词
             security="000001.SZ",  # 证券代码, 支持单值或列表
         ),

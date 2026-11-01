@@ -1949,3 +1949,87 @@ def test_empty_minute_and_realtime_keep_the_columns(tmp_path, method, path, kwar
             warnings.simplefilter("ignore")  # the empty-minutes note
             df = getattr(Quote(client), method)(**kwargs)
     assert list(df.columns) == fields
+
+
+# ───────────── sector fund flow (TS v0.50.0) ─────────────
+
+_SECTOR_FLOW = "/application/open-quote/fund-flow/sector-daily"
+
+
+def _sector_flow_response(rows: list, fields: list | None = None) -> httpx.Response:
+    data = {
+        "total": len(rows),
+        "fieldList": fields or ["sectorId", "tradeDate", "sectorMainNetInflow"],
+        "list": rows,
+    }
+    return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+
+def test_sector_fund_flow_body_and_default_limit(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SECTOR_FLOW).mock(
+            return_value=_sector_flow_response([["801010", "2026-10-30", -1.5e8]])
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = Quote(client).sector_fund_flow(
+                sector=["801010", "801010", "885001"],
+                start_date="2026/10/01",
+                end_date="2026-10-30",
+                field="sectorMainNetInflow",
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert body == {
+        "sectorList": ["801010", "885001"],
+        "startDate": "2026-10-01",
+        "endDate": "2026-10-30",
+        "limit": 6000,  # sent explicitly so the truncation check compares against it
+        "fieldList": ["sectorMainNetInflow"],
+    }
+    assert df.iloc[0]["sectorMainNetInflow"] == -1.5e8
+
+
+def test_sector_fund_flow_flags_partial_when_the_limit_is_hit(tmp_path):
+    rows = [["801010", f"2026-10-{d:02d}", 1.0] for d in (28, 29, 30)]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_SECTOR_FLOW).mock(return_value=_sector_flow_response(rows))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="sector-fund-flow returned 3 rows"):
+                out = Quote(client).sector_fund_flow(sector="801010", limit=3, raw=True)
+    assert out["partial"] is True
+
+
+def test_sector_fund_flow_notes_an_empty_answer_to_key_columns_only(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_SECTOR_FLOW).mock(
+            return_value=_sector_flow_response([], fields=["sectorId", "tradeDate"])
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.warns(UserWarning, match="names no fund-flow column"):
+                df = Quote(client).sector_fund_flow(sector="801010", field="tradeDate")
+    assert df.empty
+
+
+def test_sector_fund_flow_empty_answer_with_a_value_field_is_quiet(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_SECTOR_FLOW).mock(return_value=_sector_flow_response([]))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client, warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Quote(client).sector_fund_flow(sector="801010", field="sectorMainNetInflow")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"sector": None}, "sector is required"),
+        ({"sector": []}, "sector is an empty list"),
+        ({"sector": "801010", "limit": 10001}, "limit must be"),
+        ({"sector": "801010", "start_date": "10-01-2026"}, "start_date"),
+    ],
+)
+def test_sector_fund_flow_refuses_bad_arguments_locally(tmp_path, kwargs, match):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_SECTOR_FLOW)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match=match):
+                Quote(client).sector_fund_flow(**kwargs)
+    assert not route.called

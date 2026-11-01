@@ -22,8 +22,8 @@ async def main():
             end_date="2025-06-30",  # 结束日期 YYYY-MM-DD（必填）
             indicator=["qte_close", "qte_pre_close"],  # 指标码, 支持单值或列表
             security="600519.SH",  # 单证券 -> 列为各指标
-            # 未传 calendar_type: SDK 先用免费的 indicator.search 读 parameterList,
-            # 两个指标都只吃 tradeDate, 所以按 TD（交易日）取, 省掉周末的 null 行
+            # 未传 calendar_type: 服务端按指标定日期轴, 两个行情类指标走交易日
+            # （报告期类走报告期末, 两类混查取并集）
         ),
         __file__,
     )
@@ -35,7 +35,7 @@ async def main():
             end_date="2025-06-30",
             indicator="qte_close",  # 单指标 -> 列为各证券
             security=["600519.SH", "000001.SZ"],
-            calendar_type="TD",  # 日历: ND=自然日 TD=交易日 WD=工作日; 服务端默认 ND, 省略时 SDK 自动判定
+            calendar_type="TD",  # 日历: ND=自然日 TD=交易日 WD=工作日 RD=报告期; 省略时服务端按指标定
             currency="CNY",  # 币种: DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）
             scale="0",  # 数量级: 0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）
             indicator_param={"qte_close": {"adjustType": "2"}},  # 单指标参数, 此处 2=前复权

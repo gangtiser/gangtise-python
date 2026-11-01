@@ -14,7 +14,7 @@ from gangtise_openapi._errors import ValidationError
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 155
+    assert len(ENDPOINTS) == 160
 
 
 def test_lookup_known_endpoint():
@@ -58,6 +58,7 @@ def test_pagination_registry_matches_ts_source():
         "ai.hot-topic": 20,
         "ai.management-sentiment-indicator": 100,
         "ai.management-sentiment-conclusion": 100,
+        "vault.stock-note.list": 50,
         "vault.drive.list": 50,
         "vault.record.list": 50,
         "vault.my-conference.list": 50,
@@ -125,7 +126,7 @@ def test_dataclass_equality():
 
 
 def test_retry_policy_registry_matches_ts_source():
-    # Translated 1:1 from gangtise-openapi-cli v0.48.0 endpoints.ts.
+    # Translated 1:1 from gangtise-openapi-cli v0.50.0 endpoints.ts.
     # These annotations are billing-safety-critical — a drifted entry either
     # double-bills (missing no-replay) or degrades reliability (spurious one).
     expected_no_replay = {
@@ -189,6 +190,7 @@ def test_retry_policy_registry_matches_ts_source():
         "vault.drive.copy",
         "vault.my-conference.download",
         "vault.stock-pool.create",
+        "vault.stock-note.add",
         "alternative.concept-info",
         "alternative.concept-info-full",
         "alternative.concept-securities",
@@ -296,6 +298,7 @@ def test_all_endpoint_keys_match_ts_source():
         "quote.minute-kline",
         "quote.realtime",
         "quote.fund-flow",
+        "quote.sector-fund-flow",
         "fundamental.income-statement",
         "fundamental.income-statement-quarterly",
         "fundamental.balance-sheet",
@@ -385,6 +388,10 @@ def test_all_endpoint_keys_match_ts_source():
         "vault.stock-pool.rename",
         "vault.stock-pool.add-stock",
         "vault.stock-pool.remove-stock",
+        "vault.stock-note.list",
+        "vault.stock-note.add",
+        "vault.stock-note.update",
+        "vault.stock-note.delete",
         "alternative.edb-search",
         "alternative.edb-data",
         "alternative.concept-info",
@@ -405,7 +412,7 @@ def test_all_endpoint_keys_match_ts_source():
 def test_row_id_registry_matches_ts_source():
     """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by;
     v0.48.0: several dotted paths together where no single field identifies a row;
-    v0.49.0: the four schedule lists by their per-list id, not ``id``."""
+    v0.49.0: the four schedule lists by their per-list id, not ``id``; v0.50.0: stock notes."""
     assert {k: ep.row_id for k, ep in ENDPOINTS.items() if ep.row_id} == {
         "insight.opinion.list": "chiefOpinionId",
         "insight.summary.list": "summaryId",
@@ -429,6 +436,7 @@ def test_row_id_registry_matches_ts_source():
         "vault.my-conference.list": "conferenceId",
         "vault.wechat-message.list": "msgId",
         "vault.wechat-chatroom.list": "chatroomId",
+        "vault.stock-note.list": "stockNoteId",
         "ai.management-sentiment-indicator": (
             "securityCode",
             "source.sourceType",
@@ -477,6 +485,7 @@ def test_expects_registry_matches_ts_source():
         "quote.minute-kline",
         "quote.realtime",
         "quote.fund-flow",
+        "quote.sector-fund-flow",
         "fundamental.valuation-analysis",
         "bond.basic-info",
         "bond.issuer-info",
@@ -523,6 +532,7 @@ def test_destructive_and_item_failure_registry_matches_ts_source():
         "vault.drive.delete-file",
         "vault.drive.delete-folder",
         "vault.stock-pool.delete",
+        "vault.stock-note.delete",
     }
     assert {k for k, ep in ENDPOINTS.items() if ep.item_failures} == {
         "vault.drive.delete-file",
@@ -531,11 +541,13 @@ def test_destructive_and_item_failure_registry_matches_ts_source():
         "vault.stock-pool.delete",
         "vault.stock-pool.add-stock",
         "vault.stock-pool.remove-stock",
+        "vault.stock-note.delete",
     }
     for key in {
         "vault.drive.delete-file",
         "vault.drive.delete-folder",
         "vault.stock-pool.delete",
+        "vault.stock-note.delete",
     }:
         # The warning is shown to a Python caller: it must name SDK methods, not the
         # CLI commands the upstream text was written for.

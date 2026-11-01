@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import httpx
 import pandas as pd
@@ -550,3 +551,42 @@ def test_report_image_download_writes_file(tmp_path, seeded_config):
         assert "chunkId=c1" in str(route.calls.last.request.url)
     assert path == tmp_path / "img.jpg"
     assert path.read_bytes() == b"\xff\xd8jpeg"
+
+
+# ───────────── schedule lists: collected-time window (TS v0.50.0) ─────────────
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("roadshow_list", "roadshow"),
+        ("site_visit_list", "site-visit"),
+        ("strategy_list", "strategy-meeting"),
+        ("forum_list", "forum"),
+    ],
+)
+def test_schedule_lists_send_the_publish_window_beside_the_held_one(tmp_path, method, path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(f"/application/open-insight/schedule/{path}/getList").mock(
+            return_value=_row_response({"id": "x"})
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            getattr(Insight(client), method)(
+                size=1,
+                start_time="2026-11-01",
+                publish_start_time="2026/10/01 08:00",
+                publish_end_time="2026-10-31",
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert body["startTime"] == "2026-11-01"
+    assert body["publishStartTime"] == "2026-10-01 08:00"
+    assert body["publishEndTime"] == "2026-10-31"
+
+
+def test_schedule_publish_time_is_validated_locally(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post("/application/open-insight/schedule/roadshow/getList")
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="publish_end_time"):
+                Insight(client).roadshow_list(size=1, publish_end_time="10-31-2026")
+    assert not route.called

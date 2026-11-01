@@ -672,6 +672,13 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "Query A-share daily fund flow (SH/SZ/BJ; small/medium/large/xlarge orders + main net inflow)",
         expects="list",
     ),
+    "quote.sector-fund-flow": _ep(
+        "quote.sector-fund-flow",
+        "POST",
+        "/application/open-quote/fund-flow/sector-daily",
+        "Query sector daily fund flow (constituents summed, SH/SZ/BJ only)",
+        expects="list",
+    ),
     # ─── fundamental ───
     "fundamental.income-statement": _ep(
         "fundamental.income-statement",
@@ -1574,6 +1581,41 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-vault/stock-pool/deleteStock",
         "Remove securities from a stock pool",
+        item_failures=True,
+    ),
+    # ─── vault stock notes (TS v0.50.0) ───
+    # The user's own notes; one note links 1-50 securities. update and delete are
+    # idempotent by the server's rules (CLI probe 2026-10-31: re-sending the same
+    # content succeeds, and an id already deleted lands in successList), so they keep
+    # the default retry; add is not — it has no idempotency key, and a replayed add
+    # whose first attempt landed creates a second note.
+    "vault.stock-note.list": _ep(
+        "vault.stock-note.list",
+        "POST",
+        "/application/open-vault/stock-pool/getNoteList",
+        "List your stock notes (all, by security, or by note ID)",
+        paginated=50,
+        row_id="stockNoteId",
+    ),
+    "vault.stock-note.add": _ep(
+        "vault.stock-note.add",
+        "POST",
+        "/application/open-vault/stock-pool/addNote",
+        "Add a stock note linked to 1-50 securities",
+        retry="no-replay",
+    ),
+    "vault.stock-note.update": _ep(
+        "vault.stock-note.update",
+        "POST",
+        "/application/open-vault/stock-pool/updateNote",
+        "Replace the content of a stock note",
+    ),
+    "vault.stock-note.delete": _ep(
+        "vault.stock-note.delete",
+        "POST",
+        "/application/open-vault/stock-pool/deleteNote",
+        "Delete stock notes",
+        destructive="删除笔记会删掉整条笔记（含它与全部关联证券的关系），不可恢复；先用 gangtise.vault.stock_note_list(note_id=...) 核对内容。",
         item_failures=True,
     ),
     # ─── tool (TS v0.41.0) ───

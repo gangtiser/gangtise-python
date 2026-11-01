@@ -151,7 +151,10 @@ def _flag_failed_items(endpoint: EndpointDef, data: Any) -> Any:
             details.append(str(item))
             continue
         # Each write family keys the failure on its own field.
-        ident = item.get("securityCode", item.get("poolId", item.get("fileId", item)))
+        ident = next(
+            (item[k] for k in ("securityCode", "poolId", "fileId", "stockNoteId") if k in item),
+            item,
+        )
         reason = item.get("failReason")
         details.append(f"{ident}（{reason}）" if reason else str(ident))  # noqa: RUF001
     warnings.warn(
@@ -275,8 +278,8 @@ class GangtiseClient:
         self.close()
 
     def _http_client(self) -> httpx.Client:
-        # Locked: the first calls can arrive concurrently (the EDE calendar probe fans
-        # out on threads), and each unguarded check-then-set built its own client —
+        # Locked: the first calls can arrive concurrently (the ETF component-code lookups
+        # fan out on threads), and each unguarded check-then-set built its own client —
         # only the last is ever closed, the rest leak their pools. A lock of its own:
         # ``_lock`` is held across a login, which itself needs the HTTP client.
         if self._http is None:

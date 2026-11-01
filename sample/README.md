@@ -1,6 +1,6 @@
 # Gangtise OpenAPI 示例
 
-本目录为每个公开 SDK 方法提供一个可独立运行的示例脚本：`sync/` 下 152 个同步示例，`async/` 下 152 个异步示例。
+本目录为每个公开 SDK 方法提供一个可独立运行的示例脚本：`sync/` 下 157 个同步示例，`async/` 下 157 个异步示例。
 
 ## 配置
 
@@ -32,7 +32,7 @@ uv run python sample/async/quote_day_kline.py
 ## 特殊情况
 
 - **查询生成结果的 AI 示例**（`ai_earnings_review_check`、`ai_viewpoint_debate_check`）需要对应生成示例以 `wait=False` 返回的 `data_id`，通过环境变量 `GANGTISE_SAMPLE_EARNINGS_REVIEW_DATA_ID` / `GANGTISE_SAMPLE_VIEWPOINT_DEBATE_DATA_ID` 传入。
-- **写操作示例**（`vault_stock_pool_create` / `_rename` / `_add_stock` / `_remove_stock` / `_delete`，以及 `vault_drive_upload` / `_create_folder` / `_rename` / `_move_file` / `_move_folder` / `_copy` / `_delete_file` / `_delete_folder`）会修改账号数据，脚本开头的 ID / 名称常量填好之前不发任何请求。两个云盘删除与 `stock_pool_delete` 还需要 `confirm=True`——SDK 对所有不可逆操作都要求显式确认。
+- **写操作示例**（`vault_stock_pool_create` / `_rename` / `_add_stock` / `_remove_stock` / `_delete`，`vault_stock_note_add` / `_update` / `_delete`，以及 `vault_drive_upload` / `_create_folder` / `_rename` / `_move_file` / `_move_folder` / `_copy` / `_delete_file` / `_delete_folder`）会修改账号数据，脚本开头的 ID / 名称常量填好之前不发任何请求。两个云盘删除与 `stock_pool_delete` / `stock_note_delete` 还需要 `confirm=True`——SDK 对所有不可逆操作都要求显式确认。
 - **知识库资源下载**需要环境变量 `GANGTISE_SAMPLE_KNOWLEDGE_SOURCE_ID`，可选 `GANGTISE_SAMPLE_KNOWLEDGE_RESOURCE_TYPE`。
 - **会花大量积分的参数**（如 `confirm=True` 拉全量、`full=True`）在示例里以注释形式展示，不直接调用。
 

@@ -53,7 +53,7 @@ ERROR_HINTS: dict[str, str] = {
     # 2026-08-14 起 list 类端点把单页上限（50）也归到此码，不再只是「一次要太多行」。
     # 2026-09 起 EDE 截面 / 时序的单次单元格上限（30000）与 fund 不分页的 10000 行上限
     # 也归这里，msg 会写明限额。
-    "100006": "缩短日期范围或调小 size / limit（list 类端点单页上限为 50，SDK 会自动翻页，直发 raw 请求时要自己遵守）；indicator.cross_section / time_series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑；fund 方法不分页，撞此码是单次超过 10000 行，减少 security 只数或缩短日期区间分批查。",
+    "100006": "缩短日期范围或调小 size / limit（list 类端点单页上限为 50，SDK 会自动翻页，直发 raw 请求时要自己遵守）；indicator.cross_section / time_series 撞此码是单次单元格数超 30000（截面=证券数×指标数，时序=证券数或指标数×日期数），按这个乘积拆批重跑；fund 方法不分页，撞此码是单次超过 10000 行，减少 security 只数或缩短日期区间分批查；quote.sector_fund_flow 撞此码是计算量超限，缩短日期区间、减少 sector 或 field（调小 limit 无效）。",
     # 按参数名判断，不要按域预判：ai.management_discuss_* 的 report_date 是 date 型，
     # 而同属 ai 的 knowledge_batch 收时间戳或 datetime。
     "110001": '看参数名：`*_date` 用 YYYY-MM-DD，`*_time` 用 "YYYY-MM-DD HH:mm:ss"（ai.knowledge_batch 与 insight 的 A 股公告接口收时间戳或 datetime，SDK 统一转 13 位毫秒）。',
@@ -66,7 +66,7 @@ ERROR_HINTS: dict[str, str] = {
     # 2026-08-14 起下载类把「file_type 非法」拆到 130005、「资源未生成」拆到 130003，
     # 但历史上两者都归过此码，所以提示保留对 file_type 的指引。云盘管理对不存在的
     # 文件夹 / 文件 ID 也回此码，包括重复执行一次已生效的删除。
-    "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 gangtise.vault.drive_folder_list() 核对；删除类方法收到此码可能是目标已被删掉）；下载类还需检查 file_type 取值是否合法。",
+    "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 gangtise.vault.drive_folder_list() 核对，笔记 ID 用 gangtise.vault.stock_note_list() 核对；删除类方法收到此码可能是目标已被删掉）；下载类还需检查 file_type 取值是否合法。",
     "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment / hasFile 为 true 的），或稍后再试。",
     # 下载类各有各的 ID 参数（report_id / announcement_id / chunk_id / summary_id /
     # conference_id / record_id / file_id / article_id / independent_opinion_id）；
@@ -153,6 +153,15 @@ ERROR_HINTS: dict[str, str] = {
 # moment the catalogue changes.
 _MULTI_NOTE = "以 gangtise.indicator.search() 返回的 parameterList 为准，别按指标 code 前缀推断。"
 
+
+def _missing(key: str) -> re.Pattern[str]:
+    """「缺少必填参数 K」(the older layout) or「必填参数 K 不能为空」(the current one, seen
+    by the CLI 2026-10-31, which names the indicator once ahead of its clauses:
+    「is_op_rev: 不支持参数 tradeDate; 必填参数 reportDate 不能为空」). Both are matched, so
+    the joined-sentence rules below keep telling a swap from a half sentence (TS v0.50.0)."""
+    return re.compile(rf"缺少必填参数[:：]?\s*{key}|必填参数\s*{key}\s*不能为空")
+
+
 # Each entry is (codes, must-match patterns, must-NOT-match patterns, hint).
 # The `not_match` half is what makes the split independent of list ORDER: the
 # discriminator between「拼接句」and「半句」is the presence of the other half, and
@@ -165,7 +174,7 @@ _MESSAGE_HINTS: list[
     # 点名「缺 reportDate」——无论拼接句还是半句，都能唯一确定要的是 reportDate。
     (
         frozenset({"100001", "100003"}),
-        (re.compile(r"缺少必填参数[:：]?\s*reportDate"),),
+        (_missing("reportDate"),),
         (),
         "msg 点名的那个指标要的是 reportDate（报告期），不是 date 下发的 tradeDate："
         '给它补 indicator_param={"<指标code>": {"reportDate": "YYYY-MM-DD"}}'
@@ -177,7 +186,7 @@ _MESSAGE_HINTS: list[
         frozenset({"100001", "100003"}),
         (
             re.compile(r"不支持参数\s*reportDate"),
-            re.compile(r"缺少必填参数[:：]?\s*tradeDate"),
+            _missing("tradeDate"),
         ),
         (),
         "msg 点名的那个指标要的是 tradeDate（交易日），不吃 reportDate："
@@ -190,7 +199,7 @@ _MESSAGE_HINTS: list[
         frozenset({"100001", "100003"}),
         (re.compile(r"不支持参数\s*reportDate"),),
         (
-            re.compile(r"缺少必填参数[:：]?\s*tradeDate"),
+            _missing("tradeDate"),
             # 两个键都被拒时（如「不支持 tradeDate; 不支持 reportDate; 缺少 fiscalYear」）
             # 让给下一条规则：它点名了逃生口与 fiscalYear，是更有用的那条。缺了这一条，
             # 该 msg 会同时命中两条规则、由列表顺序决定胜负。
@@ -205,7 +214,7 @@ _MESSAGE_HINTS: list[
     (
         frozenset({"100001", "100003"}),
         (re.compile(r"不支持参数\s*tradeDate"),),
-        (re.compile(r"缺少必填参数[:：]?\s*reportDate"),),
+        (_missing("reportDate"),),
         "msg 点名的那个指标不接受 tradeDate，而 cross_section / screener 默认会把 date "
         "作为 tradeDate 下发给每个指标。两条路：① 显式传空参数抑制注入——"
         'indicator_param={"<指标code>": {}}（条件选股写 {"F1": {}}），'
@@ -218,7 +227,7 @@ _MESSAGE_HINTS: list[
     # tradeDate，所以这是「两个日期都必填」那类指标（如 div_cash_yld）的形态。
     (
         frozenset({"100001", "100003"}),
-        (re.compile(r"缺少必填参数[:：]?\s*tradeDate"),),
+        (_missing("tradeDate"),),
         (re.compile(r"不支持参数\s*reportDate"),),
         "msg 点名的那个指标还需要 tradeDate，而 SDK 这次没有注入它——因为你已经给该指标"
         '传了 reportDate（或用 "tradeDate": None 显式抑制过）。'

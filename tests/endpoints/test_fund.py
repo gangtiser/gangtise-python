@@ -278,10 +278,17 @@ def test_any_sequence_of_codes_is_accepted(seeded_config):
     assert _body(route) == {"fundCodeList": ["510300.SH"]}
 
 
-# ---- etf_pcf_components: componentCode matched by name (TS v0.49.0) ----
+# ---- etf_pcf_components: componentCode matched by name (TS v0.49.0 / v0.50.0) ----
 
 _SECTORS = "/application/open-reference/sectors/constituents"
 _REALTIME = "/application/open-quote/quote/realtime"
+_DAY_KLINE = "/application/open-quote/kline/daily"
+# Recent closes that rule each share class out for the other's row: an A/H quote counts
+# only once the other market's listing is ruled out (TS v0.50.0).
+_CLOSES = [
+    {"securityCode": "600941.SH", "tradeDate": "2026-10-27", "close": 101.3},
+    {"securityCode": "00941.HK", "tradeDate": "2026-10-27", "close": 77.3},
+]
 _SECTOR_ROWS = {
     "1000000002": [{"gtsCode": "600941.SH", "gtsName": "中国移动"}],
     "1000002615": [{"gtsCode": "00941.HK", "gtsName": "中国移动"}],
@@ -313,6 +320,7 @@ def _mock_lookups(router: respx.MockRouter) -> dict[str, respx.Route]:
                 ]
             )
         ),
+        "closes": router.post(_DAY_KLINE).mock(return_value=_ok(_CLOSES)),
     }
 
 
@@ -328,6 +336,7 @@ def test_etf_components_fill_component_code_from_the_name(seeded_config):
     assert df["componentCode"].isna().tolist() == [False, False, True]
     assert routes["sectors"].call_count == 3
     assert routes["realtime"].call_count == 1
+    assert routes["closes"].call_count == 1
     assert json.loads(routes["search"].calls.last.request.content) == {
         "keyword": "申赎现金",
         "top": 10,

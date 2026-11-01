@@ -205,10 +205,17 @@ async def test_async_a_5xx_is_not_replayed(seeded_config):
     assert route.call_count == 1
 
 
-# ---- etf_pcf_components: componentCode matched by name (TS v0.49.0) ----
+# ---- etf_pcf_components: componentCode matched by name (TS v0.49.0 / v0.50.0) ----
 
 _SECTORS = "/application/open-reference/sectors/constituents"
 _REALTIME = "/application/open-quote/quote/realtime"
+_DAY_KLINE = "/application/open-quote/kline/daily"
+# Recent closes that rule each share class out for the other's row: an A/H quote counts
+# only once the other market's listing is ruled out (TS v0.50.0).
+_CLOSES = [
+    {"securityCode": "600941.SH", "tradeDate": "2026-10-27", "close": 101.3},
+    {"securityCode": "00941.HK", "tradeDate": "2026-10-27", "close": 77.3},
+]
 _SECTOR_ROWS = {
     "1000000002": [{"gtsCode": "600941.SH", "gtsName": "中国移动"}],
     "1000002615": [{"gtsCode": "00941.HK", "gtsName": "中国移动"}],
@@ -239,6 +246,7 @@ async def test_etf_components_fill_component_code_from_the_name(seeded_config):
                 ]
             )
         )
+        router.post(_DAY_KLINE).mock(return_value=_ok(_CLOSES))
         async with AsyncGangtiseClient(_config=seeded_config) as client:
             with pytest.warns(UserWarning, match=r"2 of 3 rows") as caught:
                 df = await AsyncFund(client).etf_pcf_components(security="517180.SH")

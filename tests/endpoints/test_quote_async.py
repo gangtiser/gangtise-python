@@ -812,3 +812,23 @@ async def test_async_repeated_codes_are_sent_once(tmp_path):
     assert _sent(daily)[0]["securityList"] == ["600519.SH"]
     assert len(df) == 5
     assert minute.call_count == 1
+
+
+# ───────────── sector fund flow (TS v0.50.0) ─────────────
+
+
+@pytest.mark.anyio
+async def test_async_sector_fund_flow_body_and_key_column_note(tmp_path):
+    data = {"total": 0, "fieldList": ["sectorId", "tradeDate"], "list": []}
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/fund-flow/sector-daily").mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="names no fund-flow column"):
+                df = await AsyncQuote(client).sector_fund_flow(
+                    sector="801010", limit=100, field=["sectorId", "tradeDate"]
+                )
+        body = json.loads(route.calls.last.request.read())
+    assert body == {"sectorList": ["801010"], "limit": 100, "fieldList": ["sectorId", "tradeDate"]}
+    assert df.empty

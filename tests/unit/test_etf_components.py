@@ -95,16 +95,23 @@ def codes_of(rows: list[dict[str, Any]]) -> list[Any]:
 
 AH_MOBILE = [("600941.SH", "中国移动"), ("00941.HK", "中国移动")]
 MOBILE_PRICES = {"600941.SH": [101.3, 100.7], "00941.HK": [77.3, 78.1]}
+# Recent daily closes that rule each listing out for the other share class's row: a quote
+# that agrees counts across markets only once the other market's listing is ruled out.
+MOBILE_HISTORY = {"600941.SH": [("2026-10-27", 101.3)], "00941.HK": [("2026-10-27", 77.3)]}
 
 
 @pytest.mark.parametrize("order", [[77.3, 101.3], [101.3, 77.3]])
 def test_tells_the_a_and_h_rows_of_one_name_apart_by_price(order):
+    pair = [row("517180.SH", i + 1, "中国移动", close) for i, close in enumerate(order)]
     rows, unresolved = _fill(
-        [row("517180.SH", i + 1, "中国移动", close) for i, close in enumerate(order)],
-        _Api({"中国移动": AH_MOBILE}, MOBILE_PRICES),
+        pair, _Api({"中国移动": AH_MOBILE}, MOBILE_PRICES, history=MOBILE_HISTORY)
     )
     assert codes_of(rows) == ["00941.HK" if c == 77.3 else "600941.SH" for c in order]
     assert unresolved == []
+    # Without daily closes the other listing cannot be ruled out: a lagging list could
+    # equal the other market's quote by chance, so neither row is taken on the quote alone.
+    unaided, _ = _fill(pair, _Api({"中国移动": AH_MOBILE}, MOBILE_PRICES))
+    assert codes_of(unaided) == [None, None]
 
 
 def test_takes_the_confirmed_listing_and_puts_component_code_after_serial_number():
@@ -123,6 +130,8 @@ def test_takes_the_confirmed_listing_and_puts_component_code_after_serial_number
             "01810.HK": [26.9, 27.1],
             "81810.HK": [24.6, 24.8],
         },
+        # The A share's recent closes rule it out for the H row.
+        history={"601939.SH": [("2026-10-27", 9.1)]},
     )
     rows, _ = _fill(
         [row("159920.SZ", 4, "建设银行", 9.92), row("159920.SZ", 5, "小米集团", 26.9)], api
@@ -153,16 +162,19 @@ def test_an_exact_name_in_the_etfs_market_stands_when_no_price_agrees_never_a_pr
             "02883.HK": [7.5, 7.6],
         },
     )
-    rows, unresolved = _fill(
-        [
-            row("510300.SH", 1, "贵州茅台", 1349.98),
-            row("510300.SH", 2, "上海银行", 9.55),
-            row("510300.SH", 3, "中海油", 20.1),
-        ],
-        api,
-    )
+    rows3 = [
+        row("510300.SH", 1, "贵州茅台", 1349.98),
+        row("510300.SH", 2, "上海银行", 9.55),
+        row("510300.SH", 3, "中海油", 20.1),
+    ]
+    # 中海油's prefix candidates trade in two markets; their recent closes rule both out.
+    api._history = {"601808.SH": [("2026-10-27", 14.6)], "02883.HK": [("2026-10-27", 7.5)]}
+    rows, unresolved = _fill(rows3, api)
     assert codes_of(rows) == ["600519.SH", "601229.SH", None]
     assert unresolved == [{"fundCode": "510300.SH", "serialNumber": 3, "componentName": "中海油"}]
+    # Without daily closes 中海油 could still be either, so the ETF's market is not known.
+    api._history = {}
+    assert codes_of(_fill(rows3, api)[0]) == ["600519.SH", None, None]
 
 
 def test_a_name_match_outside_the_etfs_market_does_not_stand_on_the_name_alone():
@@ -211,6 +223,8 @@ def test_matches_a_longer_hong_kong_name_by_prefix_when_the_price_confirms_it():
             "01211.HK": [70.8, 70.05],
             "00700.HK": [386.4, 390],
         },
+        # The A share's recent closes rule it out for the row the H share's price confirms.
+        history={"002594.SZ": [("2026-10-27", 82.4)]},
     )
     rows, _ = _fill(
         [row("159920.SZ", 1, "腾讯控股", 386.4), row("159920.SZ", 2, "比亚迪", 70.8)], api
@@ -271,6 +285,7 @@ def test_isolates_a_code_the_quote_rejects_instead_of_losing_its_whole_batch():
         {"中国移动": AH_MOBILE, "某某控股": [("00001.HK", "某某控股")]},
         MOBILE_PRICES,
         fail_quote="00001.HK",
+        history=MOBILE_HISTORY,
     )
     rows, _ = _fill(
         [
@@ -314,11 +329,14 @@ def test_an_ah_name_stays_none_in_a_two_market_etf_without_a_price_but_not_in_a_
         _FailingQuotes(search),
     )
     assert codes_of(mixed) == [None, None, None]
-    pure, _ = _fill(
-        [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)],
-        _FailingQuotes(search),
-    )
-    assert codes_of(pure) == ["600519.SH", "600036.SH"]
+    # 招商银行 could be the H share: 贵州茅台 alone does not make the ETF an A-share one.
+    pure_rows = [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)]
+    pure, _ = _fill(pure_rows, _FailingQuotes(search))
+    assert codes_of(pure) == [None, None]
+    # Unless the H share's recent closes rule it out.
+    ruled_out = _FailingQuotes(search)
+    ruled_out._history = {"03968.HK": [("2026-10-27", 39.0)]}
+    assert codes_of(_fill(pure_rows, ruled_out)[0]) == ["600519.SH", "600036.SH"]
 
 
 @pytest.mark.parametrize("mobile_a", [[0, 0], [99.9, 100.7]])
@@ -354,18 +372,18 @@ def test_a_listing_in_a_market_the_prices_never_confirmed_does_not_stand_on_the_
 
 def test_a_price_counts_only_when_it_is_the_rows_own():
     # The H quote is missing; 紫金矿业's A share (27.85) is close to the H row (27.74) by
-    # chance. Not confirmed by it, the row falls to the name: in a HK ETF, the H share.
-    api = _Api(
-        {
-            "紫金矿业": [("02899.HK", "紫金矿业"), ("601899.SH", "紫金矿业")],
-            "腾讯控股": [("00700.HK", "腾讯控股")],
-        },
-        {"00700.HK": [386.4, 390], "601899.SH": [27.47, 27.85]},
-    )
-    rows, _ = _fill(
-        [row("159920.SZ", 1, "腾讯控股", 386.4), row("159920.SZ", 2, "紫金矿业", 27.74)], api
-    )
+    # chance. Not confirmed by it, the row falls to the name once the A share's recent
+    # closes rule it out — in a HK ETF, the H share. Without them the row could be either.
+    search = {
+        "紫金矿业": [("02899.HK", "紫金矿业"), ("601899.SH", "紫金矿业")],
+        "腾讯控股": [("00700.HK", "腾讯控股")],
+    }
+    prices = {"00700.HK": [386.4, 390], "601899.SH": [27.47, 27.85]}
+    rows2 = [row("159920.SZ", 1, "腾讯控股", 386.4), row("159920.SZ", 2, "紫金矿业", 27.74)]
+    history = {"601899.SH": [("2026-10-26", 27.47), ("2026-10-27", 27.85)]}
+    rows, _ = _fill(rows2, _Api(search, prices, history=history))
     assert codes_of(rows) == ["00700.HK", "02899.HK"]
+    assert codes_of(_fill(rows2, _Api(search, prices))[0]) == ["00700.HK", None]
 
 
 NAMES16 = [f"名称{i}" for i in range(16)]
@@ -472,8 +490,9 @@ def test_checks_a_list_whose_prices_lag_the_quote_against_the_closes_of_their_da
     ]
     assert len(api.asked) == 1
     # Without daily closes the lagging rows are left to the name: an A+H ETF places none.
+    # Nor does the current H row of 中国移动 stand on its quote: nothing rules out the A share.
     unaided, _ = _fill(rows(), _Api(search, prices))
-    assert codes_of(unaided) == [None, None, None, "00941.HK", "00291.HK", None]
+    assert codes_of(unaided) == [None, None, None, None, "00291.HK", None]
 
 
 def _lagging(history: dict[str, list[tuple[str, float]]], extra: dict | None = None) -> _Api:
@@ -696,7 +715,11 @@ def test_an_exact_listing_its_price_confirms_stands_beside_a_longer_name_without
         "华润啤酒": [("00291.HK", "华润啤酒")],
     }
     prices = {"601857.SH": [13.38, 13.2], "00857.HK": [0, 0], "00291.HK": [19.48, 19.6]}
-    rows, _ = _fill(_etf517(("中国石油", 13.38), ("华润啤酒", 19.48)), _Api(search, prices))
+    # Its recent closes rule the H share out, so the A share's quote stands.
+    history = {"00857.HK": [("2026-10-27", 7.2)]}
+    rows, _ = _fill(
+        _etf517(("中国石油", 13.38), ("华润啤酒", 19.48)), _Api(search, prices, history=history)
+    )
     assert codes_of(rows) == ["601857.SH", "00291.HK"]
 
 
@@ -732,7 +755,9 @@ def test_a_name_whose_exact_listings_all_trade_in_one_market_is_a_sign_of_that_m
 
 
 def test_leaves_only_the_name_whose_search_failed_none():
-    api = _Api({"中国移动": AH_MOBILE}, MOBILE_PRICES, fail_search="腾讯控股")
+    api = _Api(
+        {"中国移动": AH_MOBILE}, MOBILE_PRICES, fail_search="腾讯控股", history=MOBILE_HISTORY
+    )
     rows, _ = _fill(
         [row("517180.SH", 1, "腾讯控股", 386.4), row("517180.SH", 2, "中国移动", 101.3)], api
     )
@@ -755,6 +780,7 @@ async def test_async_driver_matches_like_the_sync_one():
         {"中国移动": AH_MOBILE, "某某控股": [("00001.HK", "某某控股")]},
         MOBILE_PRICES,
         fail_quote="00001.HK",
+        history=MOBILE_HISTORY,
     )
     fill = await fill_component_codes_async(
         _Fill(
@@ -1040,11 +1066,15 @@ CMB_TIE_PRICES = {
 
 
 def test_a_price_tie_across_markets_is_settled_by_the_etfs_one_market():
-    rows, _ = _fill(
-        [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)],
-        _Api(CMB_TIE, CMB_TIE_PRICES),
-    )
+    # Once the H share's recent closes rule it out, 招商银行 can only be an A share, and the
+    # ETF's one market takes it.
+    pair = [row("510300.SH", 1, "贵州茅台", 1349.98), row("510300.SH", 5, "招商银行", 42.5)]
+    history = {"03968.HK": [("2026-10-27", 42.6)]}
+    rows, _ = _fill(pair, _Api(CMB_TIE, CMB_TIE_PRICES, history=history))
     assert codes_of(rows) == ["600519.SH", "600036.SH"]
+    # Without them the tie could be the H share: 贵州茅台 (confirmed by its own price) does
+    # not make the ETF an A-share one.
+    assert codes_of(_fill(pair, _Api(CMB_TIE, CMB_TIE_PRICES))[0]) == ["600519.SH", None]
 
 
 def test_a_price_tie_across_markets_stays_none_in_an_etf_holding_both():
@@ -1104,6 +1134,8 @@ AH_TIE_PRICES = {
     "601998.SH": [7.0, 7.1],
     "00998.HK": [7.0, 6.5],
 }
+# The A share's recent closes rule it out for the 39.0 row, whose H quote then stands.
+AH_TIE_HISTORY = {"600036.SH": [("2026-10-27", 42.3)]}
 
 
 @pytest.mark.parametrize("first", [0, 1])
@@ -1111,7 +1143,10 @@ def test_a_tie_another_rows_listing_settles_counts_as_market_evidence(first):
     cmb = [row("517180.SH", 1, "招商银行", 42.5), row("517180.SH", 2, "招商银行", 39.0)]
     if first:
         cmb.reverse()
-    rows, _ = _fill([*cmb, row("517180.SH", 3, "中信银行", 7.0)], _Api(AH_TIES, AH_TIE_PRICES))
+    rows, _ = _fill(
+        [*cmb, row("517180.SH", 3, "中信银行", 7.0)],
+        _Api(AH_TIES, AH_TIE_PRICES, history=AH_TIE_HISTORY),
+    )
     by_close = {r["close"]: r["componentCode"] for r in rows}
     assert by_close == {42.5: "600036.SH", 39.0: "03968.HK", 7.0: None}
 
@@ -1124,8 +1159,158 @@ async def test_async_driver_counts_a_settled_tie_as_market_evidence(first):
         cmb.reverse()
     fill = await fill_component_codes_async(
         _Fill([*cmb, row("517180.SH", 3, "中信银行", 7.0)]),
-        _AsyncApi(_Api(AH_TIES, AH_TIE_PRICES)),
+        _AsyncApi(_Api(AH_TIES, AH_TIE_PRICES, history=AH_TIE_HISTORY)),
         concurrency=5,
     )
     by_close = {r["close"]: r["componentCode"] for r in fill.result()[0]}
     assert by_close == {42.5: "600036.SH", 39.0: "03968.HK", 7.0: None}
+
+
+# ---- an open row that could be in two markets, and quotes held to the other listing's
+# closes (TS v0.50.0) ----
+
+
+class _Down(_Api):
+    """Quote and daily closes both fail."""
+
+    def quotes(self, codes: list[str]) -> dict[str, list[float]]:
+        raise ApiError("服务故障", code="999999")
+
+    def closes(self, codes: list[str], start: str, end: str) -> dict[str, Any]:
+        raise ApiError("服务故障", code="999999")
+
+
+@pytest.mark.parametrize("order", [[77.3, 101.3], [101.3, 77.3]])
+def test_an_ah_name_no_price_decides_is_not_filled_from_the_other_rows_market(order):
+    # An A+H ETF can hold the H share of a dual-listed company beside A-only names, so
+    # 贵州茅台 alone does not make the ETF an A-share one.
+    search = {"贵州茅台": [("600519.SH", "贵州茅台")], "中国移动": AH_MOBILE}
+    pair = [row("517180.SH", i + 2, "中国移动", close) for i, close in enumerate(order)]
+    rows, _ = _fill([row("517180.SH", 1, "贵州茅台", 1349.98), *pair], _Down(search, {}))
+    assert codes_of(rows)[1:] == [None, None]
+
+
+@pytest.mark.parametrize("order", [[7.2, 13.38], [13.38, 7.2]])
+def test_a_longer_hong_kong_name_is_a_market_the_row_could_be_in(order):
+    # The H share is listed as 中国石油股份: it never fills the row, but it keeps the ETF's
+    # market unknown.
+    search = {"中国石油": [("601857.SH", "中国石油"), ("00857.HK", "中国石油股份")]}
+    rows, _ = _fill(
+        [row("517180.SH", i + 1, "中国石油", close) for i, close in enumerate(order)],
+        _Down(search, {}),
+    )
+    assert codes_of(rows) == [None, None]
+
+
+HENGRUI_SEARCH = {
+    "中国石油": [("601857.SH", "中国石油")],
+    "中国神华": [("601088.SH", "中国神华")],
+    "华润啤酒": [("00291.HK", "华润啤酒")],
+    "腾讯控股": [("00700.HK", "腾讯控股")],
+    "恒瑞医药": [("600276.SH", "恒瑞医药"), ("01276.HK", "恒瑞医药")],
+}
+HENGRUI_PRICES = {
+    "601857.SH": [13.0, 13.1],
+    "601088.SH": [38.0, 38.1],
+    "00291.HK": [19.6, 19.7],
+    "00700.HK": [390, 392],
+    "600276.SH": [47.1, 47.44],
+    "01276.HK": [48.3, 48.5],
+}
+# The list carries A shares at 10-20 closes and H shares at 10-22's.
+HENGRUI_HISTORY = {
+    "601857.SH": [("2026-10-20", 13.38), ("2026-10-22", 13.0)],
+    "601088.SH": [("2026-10-20", 38.6), ("2026-10-22", 38.0)],
+    "00291.HK": [("2026-10-20", 19.0), ("2026-10-22", 19.48)],
+    "00700.HK": [("2026-10-20", 380), ("2026-10-22", 385.2)],
+    "600276.SH": [("2026-10-20", 46.9), ("2026-10-22", 47.6)],
+    "01276.HK": [("2026-10-20", 46.1), ("2026-10-22", 47.44)],
+}
+
+
+def _hengrui() -> list[dict[str, Any]]:
+    return _etf517(
+        ("中国石油", 13.38),
+        ("中国神华", 38.6),
+        ("华润啤酒", 19.48),
+        ("腾讯控股", 385.2),
+        ("恒瑞医药", 47.44),
+    )
+
+
+def test_a_quote_that_agrees_does_not_stand_while_the_other_listing_closed_at_that_price():
+    # 恒瑞医药 is the H row (47.44 on 10-22); the A share's latest price is 47.44 by chance.
+    rows, _ = _fill(_hengrui(), _Api(HENGRUI_SEARCH, HENGRUI_PRICES, history=HENGRUI_HISTORY))
+    assert codes_of(rows) == ["601857.SH", "601088.SH", "00291.HK", "00700.HK", "01276.HK"]
+    # Without the H share's closes it cannot be ruled out, and this ETF holds both markets.
+    no_h = {k: v for k, v in HENGRUI_HISTORY.items() if k != "01276.HK"}
+    rows, _ = _fill(_hengrui(), _Api(HENGRUI_SEARCH, HENGRUI_PRICES, history=no_h))
+    assert codes_of(rows)[4] is None
+
+
+@pytest.mark.anyio
+async def test_async_driver_holds_a_quote_to_the_other_listings_closes():
+    api = _AsyncApi(_Api(HENGRUI_SEARCH, HENGRUI_PRICES, history=HENGRUI_HISTORY))
+    fill = await fill_component_codes_async(_Fill(_hengrui()), api, concurrency=5)
+    assert codes_of(fill.result()[0])[4] == "01276.HK"
+    down = _AsyncApi(_Down({"贵州茅台": [("600519.SH", "贵州茅台")], "中国移动": AH_MOBILE}, {}))
+    rows = [row("517180.SH", 1, "贵州茅台", 1349.98), row("517180.SH", 2, "中国移动", 77.3)]
+    fill = await fill_component_codes_async(_Fill(rows), down, concurrency=5)
+    assert codes_of(fill.result()[0]) == [None, None]
+
+
+def test_a_failed_lookup_keeps_a_price_tie_from_the_other_rows_market():
+    # 腾讯控股 would have shown the ETF holds Hong Kong stocks, so 招商银行's A/H price tie
+    # is not settled for the A share.
+    search = {"贵州茅台": [("600519.SH", "贵州茅台")], "招商银行": CMB_TIE["招商银行"]}
+    api = _Api(search, CMB_TIE_PRICES, fail_search="腾讯控股")
+    rows, _ = _fill(
+        [
+            row("517180.SH", 1, "贵州茅台", 1349.98),
+            row("517180.SH", 2, "腾讯控股", 386.4),
+            row("517180.SH", 3, "招商银行", 42.5),
+        ],
+        api,
+    )
+    assert codes_of(rows) == ["600519.SH", None, None]
+
+
+# A row a price narrowed down but could not settle across markets is not filled from the
+# market the other rows show: an A+H ETF can hold the H share beside A-only names.
+HENGRUI_ALONE_SEARCH = {
+    "中国石油": [("601857.SH", "中国石油")],
+    "中国神华": [("601088.SH", "中国神华")],
+    "恒瑞医药": HENGRUI_SEARCH["恒瑞医药"],
+}
+HENGRUI_ALONE_PRICES = {
+    "601857.SH": [13.2, 13.38],
+    "601088.SH": [38.4, 38.6],
+    "600276.SH": [47.1, 47.44],
+    "01276.HK": [48.3, 48.5],
+}
+
+
+def _hengrui_alone() -> list[dict[str, Any]]:
+    return _etf517(("中国石油", 13.38), ("中国神华", 38.6), ("恒瑞医药", 47.44))
+
+
+@pytest.mark.parametrize(
+    "a_closes",
+    [[("2026-10-20", 46.9), ("2026-10-22", 47.6)], [("2026-10-22", 47.44)]],
+)
+def test_a_contested_quote_is_not_filled_from_the_other_rows_market(a_closes):
+    # Only A shares are confirmed elsewhere; 恒瑞医药's 47.44 equals the A share's latest
+    # price and the H share's recent close.
+    history = {"600276.SH": a_closes, "01276.HK": [("2026-10-22", 47.44)]}
+    api = _Api(HENGRUI_ALONE_SEARCH, HENGRUI_ALONE_PRICES, history=history)
+    rows, unresolved = _fill(_hengrui_alone(), api)
+    assert codes_of(rows) == ["601857.SH", "601088.SH", None]
+    assert [u["componentName"] for u in unresolved] == ["恒瑞医药"]
+
+
+@pytest.mark.anyio
+async def test_async_driver_does_not_fill_a_contested_quote_from_the_other_rows_market():
+    history = {"600276.SH": [("2026-10-22", 47.6)], "01276.HK": [("2026-10-22", 47.44)]}
+    api = _AsyncApi(_Api(HENGRUI_ALONE_SEARCH, HENGRUI_ALONE_PRICES, history=history))
+    fill = await fill_component_codes_async(_Fill(_hengrui_alone()), api, concurrency=5)
+    assert codes_of(fill.result()[0]) == ["601857.SH", "601088.SH", None]

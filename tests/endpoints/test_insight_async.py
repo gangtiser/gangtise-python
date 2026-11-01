@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import httpx
 import pandas as pd
@@ -651,3 +652,18 @@ async def test_report_image_download_async(tmp_path, seeded_config):
                 chunk_id="c1", output=tmp_path / "img.jpg"
             )
     assert path.read_bytes() == b"jpeg"
+
+
+@pytest.mark.anyio
+async def test_async_schedule_lists_send_the_publish_window(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-insight/schedule/forum/getList").mock(
+            return_value=_row_response({"forumId": "f1"})
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            await AsyncInsight(client).forum_list(
+                size=1, publish_start_time="2026-10-01", publish_end_time="2026/10/31"
+            )
+        body = json.loads(route.calls.last.request.read())
+    assert body["publishStartTime"] == "2026-10-01"
+    assert body["publishEndTime"] == "2026-10-31"

@@ -144,7 +144,7 @@ def _normalize_year_first(value: str) -> str:
 # are the only ``*Date`` / ``*Time`` keys any request body uses (verified across
 # every wrapper), so keying the guard on them covers all of them at once.
 _DATE_FIELDS = frozenset({"startDate", "endDate", "date", "reportDate"})
-_DATETIME_FIELDS = frozenset({"startTime", "endTime"})
+_DATETIME_FIELDS = frozenset({"startTime", "endTime", "publishStartTime", "publishEndTime"})
 # Scalar enum wire fields and their legal values. Mounted here, on the body
 # builder every wrapper already funnels through, so the guard covers all 19 list
 # endpoints at once — and any added later.

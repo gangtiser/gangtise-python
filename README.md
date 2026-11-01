@@ -1,8 +1,8 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 153 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.49.0 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 158 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.50.0 功能对齐。
 
-- **覆盖面**：观点、研报、公告、纪要与会议、行情 K 线与资金流向、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容与管理层情绪、个人云盘与股票池、联网搜索、PDF 解析。
+- **覆盖面**：观点、研报、公告、纪要与会议、行情 K 线与资金流向、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容与管理层情绪、个人云盘、股票池与个股笔记、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
 - **自动处理分页与拆分**：分页列表自动翻页；全市场 K 线按工作日自动分片；多只证券自动合批。
 - **计费保护**：按条计费的大批量拉取、不可逆的删除操作都要显式确认；按次计费与单次可能花费较多的接口在超时、5xx 后不自动重发（仍会自动重试的计费接口见「计费与确认」）。
@@ -12,6 +12,13 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.4 - 2026-11-02
+- 与 CLI **v0.50.0** 对齐，新增 5 个接口，共 **158 个**。
+- **新增**：个股投资笔记 `vault.stock_note_list` / `stock_note_add` / `stock_note_update` / `stock_note_delete`（全部免费，只操作本人笔记；删除须 `confirm=True`，新增超时不自动重发）；`quote.sector_fund_flow`（板块日资金流向，免费）。
+- `vault.stock_pool_list` / `stock_pool_stocks` 新增 `space_type`（`2` 查所属租户的股票池）；路演 / 调研 / 策略会 / 论坛列表新增 `publish_start_time` / `publish_end_time`（按收录时间筛选）。
+- `indicator.time_series` 不传 `calendar_type` 时不再先查 `indicator.search`、也不再自动发 `TD`，由服务端选日期轴（纯交易日类序列结果不变）；空结果的告警先指向日期轴。⚠️ **服务端口径变化（0.5.3 同样受影响）**：不传 `calendarType` 时服务端按指标定日期轴（行情类交易日、报告期类报告期、混查取并集），报告期类不再返回逐日 null 行，区间里没有报告期末时返回空结果；一致预期类（`frcst_*`）要逐日序列请传 `calendar_type="ND"`。
+- `fund.etf_pcf_components` 补码：同名证券在两个市场都有时，实时价对得上还要另一市场那只的近期收盘价对不上才采用；没补上代码的行里有一行可能在两个市场（含价格同时对得上 A / H 的行）时，不按其余行推断 ETF 的市场，这类行为 null。含 A / H 同名成分的 ETF 每次都会查日 K（免费；此前只在有行与实时价对不上时才查）。
 
 ### 0.5.3 - 2026-10-28
 - 与 CLI **v0.49.0** 对齐，无新增接口。
@@ -44,12 +51,6 @@
 - **估值分析**：省略 `limit` 时按默认 2000 行显式发送，行数撞满即标 `partial`（缺的是区间开头）；返回里没有 `list` 时报错。**0.4.0 在 `field` 同时含 `tradeDate`（或重复字段）与不存在的字段名时，结果会整体右移一列，用过这类组合的请重跑。**
 - **不再自动重发**：`fundamental.earning_forecast` 与 `ai.stock_summary_list` 超时或 5xx 后不再自动重发（一次调用可能计费数千积分）。
 - **完整性与其他**：翻页去重（`duplicateRows`）；全市场 K 线跳过窗口外分片（`outOfWindowShards`）、全部分片失败时报错；多只证券日 K 合批；空结果保留列名；`indicator.time_series` 对交易日类指标自动用交易日历；换凭证后不再沿用旧账号的 token；单次请求有总时长上限；`ai.stock_summary_list` 单次上限 6000 只。
-
-### 0.4.0 - 2026-09-07
-- 与 CLI **v0.38.0** 对齐，无新增接口。**次版本号**：拒收末尾带换行的日期 / 时间参数、`indicator_param` 里未在 `indicator` 中列出的代码、超过 5000 只的 `ai.stock_summary_list`；拒收列名重复、数组行缺 `fieldList`、行情接口缺 `list` 的响应。
-- `ai.knowledge_batch` 与 A 股 `insight.announcement_list` 的时间按北京时间换算，与运行机器的时区无关。
-- 下载默认不再为了文件名回查列表接口（该回查要发 4 次多半按条计费的请求），改为按需开启 `resolve_title=True`。
-- `quote.minute_kline` 可一次传多只证券；`quote.day_kline` 多只证券超过行数上限时自动拆分；新增 `missingFields` 等完整性标记。
 
 ## 安装
 
@@ -146,7 +147,7 @@ asyncio.run(main())
 
 - **按条计费的列表**（研报、公告、观点、路演 / 调研 / 策略会 / 论坛、个股线索、管理层情绪、热点话题等）不传 `size` 时，SDK 先拿到总条数，按 `total × 单价` 估算全量，**超过 1000 积分就报 `ValidationError`，不再往下拉**，报错里给出估算值。只要一部分就传 `size=N`；确认要全量再传 `confirm=True`。显式传的 `size` 按 `min(size, total)` 同样估算。
 - **`fundamental.earning_forecast`** 按日期区间估算（工作日数 × 3 条 × 0.5 积分），超过 1000 积分同样需要 `confirm=True`。
-- **不可逆的操作**——`vault.stock_pool_delete`、`vault.drive_delete_file`、`vault.drive_delete_folder`——必须传 `confirm=True`，否则在发请求前报错。
+- **不可逆的操作**——`vault.stock_pool_delete`、`vault.stock_note_delete`、`vault.drive_delete_file`、`vault.drive_delete_folder`——必须传 `confirm=True`，否则在发请求前报错。
 - **不自动重发**：以下接口在超时、断连、5xx 这类结果不确定的失败后不会自动重发，避免重复扣费：
   - 按次 / 按页计费的接口（AI 生成、管理层情绪明细、题材、联网搜索、PDF 解析、全部基金接口与 10 个债券接口等）；
   - 单次可能计费超过 3000 积分的 `ai.stock_summary_list`、`fundamental.earning_forecast`；
@@ -172,7 +173,7 @@ asyncio.run(main())
 | `failedPages` | 分页列表有页没取到（列出这些页的 `from` / `size`，可只补这几页） |
 | `omittedIndicators` / `omittedSecurities` | 指标矩阵：服务端不认识的指标或证券代码从结果里消失了（多为拼写或市场后缀错误） |
 | `missingIds` / `unfetchedIds` / `unfetchedError` | 观点正文：部分 ID 没有正文 / 后面的批次失败，这些 ID 未取到，失败原因在 `unfetchedError` |
-| `failList` | 股票池与云盘的批量写操作：请求成功但其中部分条目失败（列表非空即标 `partial`） |
+| `failList` | 股票池、个股笔记与云盘的批量写操作：请求成功但其中部分条目失败（列表非空即标 `partial`） |
 
 ## 关于日期格式
 
@@ -184,7 +185,7 @@ asyncio.run(main())
 | `"2026/07/01"` | `2026-07-01` |
 | `"20260701"` | `2026-07-01` |
 
-`start_time` / `end_time` 同理，只规范日期部分：`"2026/07/01 09:30:00"` → `"2026-07-01 09:30:00"`（秒可省，空格或 `T` 分隔；例外是 `ai.management_sentiment_indicator` / `management_sentiment_conclusion`，写时刻须带秒，`HH:mm` 报 `110001`）；10 / 13 位 Unix 时间戳原样透传。末尾带换行的值会被拒绝，从文件或管道读入的值请先 `.strip()`。
+`start_time` / `end_time`（以及日程列表的 `publish_start_time` / `publish_end_time`）同理，只规范日期部分：`"2026/07/01 09:30:00"` → `"2026-07-01 09:30:00"`（秒可省，空格或 `T` 分隔；例外是 `ai.management_sentiment_indicator` / `management_sentiment_conclusion`，写时刻须带秒，`HH:mm` 报 `110001`）；10 / 13 位 Unix 时间戳原样透传。末尾带换行的值会被拒绝，从文件或管道读入的值请先 `.strip()`。
 
 `ai.knowledge_batch` 与 A 股 `insight.announcement_list` 的时间参数由 SDK 换算成毫秒，**按北京时间（UTC+8）解释**，与运行机器的时区无关；`end_time` 只写日期时表示当日 23:59:59。要用别的时区就显式写偏移（`"2026-08-01T00:00:00-04:00"`）或直接传时间戳。
 
@@ -232,11 +233,11 @@ uv run python sample/sync/quote_day_kline.py
 uv run python sample/async/quote_day_kline.py
 ```
 
-返回 DataFrame 的示例直接打印；文本或 dict / list 响应写成 Markdown 文件放在 `sample_outputs/`；下载类示例把文件写入 `sample_downloads/`。会修改账号数据的示例（股票池与云盘的写操作）默认不发请求，需先在脚本开头填好 ID 或文件路径。运行说明见 [`sample/README.md`](sample/README.md)，全部方法的参数说明见 [`sample/API_PARAMETERS.md`](sample/API_PARAMETERS.md)。
+返回 DataFrame 的示例直接打印；文本或 dict / list 响应写成 Markdown 文件放在 `sample_outputs/`；下载类示例把文件写入 `sample_downloads/`。会修改账号数据的示例（股票池、个股笔记与云盘的写操作）默认不发请求，需先在脚本开头填好 ID 或文件路径。运行说明见 [`sample/README.md`](sample/README.md)，全部方法的参数说明见 [`sample/API_PARAMETERS.md`](sample/API_PARAMETERS.md)。
 
 ## 接口一览
 
-13 个领域、153 个上游接口：
+13 个领域、158 个上游接口：
 
 | 领域 | 内容 |
 | :-- | :-- |
@@ -244,12 +245,12 @@ uv run python sample/async/quote_day_kline.py
 | `gangtise.lookup` | 本地查表（券商机构、会议机构） |
 | `gangtise.reference` | 证券搜索（GTS 代码）、机构 / 公众号 ID 搜索、常量分类与取值、题材与板块搜索、板块成分股 |
 | `gangtise.insight` | 观点（摘要列表与按 ID 取正文）、研报与研报图表、公告、纪要与帕米尔专家纪要、日程、会议线索、财报日历、投资者问答 |
-| `gangtise.quote` | 日 / 分钟 K 线、实时行情、A 股资金流向 |
+| `gangtise.quote` | 日 / 分钟 K 线、实时行情、A 股个股与板块资金流向 |
 | `gangtise.fundamental` | 三大报表、主营业务、估值分析、十大股东、盈利预测 |
 | `gangtise.bond` | 债券资料、发行人、日行情、估值、现金流、公告、发行、评级、利率债发行计划、行权、违约 |
 | `gangtise.fund` | 公募基金资料、净值、费率、基金经理、规模、持有人、资产配置与持仓、ETF 申赎清单与份额 |
 | `gangtise.ai` | 一页通、投资逻辑、同业对比、业绩点评、主题跟踪、热点话题、个股看点、管理层讨论与管理层情绪、知识库搜索等 |
-| `gangtise.vault` | 个人云盘（列表、下载、上传、建文件夹、移动、复制、删除）、录音与会议记录、股票池（查询与增删改）、微信群消息 |
+| `gangtise.vault` | 个人云盘（列表、下载、上传、建文件夹、移动、复制、删除）、录音与会议记录、股票池（个人与租户池查询、增删改）、个股投资笔记、微信群消息 |
 | `gangtise.alternative` | 经济指标（EDB）、题材画像与成分股 |
 | `gangtise.indicator` | 证券级数据指标（EDE）：指标搜索、截面、时序、条件选股 |
 | `gangtise.tool` | PDF 解析（提交后取结果 ZIP）、联网搜索 |

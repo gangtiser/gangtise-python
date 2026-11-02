@@ -97,11 +97,15 @@ def _parse_content_disposition(header: str | None) -> str | None:
         # UTF-8); one Python cannot decode with falls back to the plain filename. Some
         # codecs (idna, punycode, undefined) raise UnicodeError even under
         # errors="replace" — a name is never worth failing a received download over.
+        # Python 3.13's punycode decodes bytes it cannot read to "" instead of raising,
+        # so an empty result falls back too.
         try:
             codecs.lookup(ext.group(1))
-            return unquote(ext.group(2), encoding=ext.group(1))
+            decoded = unquote(ext.group(2), encoding=ext.group(1))
         except (LookupError, UnicodeError):
-            pass
+            decoded = ""
+        if decoded:
+            return decoded
     match = _DISPOSITION_RE.search(header)
     return unquote(match.group(1)) if match else None
 

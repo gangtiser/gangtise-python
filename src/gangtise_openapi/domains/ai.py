@@ -79,6 +79,36 @@ def _sentiment_body(
     )
 
 
+def _expert_intel_body(
+    from_: int,
+    size: int | None,
+    start_time: Any,
+    end_time: Any,
+    keyword: Any,
+    search_type: Any,
+    security: Any,
+    research_area: Any,
+    concept: Any,
+    tag: Any,
+) -> dict[str, Any]:
+    """Request body of ``ai.expert_intel_list`` (TS v0.51.0). ``searchType`` is left out
+    unless given: the API's own default is full text (2), unlike the insight lists."""
+    return _request_body(
+        {
+            "from": from_,
+            "size": size,
+            "startTime": start_time,
+            "endTime": end_time,
+            "keyword": keyword,
+            "searchType": search_type,
+            "securityList": _as_list(security, "security"),
+            "researchAreaList": _as_list(research_area, "research_area"),
+            "conceptList": _as_list(concept, "concept"),
+            "tagList": _as_list(tag, "tag"),
+        }
+    )
+
+
 class AI:
     """`gangtise.ai.*` — AI-generated insights and structured outputs."""
 
@@ -322,6 +352,67 @@ class AI:
             }
         )
         result = self._client._call("ai.hot-topic", body=body, confirm=confirm)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def expert_intel_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int | None = None,
+        security: FilterValue | None = None,
+        research_area: FilterValue | None = None,
+        concept: FilterValue | None = None,
+        tag: FilterValue | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """AI 专家情报：AI 从专家会议、会议纪要提炼的个股情报（ai.expert-intel.list）。
+
+        一行 = 一条情报：intelId、标题 title、主体公司 mainSecurity（securityCode /
+        securityName，标题前缀展示用）、内容标签 tagList（纯文本列表）、正文 content（纯文本）、
+        发布时间 publishTime（北京时间），以及关联证券 securityList（含主体公司在其他市场的
+        上市主体）、研究方向 researchAreaList、题材 conceptList。按发布时间倒序。
+
+        - security: 带市场后缀的代码，单值或列表；一条情报关联多只证券时任一命中即返回。不带
+          后缀或后缀不存在报 120001；⚠️ 后缀存在但与代码的市场对不上（如 600519.SZ）不报错、
+          返回空结果——拿到空先核对后缀。
+        - research_area: 研究方向 ID，**用中信码 1008001xx**
+          （reference.constant_list(category="citicIndustry")）；⚠️ 申万码 104xx0000 与方向码
+          122000xxx 返回空结果、不报错。concept: 题材 ID（reference.concept_search）。tag: 纯文本
+          内容标签（如 景气上行 / 超预期 / 重大催化 / 产品进展）。三者写错都按无匹配处理，
+          返回空结果、不报错。
+        - 不同筛选之间为「且」，同一筛选的多个取值为「或」。
+        - keyword + search_type: 不传 search_type 时按接口默认的全文检索（标题 + 正文）；1 只搜
+          标题——标题不含公司名，按公司查用 security；2 为标题 + 正文。其他取值本地报错。
+        - start_time / end_time: 按发布时间筛，"YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm:ss"；只写日期的
+          end_time 含当天整天。起止颠倒报 110002，超出账号可查范围报 110003；未开通该数据库的
+          账号报 999004。
+
+        🔴 计费 **20 积分/条**（按返回条数计），size=20 即 400 积分；自动翻页（单页 50），
+        超时 / 5xx 不自动重发。省略 size 时按 total × 单价估算、显式 size 按 min(size, total) ×
+        单价估算，超过 1000 积分（50 条）拒绝（ValidationError，不再往下拉）；传更小的 size 取
+        一部分，或 confirm=True 确认全量。省略 size 时先取 1 条拿到总数来估算，结果多于 1 条时
+        这 1 条会多计一次——先用筛选收窄，知道要几条就直接传 size。
+        """
+        body = _expert_intel_body(
+            from_,
+            size,
+            start_time,
+            end_time,
+            keyword,
+            search_type,
+            security,
+            research_area,
+            concept,
+            tag,
+        )
+        result = self._client._call("ai.expert-intel.list", body=body, confirm=confirm)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
@@ -862,6 +953,67 @@ class AsyncAI:
             }
         )
         result = await self._client._call("ai.hot-topic", body=body, confirm=confirm)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def expert_intel_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        search_type: int | None = None,
+        security: FilterValue | None = None,
+        research_area: FilterValue | None = None,
+        concept: FilterValue | None = None,
+        tag: FilterValue | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """AI 专家情报：AI 从专家会议、会议纪要提炼的个股情报（ai.expert-intel.list）。
+
+        一行 = 一条情报：intelId、标题 title、主体公司 mainSecurity（securityCode /
+        securityName，标题前缀展示用）、内容标签 tagList（纯文本列表）、正文 content（纯文本）、
+        发布时间 publishTime（北京时间），以及关联证券 securityList（含主体公司在其他市场的
+        上市主体）、研究方向 researchAreaList、题材 conceptList。按发布时间倒序。
+
+        - security: 带市场后缀的代码，单值或列表；一条情报关联多只证券时任一命中即返回。不带
+          后缀或后缀不存在报 120001；⚠️ 后缀存在但与代码的市场对不上（如 600519.SZ）不报错、
+          返回空结果——拿到空先核对后缀。
+        - research_area: 研究方向 ID，**用中信码 1008001xx**
+          （reference.constant_list(category="citicIndustry")）；⚠️ 申万码 104xx0000 与方向码
+          122000xxx 返回空结果、不报错。concept: 题材 ID（reference.concept_search）。tag: 纯文本
+          内容标签（如 景气上行 / 超预期 / 重大催化 / 产品进展）。三者写错都按无匹配处理，
+          返回空结果、不报错。
+        - 不同筛选之间为「且」，同一筛选的多个取值为「或」。
+        - keyword + search_type: 不传 search_type 时按接口默认的全文检索（标题 + 正文）；1 只搜
+          标题——标题不含公司名，按公司查用 security；2 为标题 + 正文。其他取值本地报错。
+        - start_time / end_time: 按发布时间筛，"YYYY-MM-DD" 或 "YYYY-MM-DD HH:mm:ss"；只写日期的
+          end_time 含当天整天。起止颠倒报 110002，超出账号可查范围报 110003；未开通该数据库的
+          账号报 999004。
+
+        🔴 计费 **20 积分/条**（按返回条数计），size=20 即 400 积分；自动翻页（单页 50），
+        超时 / 5xx 不自动重发。省略 size 时按 total × 单价估算、显式 size 按 min(size, total) ×
+        单价估算，超过 1000 积分（50 条）拒绝（ValidationError，不再往下拉）；传更小的 size 取
+        一部分，或 confirm=True 确认全量。省略 size 时先取 1 条拿到总数来估算，结果多于 1 条时
+        这 1 条会多计一次——先用筛选收窄，知道要几条就直接传 size。
+        """
+        body = _expert_intel_body(
+            from_,
+            size,
+            start_time,
+            end_time,
+            keyword,
+            search_type,
+            security,
+            research_area,
+            concept,
+            tag,
+        )
+        result = await self._client._call("ai.expert-intel.list", body=body, confirm=confirm)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)

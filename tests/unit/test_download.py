@@ -3183,3 +3183,141 @@ async def test_async_download_closes_the_part_file_when_stopped_mid_body(
     assert len(opened) == 1
     assert opened[0].wrapped.closed
     assert list(tmp_path.glob("*.part*")) == []
+
+
+# ─── file_on_success: a 2xx group-file answer is the file, whatever its type (TS v0.51.0) ───
+
+_GROUP_FILE = "/application/open-vault/wechatgroupmsg/download/file"
+# "报告\n" in GBK — not valid UTF-8, so a body decoded as text would no longer match it.
+_GBK_TEXT = bytes([0xB1, 0xA8, 0xB8, 0xE6, 0x0A])
+_ENVELOPE_LIKE = b'{"code":"100005","msg":"saved reply","status":false}'
+
+
+@pytest.mark.parametrize(
+    ("content_type", "body", "name"),
+    [
+        ("text/plain; charset=utf-8", _GBK_TEXT, "%E6%8A%A5%E5%91%8A.txt"),
+        ("application/json", _ENVELOPE_LIKE, "reply.json"),
+    ],
+)
+def test_a_file_on_success_download_keeps_a_2xx_body_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content_type: str, body: bytes, name: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert lookup("vault.wechat-message.download").file_on_success
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get(_GROUP_FILE).mock(
+            return_value=httpx.Response(
+                200,
+                content=body,
+                headers={
+                    "content-type": content_type,
+                    "content-disposition": f"attachment; filename*=UTF-8''{name}",
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="vault.wechat-message.download",
+                query={"msgId": "4784255865508301077"},
+                output=None,
+                fallback_name="wechat-file-4784255865508301077",
+            )
+    assert route.calls.last.request.url.params["msgId"] == "4784255865508301077"
+    assert path.name == ("报告.txt" if name.endswith(".txt") else name)
+    assert path.read_bytes() == body
+
+
+def test_a_file_on_success_download_still_raises_a_non_2xx_envelope(tmp_path: Path) -> None:
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get(_GROUP_FILE).mock(
+            return_value=httpx.Response(
+                404,
+                json={"code": "130003", "msg": "没有文件可供下载", "status": False, "data": ""},
+            )
+        )
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.raises(ApiError) as exc,
+        ):
+            download_to_path(
+                client=client,
+                endpoint_key="vault.wechat-message.download",
+                query={"msgId": "404"},
+                output=tmp_path / "none.txt",
+                fallback_name="wechat-file-404",
+            )
+    assert exc.value.code == "130003"
+    assert "wechat_message_download" in (exc.value.hint or "")
+    assert not (tmp_path / "none.txt").exists()
+
+
+@pytest.mark.anyio
+async def test_async_file_on_success_download_keeps_a_json_body_and_raises_on_404(
+    tmp_path: Path,
+) -> None:
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get(_GROUP_FILE).mock(
+            side_effect=[
+                httpx.Response(
+                    200, content=_ENVELOPE_LIKE, headers={"content-type": "application/json"}
+                ),
+                httpx.Response(404, json={"code": "130003", "msg": "没有文件可供下载"}),
+            ]
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await download_to_path_async(
+                client=client,
+                endpoint_key="vault.wechat-message.download",
+                query={"msgId": "1"},
+                output=tmp_path / "reply.json",
+                fallback_name="wechat-file-1",
+            )
+            with pytest.raises(ApiError) as exc:
+                await download_to_path_async(
+                    client=client,
+                    endpoint_key="vault.wechat-message.download",
+                    query={"msgId": "404"},
+                    output=tmp_path / "none.json",
+                    fallback_name="wechat-file-404",
+                )
+    assert path.read_bytes() == _ENVELOPE_LIKE
+    assert exc.value.code == "130003"
+    assert not (tmp_path / "none.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("server_name", "content_type", "saved"),
+    [
+        ("config.ini", "text/plain", "config.ini"),
+        ("memo.m4a", "audio/mp4", "memo.m4a"),
+        # A tail without a letter is part of the name; the content type names the file.
+        ("纪要2026.10.30", "application/pdf", "纪要2026.10.30.pdf"),
+        ("passwd", "application/pdf", "passwd.pdf"),
+    ],
+)
+def test_a_server_filename_keeps_an_extension_of_its_own(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, server_name: str, content_type: str, saved: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.get(_GROUP_FILE).mock(
+            return_value=httpx.Response(
+                200,
+                content=b"x",
+                headers={
+                    "content-type": content_type,
+                    "content-disposition": f"attachment; filename*=UTF-8''{quote(server_name)}",
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = download_to_path(
+                client=client,
+                endpoint_key="vault.wechat-message.download",
+                query={"msgId": "1"},
+                output=None,
+                fallback_name="wechat-file-1",
+            )
+    assert path.name == saved

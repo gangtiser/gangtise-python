@@ -1,6 +1,6 @@
 # API 参数说明
 
-本文档按 SDK 的方法签名整理，覆盖 157 个公开方法，对应 158 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
+本文档按 SDK 的方法签名整理，覆盖 160 个公开方法，对应 161 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
 
 运行示例前请配置：
 
@@ -28,6 +28,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `reference` | `concept_search` | [reference_concept_search.py](sync/reference_concept_search.py) | [reference_concept_search.py](async/reference_concept_search.py) |
 | `reference` | `sector_search` | [reference_sector_search.py](sync/reference_sector_search.py) | [reference_sector_search.py](async/reference_sector_search.py) |
 | `reference` | `sector_constituents` | [reference_sector_constituents.py](sync/reference_sector_constituents.py) | [reference_sector_constituents.py](async/reference_sector_constituents.py) |
+| `reference` | `index_weight` | [reference_index_weight.py](sync/reference_index_weight.py) | [reference_index_weight.py](async/reference_index_weight.py) |
 | `quote` | `day_kline` | [quote_day_kline.py](sync/quote_day_kline.py) | [quote_day_kline.py](async/quote_day_kline.py) |
 | `quote` | `day_kline_hk` | [quote_day_kline_hk.py](sync/quote_day_kline_hk.py) | [quote_day_kline_hk.py](async/quote_day_kline_hk.py) |
 | `quote` | `day_kline_us` | [quote_day_kline_us.py](sync/quote_day_kline_us.py) | [quote_day_kline_us.py](async/quote_day_kline_us.py) |
@@ -88,6 +89,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `ai` | `research_outline` | [ai_research_outline.py](sync/ai_research_outline.py) | [ai_research_outline.py](async/ai_research_outline.py) |
 | `ai` | `theme_tracking` | [ai_theme_tracking.py](sync/ai_theme_tracking.py) | [ai_theme_tracking.py](async/ai_theme_tracking.py) |
 | `ai` | `hot_topic` | [ai_hot_topic.py](sync/ai_hot_topic.py) | [ai_hot_topic.py](async/ai_hot_topic.py) |
+| `ai` | `expert_intel_list` | [ai_expert_intel_list.py](sync/ai_expert_intel_list.py) | [ai_expert_intel_list.py](async/ai_expert_intel_list.py) |
 | `ai` | `management_discuss_announcement` | [ai_management_discuss_announcement.py](sync/ai_management_discuss_announcement.py) | [ai_management_discuss_announcement.py](async/ai_management_discuss_announcement.py) |
 | `ai` | `management_discuss_earnings_call` | [ai_management_discuss_earnings_call.py](sync/ai_management_discuss_earnings_call.py) | [ai_management_discuss_earnings_call.py](async/ai_management_discuss_earnings_call.py) |
 | `ai` | `management_sentiment_indicator` | [ai_management_sentiment_indicator.py](sync/ai_management_sentiment_indicator.py) | [ai_management_sentiment_indicator.py](async/ai_management_sentiment_indicator.py) |
@@ -108,6 +110,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `vault` | `drive_download` | [vault_drive_download.py](sync/vault_drive_download.py) | [vault_drive_download.py](async/vault_drive_download.py) |
 | `vault` | `record_download` | [vault_record_download.py](sync/vault_record_download.py) | [vault_record_download.py](async/vault_record_download.py) |
 | `vault` | `my_conference_download` | [vault_my_conference_download.py](sync/vault_my_conference_download.py) | [vault_my_conference_download.py](async/vault_my_conference_download.py) |
+| `vault` | `wechat_message_download` | [vault_wechat_message_download.py](sync/vault_wechat_message_download.py) | [vault_wechat_message_download.py](async/vault_wechat_message_download.py) |
 | `vault` | `stock_pool_create` | [vault_stock_pool_create.py](sync/vault_stock_pool_create.py) | [vault_stock_pool_create.py](async/vault_stock_pool_create.py) |
 | `vault` | `stock_pool_rename` | [vault_stock_pool_rename.py](sync/vault_stock_pool_rename.py) | [vault_stock_pool_rename.py](async/vault_stock_pool_rename.py) |
 | `vault` | `stock_pool_add_stock` | [vault_stock_pool_add_stock.py](sync/vault_stock_pool_add_stock.py) | [vault_stock_pool_add_stock.py](async/vault_stock_pool_add_stock.py) |
@@ -337,6 +340,21 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `sector_id` | `str` | 是 | - | `"2000000014"` | 板块 ID，必须来自 reference.sector_search（题材 conceptId 与板块 sectorId 是两套 ID，不通用；2000000014=申万一级行业指数）。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.index_weight`
+
+- 接口：`reference.index-weight` `POST /application/open-quote/index/constituent-weight`
+- 同步示例：`sample/sync/reference_index_weight.py`
+- 异步示例：`sample/async/reference_index_weight.py`
+- 返回类型：`pd.DataFrame | dict[str, Any] | list[Any]`
+
+指数成分股及权重，免费。不分页、不限条数：一次返回所选指数当日的全部成分股，多个指数合在同一张表里，按 `indexCode` 区分。行字段 `indexCode` / `indexName` / `tradeDate` / `securityCode` / `securityName` / `weight`（**单位 %**，最多四位小数；同一指数合计约为 100，受舍入影响不严格等于 100）。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `index` | `Any` | 是 | - | `"000300.SH"` | 指数代码，单值或列表，如 000300.SH 沪深300、000905.SH 中证500、399006.SZ 创业板指；不确定用 reference.securities_search(category="index")。 |
+| `date` | `str` | 是 | - | `"2026-10-30"` | 单个交易日。🔴 只有每月最后一个交易日有数：其他交易日、非交易日与写错的指数代码都返回空结果、不报错，SDK 发 UserWarning 点名没取到数据的指数。超出账号可查范围报 110003。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ## 行情（`gangtise.quote`）
@@ -1421,6 +1439,30 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `confirm` | `bool` | 否 | `False` | `False` | 按条计费（10 积分/篇）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
+### `ai.expert_intel_list`
+
+- 接口：`ai.expert-intel.list` `POST /application/open-insight/expertIntel/getList`
+- 同步示例：`sample/sync/ai_expert_intel_list.py`
+- 异步示例：`sample/async/ai_expert_intel_list.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `mainSecurity` + 核心观点标题 `title` + 内容标签 `tagList`（纯文本）+ 正文 `content`，附发布时间 `publishTime`（北京时间）、关联证券 `securityList`、研究方向 `researchAreaList`、题材 `conceptList`，按发布时间倒序。不同筛选之间为「且」，同一筛选的多个取值为「或」。未开通该数据库的账号报 999004。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；单页上限 50，超出自动翻页。🔴 20 积分/条，务必带 size。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-10-01"` | 发布时间起：YYYY-MM-DD 或 YYYY-MM-DD HH:mm:ss。起止颠倒报 110002，超出账号可查范围报 110003。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-10-31"` | 发布时间止，写法同 start_time；只写日期时含当天整天。 |
+| `keyword` | `str \| None` | 否 | `None` | `"锂电"` | 关键词，匹配范围由 search_type 决定。 |
+| `search_type` | `int \| None` | 否 | `None` | `1` | 不传=接口默认的全文检索（标题 + 正文）；1=只搜标题（标题不含公司名，按公司查用 security）；2=标题 + 正文。其他取值本地报错。 |
+| `security` | `Any` | 否 | `None` | `"300750.SZ"` | 带市场后缀的证券代码，单值或列表；任一关联证券命中即返回。不带后缀或后缀不存在报 120001；后缀存在但市场对不上（如 600519.SZ）返回空结果、不报错。 |
+| `research_area` | `Any` | 否 | `None` | `"100800110"` | 研究方向 ID，只认中信码 1008001xx（reference.constant_list(category="citicIndustry")）；申万码与方向码返回空结果、不报错。 |
+| `concept` | `Any` | 否 | `None` | `"121000745"` | 题材 ID（reference.concept_search）；写错按无匹配处理，返回空结果。 |
+| `tag` | `Any` | 否 | `None` | `"景气上行"` | 纯文本内容标签，如 景气上行 / 超预期 / 重大催化 / 产品进展；写错按无匹配处理，返回空结果。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（20 积分/条）的额度确认：省略 size 时按 total × 单价估算（先取 1 条拿到 total）、显式 size 按 min(size, total) × 单价估算，超过 1000 积分（50 条）本地拒绝（ValidationError）；True=确认全量拉取。超时 / 5xx 不自动重发。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
 ### `ai.management_discuss_announcement`
 
 - 接口：`ai.management-discuss-announcement` `POST /application/open-ai/management-discuss/from-announcement`
@@ -1643,7 +1685,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security` | `Any` | 否 | `None` | `"000001.SZ"` | 证券代码或代码列表，例如 000001.SZ；部分行情接口也支持 all。 |
 | `wechat_group_id` | `Any` | 否 | `None` | `None` | 微信群 ID，支持单值或列表。 |
 | `industry` | `Any` | 否 | `None` | `100800101` | 中信行业 ID（1008001xx 形态）；申万码与未知值在本接口报 100005。支持单值或列表。 |
-| `category` | `Any` | 否 | `None` | `"text"` | 消息类型：text / image / documents / url；支持单值或列表。 |
+| `category` | `Any` | 否 | `None` | `"text"` | 消息类型：text / image / document（PDF、Excel 等文档）/ url / audio / video；支持单值或列表。其他取值（如 documents、pdf、mp4）报 100005。 |
 | `tag` | `Any` | 否 | `None` | `None` | 标签过滤，支持单值或列表。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1726,6 +1768,20 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `content_type` | `str` | 是 | - | `"summary"` | 下载内容：asr=语音识别 / summary=AI 速记（没有 original）；其他取值本地拒绝、不发请求（接口对错值报 130003「没有文件可供下载」）。30 积分/篇，超时不自动重发。 |
 | `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
+
+### `vault.wechat_message_download`
+
+- 接口：`vault.wechat-message.download` `GET /application/open-vault/wechatgroupmsg/download/file`
+- 同步示例：`sample/sync/vault_wechat_message_download.py`
+- 异步示例：`sample/async/vault_wechat_message_download.py`
+- 返回类型：`Path`
+
+下载群消息里的文件，免费。只有 document / image / audio / video 消息有文件；内容原样落盘（`.txt` / `.json` / `.html` 等文本类文件也按原字节保存，不做转码）。报错：`130005` = 该消息是 text / url，没有文件；`130003` = 消息不存在、本账号无权访问或文件已不可用（不区分原因，重试不会变）；`100003` = `msg_id` 不是纯数字。
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `msg_id` | `str` | 是 | - | `"<msgId>"` | 消息 ID，取自 vault.wechat_message_list 的 msgId（长数字串，按字符串传）；引用里的文件用 quoteMsg.quoteMsgId。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时按服务端文件名保存（同名自动加 -1、-2），没有文件名时为 `wechat-file-<msg_id>`。 |
 
 ### `vault.stock_pool_create`
 
@@ -2603,7 +2659,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security` | `str \| Sequence[str]` | 是 | - | `"510300.SH"` | ETF 交易代码，后缀大写（.SH / .SZ）；单值或列表（多只请传列表，字符串不拆分），重复值去掉；空值本地报 ValidationError、不发请求。代码不存在、不带后缀、后缀小写或传成股票代码都返回空结果、不报错。 |
-| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出）。额外请求都免费：证券列表 3 次，表里没有的名称逐个搜索，实时行情每 500 个候选一次、需要时日 K 每 1000 个候选一次（某批含无效代码时拆开重查）；同名证券在两个市场都有时，实时价对上的一方要另一市场那只的近期收盘价对不上才采用。False 不发这些请求，返回接口原样的行。 |
+| `component_code` | `bool` | 否 | `True` | `False` | 接口只返回成分名称；True 时由 SDK 按名称匹配补上带市场后缀的 `componentCode`（用该行 `close` 核对行情，A+H 同名两行据此分开；匹配不到的为 null，并发 UserWarning 列出）。额外请求都免费：证券列表 3 次，表里没有的名称逐个搜索，实时行情每 500 个候选一次、需要时日 K 每 1000 个候选一次（某批含无效代码时拆开重查）；同名证券在两个市场都有时，实时价对上的一方要另一市场那只的近期收盘价对不上才采用；价格留下两个市场的候选时，再用该行 `pctChange` 与日 K 的收盘价 + 涨跌幅核对，对上哪只补哪只，都定不了的在跨市场 ETF 里为 null。False 不发这些请求，返回接口原样的行。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data（{list}，无 total；`componentCode` 同样已补上）；False 时转换为 pandas.DataFrame。 |
 
 ### `fund.etf_share_change`

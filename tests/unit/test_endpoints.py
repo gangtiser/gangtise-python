@@ -14,7 +14,7 @@ from gangtise_openapi._errors import ValidationError
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 160
+    assert len(ENDPOINTS) == 163
 
 
 def test_lookup_known_endpoint():
@@ -56,6 +56,7 @@ def test_pagination_registry_matches_ts_source():
         "insight.highlight.list": 50,
         "ai.security-clue.list": 500,
         "ai.hot-topic": 20,
+        "ai.expert-intel.list": 50,
         "ai.management-sentiment-indicator": 100,
         "ai.management-sentiment-conclusion": 100,
         "vault.stock-note.list": 50,
@@ -126,7 +127,7 @@ def test_dataclass_equality():
 
 
 def test_retry_policy_registry_matches_ts_source():
-    # Translated 1:1 from gangtise-openapi-cli v0.50.0 endpoints.ts.
+    # Translated 1:1 from gangtise-openapi-cli v0.51.0 endpoints.ts.
     # These annotations are billing-safety-critical — a drifted entry either
     # double-bills (missing no-replay) or degrades reliability (spurious one).
     expected_no_replay = {
@@ -179,6 +180,7 @@ def test_retry_policy_registry_matches_ts_source():
         "ai.theme-tracking",
         "ai.research-outline",
         "ai.hot-topic",
+        "ai.expert-intel.list",
         "ai.management-discuss-announcement",
         "ai.management-discuss-earnings-call",
         "ai.management-sentiment-detail",
@@ -291,6 +293,7 @@ def test_all_endpoint_keys_match_ts_source():
         "reference.concept-search",
         "reference.sector-search",
         "reference.sector-constituents",
+        "reference.index-weight",
         "quote.day-kline",
         "quote.day-kline-hk",
         "quote.day-kline-us",
@@ -357,6 +360,7 @@ def test_all_endpoint_keys_match_ts_source():
         "ai.theme-tracking",
         "ai.research-outline",
         "ai.hot-topic",
+        "ai.expert-intel.list",
         "ai.management-discuss-announcement",
         "ai.management-discuss-earnings-call",
         "ai.management-sentiment-indicator",
@@ -380,6 +384,7 @@ def test_all_endpoint_keys_match_ts_source():
         "vault.my-conference.list",
         "vault.my-conference.download",
         "vault.wechat-message.list",
+        "vault.wechat-message.download",
         "vault.wechat-chatroom.list",
         "vault.stock-pool.list",
         "vault.stock-pool.stocks",
@@ -412,7 +417,8 @@ def test_all_endpoint_keys_match_ts_source():
 def test_row_id_registry_matches_ts_source():
     """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by;
     v0.48.0: several dotted paths together where no single field identifies a row;
-    v0.49.0: the four schedule lists by their per-list id, not ``id``; v0.50.0: stock notes."""
+    v0.49.0: the four schedule lists by their per-list id, not ``id``; v0.50.0: stock notes;
+    v0.51.0: expert intel, by an id from the response description only."""
     assert {k: ep.row_id for k, ep in ENDPOINTS.items() if ep.row_id} == {
         "insight.opinion.list": "chiefOpinionId",
         "insight.summary.list": "summaryId",
@@ -437,6 +443,7 @@ def test_row_id_registry_matches_ts_source():
         "vault.wechat-message.list": "msgId",
         "vault.wechat-chatroom.list": "chatroomId",
         "vault.stock-note.list": "stockNoteId",
+        "ai.expert-intel.list": "intelId",
         "ai.management-sentiment-indicator": (
             "securityCode",
             "source.sourceType",
@@ -449,6 +456,7 @@ def test_row_id_registry_matches_ts_source():
         ),
     }
     assert {k for k, ep in ENDPOINTS.items() if ep.row_id_unverified} == {
+        "ai.expert-intel.list",
         "ai.management-sentiment-indicator",
         "ai.management-sentiment-conclusion",
         "insight.roadshow.list",
@@ -478,6 +486,7 @@ def test_expects_registry_matches_ts_source():
     }
     assert {k for k, ep in ENDPOINTS.items() if ep.expects == "list"} == {
         "insight.highlight.list",
+        "reference.index-weight",
         "quote.day-kline",
         "quote.day-kline-hk",
         "quote.day-kline-us",
@@ -518,11 +527,23 @@ def test_expects_registry_matches_ts_source():
         "fund.etf-pcf-header",
         "fund.etf-pcf-components",
         "fund.etf-share-change",
+        "ai.expert-intel.list",
         "ai.management-sentiment-indicator",
         "ai.management-sentiment-conclusion",
         "ai.management-sentiment-detail",
         "tool.web-search",
     }
+
+
+def test_file_on_success_registry_matches_ts_source():
+    """TS v0.51.0 ``fileOnSuccess``: only the group-file download, whose errors all carry
+    a non-2xx status, treats a 2xx JSON body as the file itself."""
+    assert {k for k, ep in ENDPOINTS.items() if ep.file_on_success} == {
+        "vault.wechat-message.download"
+    }
+    for ep in ENDPOINTS.values():
+        if ep.file_on_success:
+            assert ep.kind == "download", ep.key
 
 
 def test_destructive_and_item_failure_registry_matches_ts_source():
@@ -630,6 +651,7 @@ def test_billing_registry_matches_ts_source():
         "ai.theme-tracking": ("call", 10),
         "ai.research-outline": ("call", 10),
         "ai.hot-topic": ("row", 10),
+        "ai.expert-intel.list": ("row", 20),
         "ai.management-discuss-announcement": ("call", 5),
         "ai.management-discuss-earnings-call": ("call", 10),
         "ai.management-sentiment-indicator": ("row", 5),
@@ -817,6 +839,7 @@ def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_29():
     }
     assert under_the_line == {
         "ai.hot-topic",
+        "ai.expert-intel.list",
         "insight.highlight.list",
         "insight.opinion.list-with-content",
         "insight.opinion.detail",

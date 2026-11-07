@@ -67,12 +67,15 @@ ERROR_HINTS: dict[str, str] = {
     # 但历史上两者都归过此码，所以提示保留对 file_type 的指引。云盘管理对不存在的
     # 文件夹 / 文件 ID 也回此码，包括重复执行一次已生效的删除。
     "130002": "确认 ID 有效且本账号可见（云盘的文件 / 文件夹 ID 用 gangtise.vault.drive_folder_list() 核对，笔记 ID 用 gangtise.vault.stock_note_list() 核对；删除类方法收到此码可能是目标已被删掉）；下载类还需检查 file_type 取值是否合法。",
-    "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment / hasFile 为 true 的），或稍后再试。",
+    # 群消息文件下载对「消息不存在 / 无权访问 / 文件已不可用」统一回此码、不区分原因，
+    # 重试不会变（CLI 实测 2026-11-07：不存在的 msgId 回 HTTP 404 + 130003）。
+    "130003": "资源未生成或该条记录未附带文件——换一条有附件的记录（列表里 hasAttachment / hasFile 为 true 的），或稍后再试；gangtise.vault.wechat_message_download() 收到此码是消息不存在、本账号无权访问或文件已不可用，重试不会变。",
     # 下载类各有各的 ID 参数（report_id / announcement_id / chunk_id / summary_id /
     # conference_id / record_id / file_id / article_id / independent_opinion_id）；
     # data_id 是异步 *_check 用的，不产生此码。
     "130004": "下载 ID 需为数字，检查该方法的 *_id 参数是否传对。",
-    "130005": "对照方法 docstring 检查 file_type / content_type 取值。",
+    # 群消息文件下载：text / url 消息没有文件，回 HTTP 400 + 130005（CLI 实测 2026-11-07）。
+    "130005": "对照方法 docstring 检查 file_type / content_type 取值；gangtise.vault.wechat_message_download() 收到此码是该消息为 text / url、没有文件——只有 document / image / audio / video 消息可下载。",
     "140001": "稍后用对应 *_check 方法查询。",
     # 三类来源共用此码：AI 异步生成失败；EDE 的参数/表达式错误（CLI 实测
     # 2026-08-02：枚举越界、表达式语法错误）；其他接口的 PROCESSING_FAILED「业务处理

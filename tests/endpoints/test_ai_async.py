@@ -528,3 +528,32 @@ async def test_async_management_sentiment_detail_defaults_the_source_type(tmp_pa
         "sourceType": "conference",
     }
     assert df.iloc[0]["qaPolarity"] == 5.0
+
+
+# ─── expert intel (TS v0.51.0) ───
+
+_EXPERT_INTEL = "/application/open-insight/expertIntel/getList"
+
+
+@pytest.mark.anyio
+async def test_async_expert_intel_list_maps_its_filters_and_probes_one_row_unbounded(tmp_path):
+    rows = [{"intelId": "1", "title": "情报", "tagList": ["超预期"]}]
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EXPERT_INTEL).mock(return_value=_list_response(rows))
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            ai = AsyncAI(client)
+            df = await ai.expert_intel_list(concept="121000745", tag="超预期", size=20)
+            await ai.expert_intel_list(security="300750.SZ")
+    assert json.loads(route.calls[0].request.content) == {
+        "from": 0,
+        "size": 20,
+        "conceptList": ["121000745"],
+        "tagList": ["超预期"],
+    }
+    assert json.loads(route.calls[1].request.content) == {
+        "from": 0,
+        "size": 1,
+        "securityList": ["300750.SZ"],
+    }
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["intelId"] == "1"

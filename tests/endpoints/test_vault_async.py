@@ -344,3 +344,19 @@ async def test_async_my_conference_download_includes_content_type(tmp_path):
         sent_url = str(route.calls.last.request.url)
         assert "conferenceId=c1" in sent_url
         assert "contentType=summary" in sent_url
+
+
+@pytest.mark.anyio
+async def test_async_wechat_message_download_writes_the_file(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-vault/wechatgroupmsg/download/file").mock(
+            return_value=httpx.Response(
+                200, content=b'{"a": 1}', headers={"content-type": "application/json"}
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = await AsyncVault(client).wechat_message_download(
+                msg_id="1", output=tmp_path / "data.json"
+            )
+    assert route.calls.last.request.url.params["msgId"] == "1"
+    assert path.read_bytes() == b'{"a": 1}'

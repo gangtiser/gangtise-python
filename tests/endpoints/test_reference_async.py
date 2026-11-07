@@ -256,3 +256,23 @@ async def test_official_account_search_async(tmp_path):
             df = await AsyncReference(client).official_account_search(keyword="研究所")
     assert isinstance(df, pd.DataFrame)
     assert df.iloc[0]["accountId"] == "gh_1"
+
+
+@pytest.mark.anyio
+async def test_async_index_weight_names_the_indices_that_came_back_empty(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post("/application/open-quote/index/constituent-weight").mock(
+            return_value=httpx.Response(
+                200,
+                json={"code": "000000", "status": True, "data": {"total": 0, "list": []}},
+            )
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="000905.SH on 2026-09-29"):
+                df = await AsyncReference(client).index_weight(index="000905.SH", date="2026-09-29")
+    assert json.loads(route.calls.last.request.content) == {
+        "indexCodeList": ["000905.SH"],
+        "tradeDate": "2026-09-29",
+    }
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty

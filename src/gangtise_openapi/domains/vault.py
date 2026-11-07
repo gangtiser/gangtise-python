@@ -290,11 +290,19 @@ class Vault:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群消息列表（vault.wechat-message.list）。
 
-        category 消息类型: text/image/documents/url; tag 标签: roadShow=路演,
+        category 消息类型: text / image / document（PDF、Excel 等文档）/ url / audio / video,
+        其他取值（如 documents、pdf、mp4）报 100005; tag 标签: roadShow=路演,
         research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
         industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
         industry 只收中信码 (1008001xx); 申万码与未知值被接口以 100005 拒绝
         (2026-09 起——此前是静默忽略并返回未过滤的全量, 那更危险)。
+
+        msgId 是长数字串，按字符串保存和传递。content 随 category 不同：text 为正文、document
+        为文件名、image 为图片识别出的文字（可能为空，不保证逐字准确）、url 为链接标题、
+        audio / video 为附带文字（常为空，不含转写）。fileInfo 是 document / image / audio /
+        video 消息的文件名与字节数（fileSize 未知时为 null），其他类型为 null；文件本身用
+        wechat_message_download 取。quoteMsg 是被引用的消息（无引用为 null），被引用的是文件
+        消息时 quoteFileInfo 给文件名与大小，下载用 quoteMsgId。
 
         按偏移量最多取到第 10000 条（from_ + 条数不能超过 10000），窗口外的行取不到
         也数不到；total 最多也只报到 10000——正好报 10000 时实际条数可能更多，按封顶
@@ -319,6 +327,35 @@ class Vault:
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
+
+    def wechat_message_download(
+        self,
+        *,
+        msg_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载微信群消息里的文件（vault.wechat-message.download），免费。
+
+        msg_id 取自 wechat_message_list 的 msgId（按字符串原样传）；只有 document / image /
+        audio / video 消息有文件。引用里的文件用 quoteMsg.quoteMsgId（先确认 quoteCategory 是
+        这四类之一）。一次一个文件。
+
+        未指定 output 时按服务端给的文件名保存（文档、音频一般是原文件名，图片、视频多为一串
+        随机字符），同名自动加 -1、-2；没有文件名时为 wechat-file-<msg_id>。内容原样落盘：
+        .txt / .json / .html 等文本类文件也按原字节保存，不做转码。图片是平台保存的版本，不保证
+        原图分辨率；音频、视频只有文件本身，没有转写。
+
+        报错：130005 = 该消息是 text / url，没有文件；130003 = 消息不存在、本账号无权访问或文件
+        已不可用（不区分原因，重试不会变）；100003 = msg_id 不是纯数字。列表里有 fileInfo 不代表
+        文件一定还能下载，以下载结果为准。
+        """
+        return download_to_path(
+            client=self._client,
+            endpoint_key="vault.wechat-message.download",
+            query={"msgId": msg_id},
+            output=output,
+            fallback_name=f"wechat-file-{msg_id}",
+        )
 
     def wechat_chatroom_list(
         self,
@@ -999,11 +1036,19 @@ class AsyncVault:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询微信群消息列表（vault.wechat-message.list）。
 
-        category 消息类型: text/image/documents/url; tag 标签: roadShow=路演,
+        category 消息类型: text / image / document（PDF、Excel 等文档）/ url / audio / video,
+        其他取值（如 documents、pdf、mp4）报 100005; tag 标签: roadShow=路演,
         research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
         industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评。
         industry 只收中信码 (1008001xx); 申万码与未知值被接口以 100005 拒绝
         (2026-09 起——此前是静默忽略并返回未过滤的全量, 那更危险)。
+
+        msgId 是长数字串，按字符串保存和传递。content 随 category 不同：text 为正文、document
+        为文件名、image 为图片识别出的文字（可能为空，不保证逐字准确）、url 为链接标题、
+        audio / video 为附带文字（常为空，不含转写）。fileInfo 是 document / image / audio /
+        video 消息的文件名与字节数（fileSize 未知时为 null），其他类型为 null；文件本身用
+        wechat_message_download 取。quoteMsg 是被引用的消息（无引用为 null），被引用的是文件
+        消息时 quoteFileInfo 给文件名与大小，下载用 quoteMsgId。
 
         按偏移量最多取到第 10000 条（from_ + 条数不能超过 10000），窗口外的行取不到
         也数不到；total 最多也只报到 10000——正好报 10000 时实际条数可能更多，按封顶
@@ -1028,6 +1073,35 @@ class AsyncVault:
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
+
+    async def wechat_message_download(
+        self,
+        *,
+        msg_id: str,
+        output: str | Path | None = None,
+    ) -> Path:
+        """下载微信群消息里的文件（vault.wechat-message.download），免费。
+
+        msg_id 取自 wechat_message_list 的 msgId（按字符串原样传）；只有 document / image /
+        audio / video 消息有文件。引用里的文件用 quoteMsg.quoteMsgId（先确认 quoteCategory 是
+        这四类之一）。一次一个文件。
+
+        未指定 output 时按服务端给的文件名保存（文档、音频一般是原文件名，图片、视频多为一串
+        随机字符），同名自动加 -1、-2；没有文件名时为 wechat-file-<msg_id>。内容原样落盘：
+        .txt / .json / .html 等文本类文件也按原字节保存，不做转码。图片是平台保存的版本，不保证
+        原图分辨率；音频、视频只有文件本身，没有转写。
+
+        报错：130005 = 该消息是 text / url，没有文件；130003 = 消息不存在、本账号无权访问或文件
+        已不可用（不区分原因，重试不会变）；100003 = msg_id 不是纯数字。列表里有 fileInfo 不代表
+        文件一定还能下载，以下载结果为准。
+        """
+        return await download_to_path_async(
+            client=self._client,
+            endpoint_key="vault.wechat-message.download",
+            query={"msgId": msg_id},
+            output=output,
+            fallback_name=f"wechat-file-{msg_id}",
+        )
 
     async def wechat_chatroom_list(
         self,

@@ -3,6 +3,7 @@
 # that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import pandas as pd
@@ -10,9 +11,11 @@ import pandas as pd
 from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi.domains._common import (
     FilterValue,
+    _as_named_list,
     _request_body,
     _result_to_dataframe,
     _validate_choices,
+    _validate_date,
     _validate_top,
 )
 
@@ -28,6 +31,35 @@ _INSTITUTION_CATEGORIES = (
     "foreignOpinionInstitution",
 )
 _OFFICIAL_ACCOUNT_CATEGORIES = ("listedCompany", "broker", "government", "media")
+
+
+def _index_weight_body(index: Any, date: Any) -> dict[str, Any]:
+    return _request_body(
+        {"indexCodeList": _as_named_list(index, "index"), "tradeDate": _validate_date(date, "date")}
+    )
+
+
+def _note_missing_indices(data: Any, body: dict[str, Any]) -> None:
+    """Warn which requested indices came back without a row. The endpoint answers an
+    unknown code, a non-trading day and a date it holds no weights for alike — an empty
+    list, no error — and in the dates the CLI sampled (2026-11-07) it held weights for
+    month-end trading days only, so an empty answer otherwise reads as "this index has no
+    constituents" (TS v0.51.0)."""
+    rows = data.get("list") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return
+    # The server reads a code case-insensitively and answers it upper-case.
+    found = {str(row.get("indexCode")).upper() for row in rows if isinstance(row, dict)}
+    missing = [code for code in body.get("indexCodeList", []) if str(code).upper() not in found]
+    if missing:
+        warnings.warn(
+            f"reference.index_weight: no constituent weights for {', '.join(map(str, missing))} "
+            f"on {body['tradeDate']}. Weights come for the last trading day of each month — "
+            "another date, like an unknown index code, comes back empty without an error. "
+            "Check the date, and the code with "
+            'reference.securities_search(category="index").',
+            stacklevel=3,
+        )
 
 
 class Reference:
@@ -161,6 +193,36 @@ class Reference:
         """
         body = {"sectorId": sector_id}
         result = self._client._call("reference.sector-constituents", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def index_weight(
+        self,
+        *,
+        index: FilterValue,
+        date: str,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """指数成分股及权重（reference.index-weight），免费。
+
+        - index: 指数代码（必填），单值或列表，如 000300.SH 沪深300、000905.SH 中证500、
+          000852.SH 中证1000、000016.SH 上证50、000688.SH 科创50、399006.SZ 创业板指；不确定用
+          reference.securities_search(keyword=<指数名>, category="index")。
+        - date: 单个交易日（必填）。🔴 **只有每月最后一个交易日有数**（如 2026-09-30、
+          2026-10-30）——其他交易日、非交易日与写错的指数代码都返回空结果、不报错，SDK 发
+          UserWarning 点名没取到数据的指数。要「最新」权重就取上个月最后一个交易日；超出账号
+          可查范围报 110003。
+
+        不分页、不限条数：一次返回所选指数当日的全部成分股，多个指数合在同一张表里，按
+        indexCode 区分。行字段：indexCode / indexName / tradeDate / securityCode / securityName /
+        weight（**单位 %**，最多四位小数）。同一指数的权重合计约为 100，受舍入影响不严格等于
+        100，校验合计时留容差。sector_constituents 是板块的纯成分名单、不带权重；要权重（基金
+        归因、指数对标）用本方法。
+        """
+        body = _index_weight_body(index, date)
+        result = self._client._call("reference.index-weight", body=body)
+        _note_missing_indices(result, body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
@@ -375,6 +437,36 @@ class AsyncReference:
         """
         body = {"sectorId": sector_id}
         result = await self._client._call("reference.sector-constituents", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def index_weight(
+        self,
+        *,
+        index: FilterValue,
+        date: str,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """指数成分股及权重（reference.index-weight），免费。
+
+        - index: 指数代码（必填），单值或列表，如 000300.SH 沪深300、000905.SH 中证500、
+          000852.SH 中证1000、000016.SH 上证50、000688.SH 科创50、399006.SZ 创业板指；不确定用
+          reference.securities_search(keyword=<指数名>, category="index")。
+        - date: 单个交易日（必填）。🔴 **只有每月最后一个交易日有数**（如 2026-09-30、
+          2026-10-30）——其他交易日、非交易日与写错的指数代码都返回空结果、不报错，SDK 发
+          UserWarning 点名没取到数据的指数。要「最新」权重就取上个月最后一个交易日；超出账号
+          可查范围报 110003。
+
+        不分页、不限条数：一次返回所选指数当日的全部成分股，多个指数合在同一张表里，按
+        indexCode 区分。行字段：indexCode / indexName / tradeDate / securityCode / securityName /
+        weight（**单位 %**，最多四位小数）。同一指数的权重合计约为 100，受舍入影响不严格等于
+        100，校验合计时留容差。sector_constituents 是板块的纯成分名单、不带权重；要权重（基金
+        归因、指数对标）用本方法。
+        """
+        body = _index_weight_body(index, date)
+        result = await self._client._call("reference.index-weight", body=body)
+        _note_missing_indices(result, body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)

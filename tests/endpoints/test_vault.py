@@ -275,3 +275,27 @@ def test_my_conference_download_includes_content_type(tmp_path):
             )
         sent_url = str(route.calls.last.request.url)
         assert "contentType=summary" in sent_url
+
+
+def test_wechat_message_download_keeps_a_text_file_byte_for_byte_under_its_server_name(
+    tmp_path, monkeypatch
+):
+    # "报告\n" in GBK: a body decoded as text would no longer match it (TS v0.51.0).
+    gbk = bytes([0xB1, 0xA8, 0xB8, 0xE6, 0x0A])
+    monkeypatch.chdir(tmp_path)
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.get("/application/open-vault/wechatgroupmsg/download/file").mock(
+            return_value=httpx.Response(
+                200,
+                content=gbk,
+                headers={
+                    "content-type": "text/plain; charset=utf-8",
+                    "content-disposition": "attachment; filename*=UTF-8''%E6%8A%A5%E5%91%8A.txt",
+                },
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            path = Vault(client).wechat_message_download(msg_id="4784255865508301077")
+    assert route.calls.last.request.url.params["msgId"] == "4784255865508301077"
+    assert path.name == "报告.txt"
+    assert path.read_bytes() == gbk

@@ -140,7 +140,7 @@ def _result_ext(
     so the file is never named ``.json`` after the envelope; the URL still wins over
     it, because a signed target may answer a generic ``application/octet-stream``
     (which maps to no extension) for a PDF, and the URL is what TS names it by."""
-    if disposition_name and _has_known_extension(disposition_name):
+    if disposition_name and _has_own_extension(disposition_name):
         return Path(disposition_name).suffix
     if source_url is not None:
         ext = _extension_from_url(source_url)
@@ -260,6 +260,17 @@ def _sanitize_filename(name: str) -> str:
 
 def _has_known_extension(name: str) -> bool:
     return Path(name).suffix.lower() in _KNOWN_EXTENSIONS
+
+
+# A server filename keeps the extension it carries even when the tables above do not list
+# it (``config.ini``, ``memo.m4a``): they only cover what a content type maps to, and a
+# user-shared file can be anything. A tail without a letter (``纪要2026.10.30``) is part
+# of the name. Titles are not judged by this — a title's dots are prose.
+_OWN_EXTENSION = re.compile(r"\.(?=[0-9]*[A-Za-z])[A-Za-z0-9]{1,10}", re.ASCII)
+
+
+def _has_own_extension(name: str) -> bool:
+    return _has_known_extension(name) or bool(_OWN_EXTENSION.fullmatch(Path(name).suffix))
 
 
 def _append_extension_if_needed(name: str, ext: str) -> str:
@@ -500,9 +511,10 @@ def _download_once(
                 parse_retry_after_ms(response.headers.get("retry-after"), time.time()),
             )
 
-        # JSON 200 = envelope error, presigned-URL metadata, or non-file payload.
+        # JSON 200 = envelope error, presigned-URL metadata, or non-file payload — except
+        # on a ``file_on_success`` endpoint, where a 2xx is the file whatever its type.
         content_type_header = response.headers.get("content-type", "")
-        if "application/json" in content_type_header.lower():
+        if not endpoint.file_on_success and "application/json" in content_type_header.lower():
             response.read()
             return _handle_json_download_response(
                 client=client,
@@ -1039,9 +1051,10 @@ async def _download_once_async(
                 parse_retry_after_ms(response.headers.get("retry-after"), time.time()),
             )
 
-        # JSON 200 = envelope error, presigned-URL metadata, or non-file payload.
+        # JSON 200 = envelope error, presigned-URL metadata, or non-file payload — except
+        # on a ``file_on_success`` endpoint, where a 2xx is the file whatever its type.
         content_type_header = response.headers.get("content-type", "")
-        if "application/json" in content_type_header.lower():
+        if not endpoint.file_on_success and "application/json" in content_type_header.lower():
             await _aread_within(response, deadline)
             return await _handle_json_download_response_async(
                 client=client,

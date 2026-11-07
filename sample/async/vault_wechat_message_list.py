@@ -28,7 +28,7 @@ async def main():
             start_time="2026-05-01",  # 起始时间
             end_time="2026-05-28",  # 结束时间
             keyword="银行",  # 搜索关键词
-            category="text",  # 消息类型: text/image/documents/url; 支持单值或列表
+            category="text",  # 消息类型: text/image/document/url/audio/video; 支持单值或列表
             # 标签: roadShow=路演, research=调研, strategyMeeting=策略会, meetingSummary=会议纪要,
             #   industryComment=行业点评, companyComment=公司点评, earningsReview=业绩点评; 支持单值或列表
             tag="research",
@@ -41,7 +41,7 @@ async def main():
         await gangtise.async_.vault.wechat_message_list(
             security=["000001.SZ", "600519.SH"],  # 证券代码, 支持单值或列表
             industry=100800101,  # 中信行业 ID（1008001xx 形态; 申万码在此报 100005）
-            category=["documents", "url"],  # 消息类型, 支持单值或列表
+            category=["document", "url"],  # 消息类型, 支持单值或列表
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

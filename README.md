@@ -1,8 +1,8 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 158 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.50.0 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 161 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.51.0 功能对齐。
 
-- **覆盖面**：观点、研报、公告、纪要与会议、行情 K 线与资金流向、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容与管理层情绪、个人云盘、股票池与个股笔记、联网搜索、PDF 解析。
+- **覆盖面**：观点、研报、公告、纪要与会议、行情 K 线与资金流向、指数成分权重、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容、专家情报与管理层情绪、个人云盘、股票池与个股笔记、微信群消息与群文件、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
 - **自动处理分页与拆分**：分页列表自动翻页；全市场 K 线按工作日自动分片；多只证券自动合批。
 - **计费保护**：按条计费的大批量拉取、不可逆的删除操作都要显式确认；按次计费与单次可能花费较多的接口在超时、5xx 后不自动重发（仍会自动重试的计费接口见「计费与确认」）。
@@ -12,6 +12,13 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.5 - 2026-11-07
+- 与 CLI **v0.51.0** 对齐，新增 3 个接口，共 **161 个**。
+- **新增**：`ai.expert_intel_list`（AI 专家情报，20 积分/条，自动翻页、额度保护，超时不自动重发）；`reference.index_weight`（指数成分股权重，免费；只有每月最后一个交易日有数，其他日期返回空结果并告警）；`vault.wechat_message_download`（群消息里的文档 / 图片 / 音频 / 视频文件，免费，按原字节保存）。
+- `vault.wechat_message_list` 的 `category`：文档类取值是 `document`（0.5.4 文档写的 `documents` 会报 `100005`），新增 `audio` / `video`。
+- `fund.etf_pcf_components` 补码：A / H 同名而价格定不了的行，改用该行的 `pctChange` 与日 K 的收盘价 + 涨跌幅核对，能定的不再留 null。
+- **修复**（下载）：服务端文件名自带的扩展名原样保留（0.5.4 会把 `config.ini` 存成 `config.ini.txt`）；Python 3.13 上 `filename*` 解不出时改用普通 `filename`（0.5.4 存成 `<前缀>-<id>`）。
 
 ### 0.5.4 - 2026-11-02
 - 与 CLI **v0.50.0** 对齐，新增 5 个接口，共 **158 个**。
@@ -41,16 +48,6 @@
 - 下载：响应同时给出编码文件名（`filename*`，通常为 UTF-8）与普通文件名时，用编码的那个，并按它声明的字符集解码。
 - 接口地址用明文 `http://` 且不是本机地址时告警一次：AK / SK 与 token 会明文传输。
 - 文档：`bond.daily_quote` / `bond.valuation` 的数据可能比账号窗口短，**取长序列时核对首行日期**；`bond.announcement` 按日期查询时有代码的行都带后缀；只知道基金名称时怎么换代码。
-
-### 0.5.0 - 2026-10-01
-- 与 CLI **v0.44.0** 对齐，新增 52 个接口，共 **149 个**（此前 97）。**次版本号**：几类 0.4.0 会发出的调用改为在本地拒收，观点列表与题材两个接口的默认返回内容也变了。
-- **新增**：`gangtise.fund`（公募基金，18 个方法）、`gangtise.bond`（债券，12 个方法）；股票池增删改；云盘上传 / 建文件夹 / 重命名 / 移动 / 复制 / 删除；`insight.opinion_detail` / `foreign_opinion_detail`（按 ID 取观点正文）、`insight.highlight_list`（会议线索）、`tool.web_search`（联网搜索）。
-- 🔴 **默认返回变了**：`insight.opinion_list` / `foreign_opinion_list` 改走 v2（1 积分/条，原 30），只返回 200 字摘要 `brief`，正文用 `opinion_detail` 取，或传 `with_content=True`；`alternative.concept_info` / `concept_securities` 改走 v2（50 积分/次，原 500），不含催化事件与重点个股，需要时传 `full=True`。
-- 🔴 **新增 `confirm=True` 与额度保护**：按条计费的列表与 `earning_forecast` 估算超过 1000 积分时需要确认；三个不可逆的删除方法必须确认。
-- 🔴 **新增的本地拒收**：显式空列表或空白字符串；列表参数传集合、字典（含 `keys()` / `values()`）、迭代器或 bytes；`quote.index_day_kline` 的 `"all"`（接口对它返回空结果且不报错）；全市场 K 线只给一端日期；`hot_topic` 的 `category`、`security_clue_list` 的 `source` / `query_mode`、估值分析的 `indicator`、两个云盘下载的 `content_type` 取值不合法；`independent_opinion_download(resolve_title=True)`；代码里传入超出 1–3600 秒的 `timeout` 等（完整清单见 CHANGELOG）。
-- **估值分析**：省略 `limit` 时按默认 2000 行显式发送，行数撞满即标 `partial`（缺的是区间开头）；返回里没有 `list` 时报错。**0.4.0 在 `field` 同时含 `tradeDate`（或重复字段）与不存在的字段名时，结果会整体右移一列，用过这类组合的请重跑。**
-- **不再自动重发**：`fundamental.earning_forecast` 与 `ai.stock_summary_list` 超时或 5xx 后不再自动重发（一次调用可能计费数千积分）。
-- **完整性与其他**：翻页去重（`duplicateRows`）；全市场 K 线跳过窗口外分片（`outOfWindowShards`）、全部分片失败时报错；多只证券日 K 合批；空结果保留列名；`indicator.time_series` 对交易日类指标自动用交易日历；换凭证后不再沿用旧账号的 token；单次请求有总时长上限；`ai.stock_summary_list` 单次上限 6000 只。
 
 ## 安装
 
@@ -145,13 +142,13 @@ asyncio.run(main())
 
 ## 计费与确认
 
-- **按条计费的列表**（研报、公告、观点、路演 / 调研 / 策略会 / 论坛、个股线索、管理层情绪、热点话题等）不传 `size` 时，SDK 先拿到总条数，按 `total × 单价` 估算全量，**超过 1000 积分就报 `ValidationError`，不再往下拉**，报错里给出估算值。只要一部分就传 `size=N`；确认要全量再传 `confirm=True`。显式传的 `size` 按 `min(size, total)` 同样估算。
+- **按条计费的列表**（研报、公告、观点、路演 / 调研 / 策略会 / 论坛、个股线索、专家情报、管理层情绪、热点话题等）不传 `size` 时，SDK 先拿到总条数，按 `total × 单价` 估算全量，**超过 1000 积分就报 `ValidationError`，不再往下拉**，报错里给出估算值。只要一部分就传 `size=N`；确认要全量再传 `confirm=True`。显式传的 `size` 按 `min(size, total)` 同样估算。
 - **`fundamental.earning_forecast`** 按日期区间估算（工作日数 × 3 条 × 0.5 积分），超过 1000 积分同样需要 `confirm=True`。
 - **不可逆的操作**——`vault.stock_pool_delete`、`vault.stock_note_delete`、`vault.drive_delete_file`、`vault.drive_delete_folder`——必须传 `confirm=True`，否则在发请求前报错。
 - **不自动重发**：以下接口在超时、断连、5xx 这类结果不确定的失败后不会自动重发，避免重复扣费：
   - 按次 / 按页计费的接口（AI 生成、管理层情绪明细、题材、联网搜索、PDF 解析、全部基金接口与 10 个债券接口等）；
   - 单次可能计费超过 3000 积分的 `ai.stock_summary_list`、`fundamental.earning_forecast`；
-  - 另外 12 个按量计费接口：`ai.hot_topic`、`insight.highlight_list`、观点正文（`opinion_detail` / `foreign_opinion_detail`，以及 `opinion_list` / `foreign_opinion_list` 传 `with_content=True`）、三个 30 积分的文档下载（`insight.summary_download` / `foreign_report_download`、`vault.my_conference_download`）、三个债券评级接口（`bond.rating_overview` / `rating_change` / `issuer_rating_change`）。
+  - 另外 13 个按量计费接口：`ai.hot_topic`、`ai.expert_intel_list`、`insight.highlight_list`、观点正文（`opinion_detail` / `foreign_opinion_detail`，以及 `opinion_list` / `foreign_opinion_list` 传 `with_content=True`）、三个 30 积分的文档下载（`insight.summary_download` / `foreign_report_download`、`vault.my_conference_download`）、三个债券评级接口（`bond.rating_overview` / `rating_change` / `issuer_rating_change`）。
 
   这类失败后请先到平台核实是否已扣费，再决定是否重新调用。只有 `999999` 的 `hint` 会给出这条提示；其他 5xx（包括网关返回的 HTML 错误页、夹在 5xx 里的业务码）带的是通用提示，超时、断连抛出的是网络异常、没有 `hint`（见「错误处理」），同样要先核实。
 - **仍会自动重试**：其余 29 个计费接口（20 个按条计费的列表、8 个文档下载与按指标计费的 `alternative.edb_data`）沿用默认重试：遇到 5xx、响应超时、请求发出后断连或 `999999` 时重试至多 2 次，服务端若其实已执行，每次重试都会再计费。单页最贵的是 `ai.security_clue_list`（至多 2500 积分），其次是两个管理层情绪列表与四个日程列表（至多 500），`alternative.edb_data` 一次至多 300。
@@ -237,20 +234,20 @@ uv run python sample/async/quote_day_kline.py
 
 ## 接口一览
 
-13 个领域、158 个上游接口：
+13 个领域、161 个上游接口：
 
 | 领域 | 内容 |
 | :-- | :-- |
 | `gangtise.auth` | 登录、鉴权状态 |
 | `gangtise.lookup` | 本地查表（券商机构、会议机构） |
-| `gangtise.reference` | 证券搜索（GTS 代码）、机构 / 公众号 ID 搜索、常量分类与取值、题材与板块搜索、板块成分股 |
+| `gangtise.reference` | 证券搜索（GTS 代码）、机构 / 公众号 ID 搜索、常量分类与取值、题材与板块搜索、板块成分股、指数成分股权重 |
 | `gangtise.insight` | 观点（摘要列表与按 ID 取正文）、研报与研报图表、公告、纪要与帕米尔专家纪要、日程、会议线索、财报日历、投资者问答 |
 | `gangtise.quote` | 日 / 分钟 K 线、实时行情、A 股个股与板块资金流向 |
 | `gangtise.fundamental` | 三大报表、主营业务、估值分析、十大股东、盈利预测 |
 | `gangtise.bond` | 债券资料、发行人、日行情、估值、现金流、公告、发行、评级、利率债发行计划、行权、违约 |
 | `gangtise.fund` | 公募基金资料、净值、费率、基金经理、规模、持有人、资产配置与持仓、ETF 申赎清单与份额 |
-| `gangtise.ai` | 一页通、投资逻辑、同业对比、业绩点评、主题跟踪、热点话题、个股看点、管理层讨论与管理层情绪、知识库搜索等 |
-| `gangtise.vault` | 个人云盘（列表、下载、上传、建文件夹、移动、复制、删除）、录音与会议记录、股票池（个人与租户池查询、增删改）、个股投资笔记、微信群消息 |
+| `gangtise.ai` | 一页通、投资逻辑、同业对比、业绩点评、主题跟踪、热点话题、个股看点、专家情报、管理层讨论与管理层情绪、知识库搜索等 |
+| `gangtise.vault` | 个人云盘（列表、下载、上传、建文件夹、移动、复制、删除）、录音与会议记录、股票池（个人与租户池查询、增删改）、个股投资笔记、微信群消息与群文件下载 |
 | `gangtise.alternative` | 经济指标（EDB）、题材画像与成分股 |
 | `gangtise.indicator` | 证券级数据指标（EDE）：指标搜索、截面、时序、条件选股 |
 | `gangtise.tool` | PDF 解析（提交后取结果 ZIP）、联网搜索 |

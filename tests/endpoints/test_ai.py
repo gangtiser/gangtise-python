@@ -527,3 +527,77 @@ def test_management_sentiment_detail_is_not_replayed_after_a_5xx(tmp_path):
             with pytest.raises(ApiError):
                 AI(client).management_sentiment_detail(source_id="554030")
     assert route.call_count == 1
+
+
+# ─── expert intel (TS v0.51.0) ───
+
+_EXPERT_INTEL = "/application/open-insight/expertIntel/getList"
+
+
+def _intel_server(total: int):
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        start, size = body.get("from", 0), body.get("size", 50)
+        rows = [
+            {"intelId": str(i), "title": f"情报{i}", "tagList": ["景气上行"]}
+            for i in range(start, min(start + size, total))
+        ]
+        data = {"total": total, "list": rows}
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+    return answer
+
+
+def test_expert_intel_list_maps_every_filter_and_pages_at_50(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EXPERT_INTEL).mock(side_effect=_intel_server(60))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = AI(client).expert_intel_list(
+                start_time="2026/10/20",
+                end_time="2026-10-23 18:00:00",
+                keyword="特斯拉",
+                search_type=1,
+                security=["603119.SH", "000700.SZ"],
+                research_area="100800110",
+                concept="121000745",
+                tag=["景气上行", "超预期", "重大催化"],
+                size=40,
+            )
+    assert json.loads(route.calls[0].request.content) == {
+        "from": 0,
+        "size": 40,
+        "startTime": "2026-10-20",
+        "endTime": "2026-10-23 18:00:00",
+        "keyword": "特斯拉",
+        "searchType": 1,
+        "securityList": ["603119.SH", "000700.SZ"],
+        "researchAreaList": ["100800110"],
+        "conceptList": ["121000745"],
+        "tagList": ["景气上行", "超预期", "重大催化"],
+    }
+    assert isinstance(df, pd.DataFrame)
+    assert df["intelId"].tolist() == [str(i) for i in range(40)]
+
+
+def test_expert_intel_list_leaves_search_type_to_the_api_and_probes_one_row_first(tmp_path):
+    # A full page bills 1000 credits, so an unbounded fetch learns its total from one row;
+    # 51 rows at 20 credits each is past the 1000-credit guard.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_EXPERT_INTEL).mock(side_effect=_intel_server(51))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ValidationError, match="1020 credits"):
+                AI(client).expert_intel_list(keyword="锂电")
+    assert route.call_count == 1
+    assert json.loads(route.calls[0].request.content) == {"from": 0, "size": 1, "keyword": "锂电"}
+
+
+def test_expert_intel_list_refuses_an_unknown_search_type_and_is_not_replayed(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=False) as router:
+        route = router.post(_EXPERT_INTEL).mock(return_value=httpx.Response(502))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.raises(ValidationError, match="search_type"):
+                AI(client).expert_intel_list(search_type=3, size=5)
+            assert route.call_count == 0
+            with pytest.raises(ApiError):
+                AI(client).expert_intel_list(size=5)
+    assert route.call_count == 1

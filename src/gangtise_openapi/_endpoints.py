@@ -211,6 +211,13 @@ class EndpointDef:
     # envelope still says 操作成功 (probed 2026-09-19 on the stock-pool batch
     # writes). ``_call`` warns and marks the result ``partial`` (TS v0.40.0).
     item_failures: bool = False
+    # Download only: a 2xx answer IS the file, whatever its Content-Type — saved byte for
+    # byte under the Content-Disposition name. Without it an ``application/json`` body is
+    # read as an envelope; a user-shared file can be JSON. Only for an endpoint whose
+    # errors carry a non-2xx status (CLI probe 2026-11-07 on the group-file download:
+    # 400 / 401 / 404, each with a JSON envelope). A 3xx target keeps the usual handling
+    # (TS v0.51.0 ``fileOnSuccess``).
+    file_on_success: bool = False
 
 
 def worst_request_credits(endpoint: EndpointDef) -> float:
@@ -249,6 +256,7 @@ def _ep(
     estimate_billed_units: Callable[[dict[str, Any]], float] | None = None,
     destructive: str | None = None,
     item_failures: bool = False,
+    file_on_success: bool = False,
 ) -> EndpointDef:
     return EndpointDef(
         key=key,
@@ -270,6 +278,7 @@ def _ep(
         estimate_billed_units=estimate_billed_units,
         destructive=destructive,
         item_failures=item_failures,
+        file_on_success=file_on_success,
     )
 
 
@@ -622,6 +631,16 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-reference/sectors/constituents",
         "List constituent securities of a sector",
     ),
+    # Under open-quote, filed by the platform under reference data. Not paginated: one
+    # call returns every constituent of every index asked for; an empty answer is
+    # ``{total: 0, list: []}`` (CLI probe 2026-11-07).
+    "reference.index-weight": _ep(
+        "reference.index-weight",
+        "POST",
+        "/application/open-quote/index/constituent-weight",
+        "List index constituents with their weights (%) on one trading date",
+        expects="list",
+    ),
     # ─── quote ───
     "quote.day-kline": _ep(
         "quote.day-kline",
@@ -875,6 +894,22 @@ ENDPOINTS: dict[str, EndpointDef] = {
         retry="no-replay",
         billing=Billing("row", 10),
     ),
+    # Under open-insight, filed by the platform under AI. 20 credits per ROW, so a 50-row
+    # page bills 1000: replaying a page re-bills rows the server already delivered, the
+    # same reasoning as ai.hot-topic. An empty answer is ``{total: 0, list: []}`` (CLI
+    # probe 2026-11-07); the row id comes from the response description only.
+    "ai.expert-intel.list": _ep(
+        "ai.expert-intel.list",
+        "POST",
+        "/application/open-insight/expertIntel/getList",
+        "List AI expert intel (takeaways distilled from expert meetings and minutes)",
+        paginated=50,
+        retry="no-replay",
+        expects="list",
+        row_id="intelId",
+        row_id_unverified=True,
+        billing=Billing("row", 20),
+    ),
     "ai.management-discuss-announcement": _ep(
         "ai.management-discuss-announcement",
         "POST",
@@ -1001,6 +1036,17 @@ ENDPOINTS: dict[str, EndpointDef] = {
         paginated=50,
         row_id="msgId",
         max_window=10000,
+    ),
+    # The file of a document / image / audio / video message, by msgId. A text or url
+    # message answers 130005; a message that is missing, not yours or has no file left
+    # answers 130003 (CLI probe 2026-11-07).
+    "vault.wechat-message.download": _ep(
+        "vault.wechat-message.download",
+        "GET",
+        "/application/open-vault/wechatgroupmsg/download/file",
+        "Download the file of a WeChat group message (document / image / audio / video)",
+        kind="download",
+        file_on_success=True,
     ),
     "vault.wechat-chatroom.list": _ep(
         "vault.wechat-chatroom.list",

@@ -1,6 +1,6 @@
 """``fund.etf_pcf_components``: the API answers each component's name but not its
 code, so the SDK fills ``componentCode`` in from the name. Ported from the TS CLI's
-``core/etfComponents.ts`` (v0.50.0). A row that already carries a code keeps it,
+``core/etfComponents.ts`` (v0.51.0). A row that already carries a code keeps it,
 which makes this a no-op once the API returns codes again — then remove the module.
 
 A name is looked up — in the whole-market securities list, fetched once per call,
@@ -13,18 +13,19 @@ against the closes of the day the list's prices in that listing's market belong 
 which an A+H ETF lists as two rows under the same name. Where the candidates span
 markets, a quote that agrees counts only once the other market's listing is ruled out
 by its recent closes: a list whose prices lag the quote can equal the other listing's
-quote by chance. Where no price decides (an ex-dividend day, a suspension, a bond with
+quote by chance. A row the price leaves between listings (that, or a tie across markets)
+is settled by its own ``pctChange``: the listing with a day carrying both the row's close
+and that change. Where no price decides (an ex-dividend day, a suspension, a bond with
 no quote), an exact name match stands only in an ETF known to trade in one market —
 the ETF's own exchange breaking a tie within it. That is not known while any row
 without a code could be in two markets (an A/H name, or a Hong Kong listing whose name
 starts with the row's), or a name's lookup failed; then, as in an ETF holding several
 markets, the rows the prices did not settle stay null.
 
-Two deliberate differences from the CLI (v0.50.0): a price that agrees with listings
-in two markets first drops the listings other rows have taken (:meth:`_Fill._eliminate`),
-and what that settles counts as evidence of the ETF's market; and a row a price narrowed
-down but could not settle across markets counts in that judgement like any open row,
-where the CLI leaves it out and then fills it from the market the other rows show.
+One deliberate difference from the CLI (v0.51.0): a price that agrees with listings in
+two markets first drops the listings other rows have taken (:meth:`_Fill._eliminate`,
+repeated with the change check until nothing moves), and what that settles counts as
+evidence of the ETF's market.
 
 Every extra request is free (securities lists, search, realtime quote, day kline).
 The matching itself lives in :class:`_Fill`; the sync and async drivers only send
@@ -58,13 +59,23 @@ _R = TypeVar("_R")
 _Row = dict[str, Any]
 _Listing = tuple[str, str]
 _Prices = dict[str, list[float]]
-_History = dict[str, list[tuple[str, float]]]
+# A daily bar: date, close, and that day's change in percent when the previous close is
+# known.
+_Bar = tuple[str, float] | tuple[str, float, float]
+_History = dict[str, list[_Bar]]
 
 # A component's close is the quoted price itself: on 14 ETFs (CLI probe 2026-10-27)
 # every confirmed row was equal to the cent, while the same name's listing in another
 # market came as close as 0.15% (A and H shares of one company, 0.3% often). The slack
 # stays well under that.
 _PRICE_TOLERANCE = 0.0005
+# A row's ``pctChange`` is its listing's change on the day the row's close belongs to —
+# the close over the previous close, to the list's four decimals (CLI probe on 45 ETFs,
+# 2026-11-07; a US row differed once, likely on an ex-dividend day). With the close it
+# makes a second fingerprint: the A and H listings of one name whose closes coincide do
+# not also share that day's change. It only decides between listings the price left
+# open, never rules out the one listing a price confirmed. In percentage points.
+_CHANGE_TOLERANCE = 0.005
 # Code formats the realtime quote takes; nothing else is sent (bonds, listings in
 # other markets, placeholder codes the search returns).
 _QUOTABLE = re.compile(r"\d{6}\.(SH|SZ|BJ)|\d{5}\.HK|[A-Z][A-Z0-9.]*\.(O|N|A)", re.ASCII)
@@ -282,7 +293,7 @@ def _list_dates(
         if len(exact) != 1:
             continue
         tally = votes.setdefault(_market(exact[0].code), {})
-        for date, day_close in history.get(exact[0].code, []):
+        for date, day_close, *_ in history.get(exact[0].code, []):
             if _agrees(close, day_close):
                 tally[date] = tally.get(date, 0) + 1
     dates: dict[str, str] = {}
@@ -301,7 +312,7 @@ def _closes_on(dates: dict[str, str], history: _History) -> _Prices:
         date = dates.get(_market(code))
         if not date:
             continue
-        before = [close for day, close in series if day <= date]
+        before = [close for day, close, *_ in series if day <= date]
         if before:
             out[code] = [before[-1]]
     return out
@@ -332,8 +343,8 @@ class _Fill:
         # Names whose lookup failed: they may trade in any market.
         self.failed: set[str] = set()
         # Rows a price narrowed to listings in more than one market, or to one whose
-        # other-market listing could not be ruled out: settled by elimination or by the
-        # ETF's market (place_by_name).
+        # other-market listing could not be ruled out: settled by elimination, by the row's
+        # change, or by the ETF's market (place_by_name).
         self.tied: dict[int, list[_Candidate]] = {}
         # Rows whose quote agrees with listings in one market while a listing in another
         # could still be the row: checked against that listing's daily closes first.
@@ -366,7 +377,7 @@ class _Fill:
         a list price is such a close. A listing without daily closes cannot be ruled out."""
         close = _number(row.get("close"))
         series = self.history.get(c.code)
-        return close is None or series is None or any(_agrees(close, p) for _day, p in series)
+        return close is None or series is None or any(_agrees(close, bar[1]) for bar in series)
 
     def _contested(self, row: _Row, listed: list[_Candidate], etf: _Etf) -> bool:
         """Some listing outside ``listed``'s markets that no other row took could still
@@ -379,6 +390,34 @@ class _Fill:
             and self._may_be(row, c)
             for c in self._of(row)
         )
+
+    def _by_change(self, row: _Row, etf: _Etf) -> str | None:
+        """The listing with a day carrying both the row's close and its ``pctChange``,
+        when exactly one market's listings do. Every listing the row could still be needs
+        daily bars, and one with a day at the row's close whose change is unknown (no
+        previous close) is not ruled out; a change that fits none (an ex-dividend day can
+        move the previous close) decides nothing."""
+        close, change = _number(row.get("close")), _number(row.get("pctChange"))
+        if close is None or change is None:
+            return None
+        pool = [c for c in self._of(row) if c.code not in etf.used]
+        if not pool or not all(_is_quotable(c) and c.code in self.history for c in pool):
+            return None
+
+        def at_close(c: _Candidate) -> list[_Bar]:
+            return [bar for bar in self.history[c.code] if _agrees(close, bar[1])]
+
+        hit = [
+            c
+            for c in pool
+            if any(
+                len(bar) > 2 and abs(bar[2] - change) <= _CHANGE_TOLERANCE for bar in at_close(c)
+            )
+        ]
+        unknown = any(c not in hit and any(len(bar) == 2 for bar in at_close(c)) for c in pool)
+        if not hit or unknown or len({_market(c.code) for c in hit}) > 1:
+            return None
+        return _narrow(hit, etf)
 
     def take_candidates(self, found: list[list[_Candidate] | None]) -> None:
         """Each name's candidates, in ``names`` order; ``None`` for a failed lookup."""
@@ -471,25 +510,36 @@ class _Fill:
                     self._settle(row, matched, etf)
 
     def _eliminate(self, own: list[_Row], etf: _Etf) -> None:
-        """Price ties the listings other rows have taken settle without the ETF's
-        market: what is left of a tie in one market (or nothing at all) is final, once
-        no listing in another market could still be the row. Repeated until nothing
-        moves, so the outcome does not hang on row order — and done before the market
-        is judged, which may rest on what it settles."""
+        """Rows the prices left open settle without the ETF's market: a price tie by the
+        listings other rows have taken — what is left of it in one market is final, once
+        no listing in another market could still be the row — and any row by its own
+        change (:meth:`_by_change`). Repeated until nothing moves, so the outcome does
+        not hang on row order — and done before the market is judged, which may rest on
+        what it settles. A tie whose every listing another row took is left with nothing
+        only then: its own change may still point to a listing its price did not."""
         moved = True
         while moved:
             moved = False
             for row in own:
+                if id(row) in self.codes:
+                    continue
                 matched = self.tied.get(id(row))
-                if matched is None:
-                    continue
-                left = [c for c in matched if c.code not in etf.used]
-                if left and (
-                    len({_market(c.code) for c in left}) > 1 or self._contested(row, left, etf)
-                ):
-                    continue
-                self._place(row, _narrow(left, etf) if left else None, etf)
-                moved = True
+                if matched is not None:
+                    left = [c for c in matched if c.code not in etf.used]
+                    if left and not (
+                        len({_market(c.code) for c in left}) > 1 or self._contested(row, left, etf)
+                    ):
+                        self._place(row, _narrow(left, etf), etf)
+                        moved = True
+                        continue
+                code = self._by_change(row, etf)
+                if code:
+                    self._place(row, code, etf)
+                    moved = True
+        for row in own:
+            matched = self.tied.get(id(row))
+            if matched is not None and all(c.code in etf.used for c in matched):
+                self._place(row, None, etf)
 
     def place_by_name(self) -> None:
         for own, etf in self.etfs:
@@ -634,14 +684,19 @@ def _quote_prices(payload: Any) -> _Prices:
 
 
 def _daily_closes(payload: Any) -> _History:
-    """Daily closes per code, oldest first."""
+    """Daily closes per code, oldest first, each with that day's change in percent when
+    the previous close is known — from the two closes rather than the bar's own
+    ``pctChange``, which Hong Kong rounds to two decimals."""
     out: _History = {}
     for bar in _rows(payload):
         if not isinstance(bar, dict):
             continue
         code, day, close = bar.get("securityCode"), bar.get("tradeDate"), _number(bar.get("close"))
         if isinstance(code, str) and isinstance(day, str) and close is not None:
-            out.setdefault(code, []).append((day, close))
+            pre = _number(bar.get("preClose"))
+            out.setdefault(code, []).append(
+                (day, close, (close / pre - 1) * 100) if pre and pre > 0 else (day, close)
+            )
     for series in out.values():
         series.sort(key=lambda item: item[0])
     return out
@@ -652,7 +707,7 @@ def _closes_body(codes: list[str], start_date: str, end_date: str) -> dict[str, 
         "securityList": codes,
         "startDate": start_date,
         "endDate": end_date,
-        "fieldList": ["securityCode", "tradeDate", "close"],
+        "fieldList": ["securityCode", "tradeDate", "close", "preClose"],
         "limit": _CLOSES_LIMIT,
     }
 

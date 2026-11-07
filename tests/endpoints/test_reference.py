@@ -336,3 +336,57 @@ def test_search_local_caps_and_whitelists(tmp_path):
             ref.chiefs_search(keyword="x", top=11)
         with pytest.raises(ValidationError):
             ref.institution_search(keyword="x", category="domestic")
+
+
+# ─── index weights (TS v0.51.0) ───
+
+_INDEX_WEIGHT = "/application/open-quote/index/constituent-weight"
+
+
+def _weights(request: httpx.Request) -> httpx.Response:
+    # Weights for 000300.SH only, answered upper-case whatever case was asked.
+    codes = json.loads(request.content).get("indexCodeList", [])
+    rows = [
+        {
+            "indexCode": "000300.SH",
+            "indexName": "沪深300",
+            "tradeDate": "2026-10-30",
+            "securityCode": "300308.SZ",
+            "securityName": "中际旭创",
+            "weight": 4.8731,
+        }
+    ]
+    found = rows if any(c.upper() == "000300.SH" for c in codes) else []
+    data = {"total": len(found), "list": found}
+    return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+
+def test_index_weight_sends_the_codes_and_date_and_names_the_indices_that_came_back_empty(
+    tmp_path,
+):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_INDEX_WEIGHT).mock(side_effect=_weights)
+        with (
+            GangtiseClient(_config=_cfg(tmp_path)) as client,
+            pytest.warns(UserWarning, match=r"no constituent weights for HSI\.HI on 2026-10-30"),
+        ):
+            df = Reference(client).index_weight(index=["000300.sh", "HSI.HI"], date="2026/10/30")
+    assert json.loads(route.calls.last.request.content) == {
+        "indexCodeList": ["000300.sh", "HSI.HI"],
+        "tradeDate": "2026-10-30",
+    }
+    assert isinstance(df, pd.DataFrame)
+    assert df.iloc[0]["weight"] == 4.8731
+
+
+def test_index_weight_is_quiet_when_every_index_answers_and_checks_the_date(tmp_path):
+    import warnings
+
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_INDEX_WEIGHT).mock(side_effect=_weights)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client, warnings.catch_warnings():
+            warnings.simplefilter("error")
+            out = Reference(client).index_weight(index="000300.SH", date="2026-10-30", raw=True)
+            with pytest.raises(ValidationError, match="date"):
+                Reference(client).index_weight(index="000300.SH", date="30-10-2026")
+    assert out["total"] == 1

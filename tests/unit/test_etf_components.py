@@ -33,7 +33,7 @@ class _Api:
         *,
         fail_search: str | None = None,
         fail_quote: str | None = None,
-        history: dict[str, list[tuple[str, float]]] | None = None,
+        history: dict[str, list[tuple]] | None = None,
     ) -> None:
         self._search = search
         self._prices = prices
@@ -956,22 +956,27 @@ def test_the_table_is_not_used_when_a_market_fails_or_lists_nothing(broken):
     assert [h["gtsCode"] for h in hits] == ["00285.HK"]  # the search service's answer
 
 
-def test_daily_closes_are_read_oldest_first_per_code():
+def test_daily_closes_are_read_oldest_first_per_code_with_each_days_change():
+    # The change comes from the two closes (TS v0.51.0); without a previous close, none.
     client = _Client(
         day_kline={
             "total": 3,
-            "fieldList": ["securityCode", "tradeDate", "close"],
+            "fieldList": ["securityCode", "tradeDate", "close", "preClose"],
             "list": [
-                ["00941.HK", "2026-10-27", 78.1],
-                ["00941.HK", "2026-10-26", 77.3],
-                ["600941.SH", "2026-10-26", 101.3],
+                ["00941.HK", "2026-10-27", 78.1, 77.3],
+                ["00941.HK", "2026-10-26", 77.3, None],
+                ["600941.SH", "2026-10-26", 101.3, 100],
             ],
         }
     )
     closes = CodeLookup(client).closes(["00941.HK", "600941.SH"], "2026-10-18", "2026-10-28")
-    assert closes == {
-        "00941.HK": [("2026-10-26", 77.3), ("2026-10-27", 78.1)],
-        "600941.SH": [("2026-10-26", 101.3)],
+    rounded = {
+        code: [(*bar[:2], round(bar[2], 4)) if len(bar) > 2 else bar for bar in bars]
+        for code, bars in closes.items()
+    }
+    assert rounded == {
+        "00941.HK": [("2026-10-26", 77.3), ("2026-10-27", 78.1, 1.0349)],
+        "600941.SH": [("2026-10-26", 101.3, 1.3)],
     }
     assert client.calls == [
         (
@@ -980,7 +985,7 @@ def test_daily_closes_are_read_oldest_first_per_code():
                 "securityList": ["00941.HK", "600941.SH"],
                 "startDate": "2026-10-18",
                 "endDate": "2026-10-28",
-                "fieldList": ["securityCode", "tradeDate", "close"],
+                "fieldList": ["securityCode", "tradeDate", "close", "preClose"],
                 "limit": 10_000,
             },
         )
@@ -1314,3 +1319,125 @@ async def test_async_driver_does_not_fill_a_contested_quote_from_the_other_rows_
     api = _AsyncApi(_Api(HENGRUI_ALONE_SEARCH, HENGRUI_ALONE_PRICES, history=history))
     fill = await fill_component_codes_async(_Fill(_hengrui_alone()), api, concurrency=5)
     assert codes_of(fill.result()[0]) == ["601857.SH", "601088.SH", None]
+
+
+# ---- a row's own change decides between listings its price leaves open (TS v0.51.0) ----
+
+# 招商银行's A share (CNY) and H share (HKD) both closed at 42.5 on 10-27, moving +0.47%
+# and -0.23%.
+CMB_BARS = {
+    "600036.SH": [("2026-10-27", 42.5, 0.4728)],
+    "03968.HK": [("2026-10-27", 42.5, -0.2347)],
+}
+CMB_SEARCH = {**CMB_TIE, "华润啤酒": [("00291.HK", "华润啤酒")]}
+
+
+def with_change(fund_code: str, serial: int, name: str, close: float, change: float) -> dict:
+    return {**row(fund_code, serial, name, close), "pctChange": change}
+
+
+def _a_only(change: float) -> list[dict[str, Any]]:
+    return [
+        with_change("510300.SH", 1, "贵州茅台", 1349.98, 1.12),
+        with_change("510300.SH", 5, "招商银行", 42.5, change),
+    ]
+
+
+def _a_and_h(change: float) -> list[dict[str, Any]]:
+    return [
+        with_change("517180.SH", 1, "贵州茅台", 1349.98, 1.12),
+        with_change("517180.SH", 2, "华润啤酒", 19.48, -0.61),
+        with_change("517180.SH", 3, "招商银行", 42.5, change),
+    ]
+
+
+def test_a_rows_change_settles_a_price_tie_across_markets_also_in_an_etf_holding_both():
+    api = _Api(CMB_SEARCH, CMB_TIE_PRICES, history=CMB_BARS)
+    assert codes_of(_fill(_a_only(0.4728), api)[0]) == ["600519.SH", "600036.SH"]
+    assert codes_of(_fill(_a_and_h(-0.2347), api)[0]) == ["600519.SH", "00291.HK", "03968.HK"]
+
+
+@pytest.mark.parametrize(("change", "settled"), [(0.9362, "600276.SH"), (2.5065, "01276.HK")])
+def test_a_rows_change_settles_a_quote_the_other_markets_close_contested(change, settled):
+    # 恒瑞医药's A share quotes 47.44; its H share closed at 47.44 on 10-27, on another change.
+    prices = {**HENGRUI_ALONE_PRICES, "600276.SH": [47.44, 47.0], "01276.HK": [52.1, 51.8]}
+    history = {
+        "600276.SH": [("2026-10-27", 47.44, 0.9362)],
+        "01276.HK": [("2026-10-27", 47.44, 2.5065)],
+    }
+    rows = [
+        with_change("510300.SH", 1, "中国石油", 13.38, 1.36),
+        with_change("510300.SH", 2, "中国神华", 38.6, 1.05),
+        with_change("510300.SH", 3, "恒瑞医药", 47.44, change),
+    ]
+    filled, unresolved = _fill(rows, _Api(HENGRUI_ALONE_SEARCH, prices, history=history))
+    assert codes_of(filled) == ["601857.SH", "601088.SH", settled]
+    assert unresolved == []
+
+
+def test_a_rows_change_decides_nothing_without_every_listings_bars_or_when_it_fits_neither():
+    partial = _Api(CMB_SEARCH, CMB_TIE_PRICES, history={"600036.SH": CMB_BARS["600036.SH"]})
+    assert codes_of(_fill(_a_and_h(0.4728), partial)[0]) == ["600519.SH", "00291.HK", None]
+    api = _Api(CMB_SEARCH, CMB_TIE_PRICES, history=CMB_BARS)
+    assert codes_of(_fill(_a_and_h(3.1), api)[0]) == ["600519.SH", "00291.HK", None]
+
+
+def test_a_listing_whose_day_at_the_rows_close_has_no_change_is_not_ruled_out():
+    # The H share closed at 42.5 too, but without a previous close its change is unknown.
+    unknown = {"600036.SH": CMB_BARS["600036.SH"], "03968.HK": [("2026-10-27", 42.5)]}
+    api = _Api(CMB_SEARCH, CMB_TIE_PRICES, history=unknown)
+    assert codes_of(_fill(_a_only(0.4728), api)[0]) == ["600519.SH", None]
+    assert codes_of(_fill(_a_and_h(0.4728), api)[0]) == ["600519.SH", "00291.HK", None]
+    # A day at another close without a change rules nothing out either way.
+    elsewhere = {
+        "600036.SH": CMB_BARS["600036.SH"],
+        "03968.HK": [("2026-10-24", 41.9), ("2026-10-27", 42.5, -0.2347)],
+    }
+    api = _Api(CMB_SEARCH, CMB_TIE_PRICES, history=elsewhere)
+    assert codes_of(_fill(_a_only(0.4728), api)[0]) == ["600519.SH", "600036.SH"]
+
+
+@pytest.mark.parametrize("first", [0, 1])
+def test_a_change_settled_row_frees_the_other_share_class_whichever_row_comes_first(first):
+    # Both 招商银行 rows tie at 42.5 across markets; the A row's change takes the A share,
+    # which leaves the H share to the other row — in either row order.
+    pair = [
+        with_change("517180.SH", 1, "招商银行", 42.5, 0.4728),
+        with_change("517180.SH", 2, "招商银行", 42.5, 9.9),
+    ]
+    if first:
+        pair.reverse()
+    rows, _ = _fill(pair, _Api(CMB_SEARCH, CMB_TIE_PRICES, history=CMB_BARS))
+    by_change = {r["pctChange"]: r["componentCode"] for r in rows}
+    assert by_change == {0.4728: "600036.SH", 9.9: "03968.HK"}
+
+
+@pytest.mark.anyio
+async def test_async_driver_settles_a_tie_by_the_rows_change():
+    api = _AsyncApi(_Api(CMB_SEARCH, CMB_TIE_PRICES, history=CMB_BARS))
+    fill = await fill_component_codes_async(_Fill(_a_and_h(-0.2347)), api, concurrency=5)
+    assert codes_of(fill.result()[0]) == ["600519.SH", "00291.HK", "03968.HK"]
+
+
+# 招商银行's first row (42.5) ties across markets and its change takes the A share. The
+# second row's 42.3 equals only the A share's quote, while the H share closed at 42.3 on
+# 10-24: with the A share taken, its own change decides — in either row order.
+TAKEN_PRICES = {"600036.SH": [42.3, 42.5], "03968.HK": [42.5, 42.6]}
+TAKEN_BARS = {
+    "600036.SH": [("2026-10-27", 42.5, 0.4728)],
+    "03968.HK": [("2026-10-24", 42.3, -1.1), ("2026-10-27", 42.5, -0.2347)],
+}
+
+
+@pytest.mark.parametrize("first", [0, 1])
+@pytest.mark.parametrize(("change", "h_row"), [(-1.1, "03968.HK"), (5.0, None)])
+def test_a_row_whose_priced_listings_are_all_taken_still_gets_its_changes_say(first, change, h_row):
+    pair = [
+        with_change("517180.SH", 1, "招商银行", 42.5, 0.4728),
+        with_change("517180.SH", 2, "招商银行", 42.3, change),
+    ]
+    if first:
+        pair.reverse()
+    rows, _ = _fill(pair, _Api(CMB_SEARCH, TAKEN_PRICES, history=TAKEN_BARS))
+    by_close = {r["close"]: r["componentCode"] for r in rows}
+    assert by_close == {42.5: "600036.SH", 42.3: h_row}

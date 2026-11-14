@@ -1,6 +1,6 @@
 """``fund.etf_pcf_components``: the API answers each component's name but not its
 code, so the SDK fills ``componentCode`` in from the name. Ported from the TS CLI's
-``core/etfComponents.ts`` (v0.51.0). A row that already carries a code keeps it,
+``core/etfComponents.ts`` (v0.52.0). A row that already carries a code keeps it,
 which makes this a no-op once the API returns codes again — then remove the module.
 
 A name is looked up — in the whole-market securities list, fetched once per call,
@@ -20,9 +20,11 @@ no quote), an exact name match stands only in an ETF known to trade in one marke
 the ETF's own exchange breaking a tie within it. That is not known while any row
 without a code could be in two markets (an A/H name, or a Hong Kong listing whose name
 starts with the row's), or a name's lookup failed; then, as in an ETF holding several
-markets, the rows the prices did not settle stay null.
+markets, the rows the prices did not settle stay null. Every one of these steps rules a
+listing out only on what its daily bars show: bars that do not reach the day in question
+(a quote a day ahead of them, bars that begin after the row's day) rule nothing out.
 
-One deliberate difference from the CLI (v0.51.0): a price that agrees with listings in
+One deliberate difference from the CLI (v0.52.0): a price that agrees with listings in
 two markets first drops the listings other rows have taken (:meth:`_Fill._eliminate`,
 repeated with the change check until nothing moves), and what that settles counts as
 evidence of the ETF's market.
@@ -63,6 +65,7 @@ _Prices = dict[str, list[float]]
 # known.
 _Bar = tuple[str, float] | tuple[str, float, float]
 _History = dict[str, list[_Bar]]
+_ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 
 # A component's close is the quoted price itself: on 14 ETFs (CLI probe 2026-10-27)
 # every confirmed row was equal to the cent, while the same name's listing in another
@@ -106,15 +109,27 @@ class _Candidate:
     prefix: bool = False
 
 
+@dataclass(frozen=True)
+class _Quote:
+    """A realtime quote: previous close, latest price and the latest price's trading
+    day (``YYYY-MM-DD``; ``None`` when the quote gives it in another form)."""
+
+    previous: float | None = None
+    latest: float | None = None
+    date: str | None = None
+
+
 @dataclass
 class _Etf:
     """``market``: set only when everything known about this ETF's components points
     to one market; ``None`` for an ETF that holds several (an A+H ETF), or before
-    that is known."""
+    that is known. ``days``: the day its list prices belong to per market, where its
+    rows show one (:func:`_list_dates`)."""
 
     exchange: str
     market: str | None = None
     used: set[str] = field(default_factory=set)
+    days: dict[str, str] = field(default_factory=dict)
 
 
 class _Open(enum.Enum):
@@ -132,6 +147,14 @@ def _number(value: Any) -> float | None:
 
 def _agrees(close: float, price: float) -> bool:
     return price > 0 and abs(close - price) / price <= _PRICE_TOLERANCE
+
+
+def _weekday_before(day: str) -> str:
+    """The weekday before a ``YYYY-MM-DD`` day."""
+    date = dt.date.fromisoformat(day) - dt.timedelta(days=1)
+    while date.weekday() >= 5:
+        date -= dt.timedelta(days=1)
+    return date.isoformat()
 
 
 def _squash(name: str) -> str:
@@ -351,6 +374,7 @@ class _Fill:
         self.unverified: dict[int, list[_Candidate]] = {}
         # Daily closes of the candidates of rows the quote left open.
         self.history: _History = {}
+        self.quotes: dict[str, _Quote] = {}
         self.etfs: list[tuple[list[_Row], _Etf]] = []
         self.lagging: list[tuple[list[_Row], _Etf]] = []
 
@@ -372,12 +396,67 @@ class _Fill:
         else:
             self._place(row, _narrow(matched, etf), etf)
 
-    def _may_be(self, row: _Row, c: _Candidate) -> bool:
+    def _unshown(self, close: float, c: _Candidate) -> bool:
+        """The quote puts the listing at ``close`` on a day its bars may not show: the
+        quote can run a day ahead of the daily bars. By date, not price — a close repeats.
+        The bars show the quote's day once they reach it, and the previous close's day once
+        they reach it or the weekday before it: no weekday lies between, so a bar there is
+        the previous trading day's (a holiday on that weekday leaves it unshown). A quote
+        without its day shows neither."""
+        quote = self.quotes.get(c.code)
+        if quote is None:
+            return False
+        on_latest = quote.latest is not None and _agrees(close, quote.latest)
+        on_previous = quote.previous is not None and _agrees(close, quote.previous)
+        if not on_latest and not on_previous:
+            return False
+        if quote.date is None:
+            return True
+        days = [bar[0] for bar in self.history.get(c.code, [])]
+        reaches_quote = any(day >= quote.date for day in days)
+        reaches_previous = reaches_quote or _weekday_before(quote.date) in days
+        return (on_latest and not reaches_quote) or (on_previous and not reaches_previous)
+
+    def _starts_late(self, row: _Row, c: _Candidate, etf: _Etf) -> bool:
+        """The listing's bars begin too late to say what it closed at on the row's day, or
+        there are none. The row's day is the list's day in the listing's own market where
+        the rows show it — never another market's: one list carries its markets' prices of
+        different days. Where the rows show none, any day another of the row's listings
+        closed at the row's close."""
+        series = self.history.get(c.code)
+        if not series:
+            return True
+        first = series[0][0]
+        day = etf.days.get(_market(c.code))
+        if day is not None:
+            return first > day
+        close = _number(row.get("close"))
+        return close is not None and any(
+            o.code != c.code
+            and any(
+                day < first and _agrees(close, price)
+                for day, price, *_ in self.history.get(o.code, [])
+            )
+            for o in self._of(row)
+        )
+
+    def _may_be(self, row: _Row, c: _Candidate, etf: _Etf) -> bool:
         """One of the listing's recent closes agrees with the row's, by the premise that
-        a list price is such a close. A listing without daily closes cannot be ruled out."""
+        a list price is such a close — or a day the bars do not cover: a price its quote
+        shows on a day they do not reach yet (:meth:`_unshown`), or a day before they begin
+        (:meth:`_starts_late`). A listing without daily closes cannot be ruled out either.
+        Every step that rules a listing out (a contested quote, a lagging list's day, the
+        change, the ETF's market and with it the name) asks this, so they share one rule of
+        what the bars cover."""
         close = _number(row.get("close"))
         series = self.history.get(c.code)
-        return close is None or series is None or any(_agrees(close, bar[1]) for bar in series)
+        return (
+            close is None
+            or series is None
+            or any(_agrees(close, bar[1]) for bar in series)
+            or self._unshown(close, c)
+            or self._starts_late(row, c, etf)
+        )
 
     def _contested(self, row: _Row, listed: list[_Candidate], etf: _Etf) -> bool:
         """Some listing outside ``listed``'s markets that no other row took could still
@@ -387,16 +466,19 @@ class _Fill:
             _is_quotable(c)
             and c.code not in etf.used
             and _market(c.code) not in held
-            and self._may_be(row, c)
+            and self._may_be(row, c, etf)
             for c in self._of(row)
         )
 
     def _by_change(self, row: _Row, etf: _Etf) -> str | None:
         """The listing with a day carrying both the row's close and its ``pctChange``,
         when exactly one market's listings do. Every listing the row could still be needs
-        daily bars, and one with a day at the row's close whose change is unknown (no
-        previous close) is not ruled out; a change that fits none (an ex-dividend day can
-        move the previous close) decides nothing."""
+        daily bars, and another listing is ruled out by what its bars show, not by what
+        they lack: it stays open with a day at the row's close whose change is unknown (no
+        previous close), when its quote puts it at the row's close on a day its bars may not
+        show (:meth:`_unshown`), and when its bars begin after the row's day
+        (:meth:`_starts_late`). A change that fits none (an ex-dividend day can move the
+        previous close) decides nothing."""
         close, change = _number(row.get("close")), _number(row.get("pctChange"))
         if close is None or change is None:
             return None
@@ -414,8 +496,18 @@ class _Fill:
                 len(bar) > 2 and abs(bar[2] - change) <= _CHANGE_TOLERANCE for bar in at_close(c)
             )
         ]
-        unknown = any(c not in hit and any(len(bar) == 2 for bar in at_close(c)) for c in pool)
-        if not hit or unknown or len({_market(c.code) for c in hit}) > 1:
+        if not hit:
+            return None
+        unknown = any(
+            c not in hit
+            and (
+                any(len(bar) == 2 for bar in at_close(c))
+                or self._unshown(close, c)
+                or self._starts_late(row, c, etf)
+            )
+            for c in pool
+        )
+        if unknown or len({_market(c.code) for c in hit}) > 1:
             return None
         return _narrow(hit, etf)
 
@@ -433,11 +525,15 @@ class _Fill:
             )
         )
 
-    def place_by_price(self, prices: _Prices) -> None:
+    def place_by_price(self, quotes: dict[str, _Quote]) -> None:
         """Prices first, over every row: a listing its own price confirms is taken
         before a row of the same name (the other share class of an A+H pair) can claim
         it by name alone. A listing the quote misses is checked against its daily
         closes in :meth:`place_lagging`."""
+        self.quotes = quotes
+        prices: _Prices = {
+            code: [p for p in (q.previous, q.latest) if p is not None] for code, q in quotes.items()
+        }
         for fund_code in dict.fromkeys(row.get("fundCode") for row in self.pending):
             own = [row for row in self.pending if row.get("fundCode") == fund_code]
             etf = _Etf(exchange=_exchange(str(fund_code)))
@@ -486,6 +582,8 @@ class _Fill:
         closes of the day the list's prices in each market belong to."""
         self.history = history
         for own, etf in self.etfs:
+            etf.days = _list_dates(own, self.candidates, history)
+        for own, etf in self.etfs:
             for row in own:
                 quoted = self.unverified.get(id(row))
                 if quoted is None:
@@ -497,13 +595,13 @@ class _Fill:
                 else:
                     self.tied[id(row)] = quoted
         for own, etf in self.lagging:
-            on_date = _closes_on(_list_dates(own, self.candidates, history), history)
+            on_date = _closes_on(etf.days, history)
             for row in self._open(own):
                 # A listing without a close on its market's day (that market has none,
                 # or the listing no daily closes) is ruled out only when none of its
                 # recent closes agrees.
-                def unchecked(c: _Candidate, row: _Row = row) -> bool:
-                    return _is_quotable(c) and self._may_be(row, c)
+                def unchecked(c: _Candidate, row: _Row = row, etf: _Etf = etf) -> bool:
+                    return _is_quotable(c) and self._may_be(row, c, etf)
 
                 matched = _by_price(row, self._of(row), on_date, etf, unchecked)
                 if matched is not _Open.OPEN:
@@ -564,7 +662,7 @@ class _Fill:
                 held = {
                     _market(c.code)
                     for c in self._of(row)
-                    if c.code not in etf.used and self._may_be(row, c)
+                    if c.code not in etf.used and self._may_be(row, c, etf)
                 }
                 if len(held) > 1:
                     undecided = True
@@ -667,19 +765,32 @@ def _rows(payload: Any) -> list[Any]:
     return rows if isinstance(rows, list) else []
 
 
-def _quote_prices(payload: Any) -> _Prices:
-    """Previous close and latest price per code the realtime quote knows."""
-    out: _Prices = {}
-    for quote in _rows(payload):
-        if not isinstance(quote, dict) or not isinstance(quote.get("securityCode"), str):
+def _iso_day(value: Any) -> str | None:
+    """A ``YYYY-MM-DD`` calendar day, else ``None``: a date in another form is not
+    compared with the daily bars' days."""
+    if not isinstance(value, str) or not _ISO_DAY.fullmatch(value):
+        return None
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
+
+
+def _quotes(payload: Any) -> dict[str, _Quote]:
+    """Previous close, latest price and the latest price's trading day per code the
+    realtime quote knows."""
+    out: dict[str, _Quote] = {}
+    for row in _rows(payload):
+        if not isinstance(row, dict) or not isinstance(row.get("securityCode"), str):
             continue
-        prices = [
-            p
-            for p in (_number(quote.get("preClose")), _number(quote.get("latestPrice")))
-            if p is not None
-        ]
-        if prices:
-            out[quote["securityCode"]] = prices
+        quote = _Quote(
+            previous=_number(row.get("preClose")),
+            latest=_number(row.get("latestPrice")),
+            date=_iso_day(row.get("tradeDate")),
+        )
+        if quote.previous is not None or quote.latest is not None:
+            out[row["securityCode"]] = quote
     return out
 
 
@@ -779,7 +890,8 @@ class _TableSearch:
 class CodeLookup:
     """The lookups over a live client: names looked up in the securities table first
     (fetched once per lookup) and in securities-search when the table does not carry
-    them; the realtime quote's previous close and latest price; daily closes."""
+    them; the realtime quote's previous close, latest price and trading day; daily
+    closes."""
 
     def __init__(self, client: GangtiseClient) -> None:
         self._client = client
@@ -823,8 +935,8 @@ class CodeLookup:
         )
         return data.get("list") if isinstance(data, dict) else []
 
-    def quotes(self, codes: list[str]) -> _Prices:
-        return _quote_prices(self._client._call("quote.realtime", body={"securityList": codes}))
+    def quotes(self, codes: list[str]) -> dict[str, _Quote]:
+        return _quotes(self._client._call("quote.realtime", body={"securityList": codes}))
 
     def closes(self, codes: list[str], start_date: str, end_date: str) -> _History:
         return _daily_closes(
@@ -953,10 +1065,8 @@ class AsyncCodeLookup:
         )
         return data.get("list") if isinstance(data, dict) else []
 
-    async def quotes(self, codes: list[str]) -> _Prices:
-        return _quote_prices(
-            await self._client._call("quote.realtime", body={"securityList": codes})
-        )
+    async def quotes(self, codes: list[str]) -> dict[str, _Quote]:
+        return _quotes(await self._client._call("quote.realtime", body={"securityList": codes}))
 
     async def closes(self, codes: list[str], start_date: str, end_date: str) -> _History:
         return _daily_closes(
@@ -1018,7 +1128,7 @@ async def fill_component_codes_async(
     async def candidates(name: str) -> list[_Candidate] | None:
         return await _candidates_for_async(name, lookup)
 
-    async def quoted(batch: list[str]) -> _Prices:
+    async def quoted(batch: list[str]) -> dict[str, _Quote]:
         return await _splitting_async(batch, lookup.quotes)
 
     fill.take_candidates(await _run_async(fill.names, candidates, concurrency))

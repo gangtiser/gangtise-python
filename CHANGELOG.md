@@ -5,6 +5,79 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.6] - 2026-11-14
+
+与 `gangtise-openapi-cli` **v0.52.0** 功能对齐。**新增 3 个接口，共 164 个上游接口 / 端点注册表 166 条**（此前 161 / 163）。
+
+### 新增
+
+- **`insight.overseas_opinion_list` 海外观点**（**0.1 积分/条**）：海外媒体、投资人、分析师等账号发布的帖子，每条附中文
+  翻译；列表只含摘要 `brief`（原文前 200 字）/ `briefTranslate`。
+  - 筛选：`account`（账号 ID）、`security`（须带市场后缀，如 `NVDA.O`）、`category`（`opinion` / `news` /
+    `dataAnalysis` / `promotion`）、`industry`（GICS 一级行业 ID `107700001`–`107700011`，用
+    `reference.constant_list(category="gicsIndustry")` 查）、`region`（`cn` / `cnHk` / `cnTw` / `us` / `jp` / `kr` /
+    `uk` / `gl`）、`original_flag`（`1` 原创 / `0` 转发）、`keyword`、`start_time` / `end_time`（发布时间）、`rank_type`。
+    类别、行业、地区写错报 `100005`；申万码、中信码不能用于 `industry`。
+  - 自动翻页（单页 50）。最多取到前 10000 条：命中更多时取到第 10000 条为止、标 `partial` 并告警，按时间段分批拉；
+    `from_` ≥ 10000 本地拒绝。
+  - 可查范围跟着账号权限走：`start_time` 早于账号可查的下界时整段报 `110003`，不会从下界起截断返回。
+  - 后缀存在但市场不对的代码（如 `NVDA.N`）不报错、返回空结果，拿到空先核对后缀；一条记录可属于多个类别
+    （`categoryList`），按类别分别拉再合并时按 `overseasOpinionId` 去重；`categoryList` 为空的记录只在不传 `category`
+    时返回。
+  - 计费：按条计费、沿用默认重试，「计费与确认」里仍会自动重试的计费接口由 29 个变为 30 个。
+- **`insight.overseas_opinion_detail`**（**10 积分/条**）：按 `overseasOpinionId` 取全文 `content` 与中文译文
+  `contentTranslate`。每批 20 个 ID 自动分批，缺失 / 未取到的 ID 处理同 `opinion_detail`；超时或 5xx 不自动重发。
+  一批里有任一条超出账号可查范围时整批报 `110003`。
+- **`reference.overseas_account_search`**（免费）：按账号名片段查海外观点账号 ID，供 `account` 使用。子串匹配、英文
+  不区分大小写，按英文账号名查（中文名查不到）；`from_` / `size` 分页，省略 `size` 取全部。
+
+### 变更
+
+- **免费查询的返回结构校验**：三大报表（11 个）、`fundamental.main_business` / `top_holders`、`reference` 的各搜索与
+  常量 / 板块接口、`alternative.edb_search`、`indicator.search`、`insight.report_image_list`、`vault.stock_pool_stocks`
+  与 `vault.drive_folder_list`，成功响应却没有数据体（`data: null`）或结构不对时抛 `ApiError`（附 traceId）；此前返回
+  空 DataFrame 或 `None`，看着像「没有数据」。这些接口查不到时返回的是空列表，不受影响。
+- **`fund.etf_pcf_components` 补码更保守**：同名证券在两个市场都有时，另一只要有证据才算排除——它的日 K 要覆盖到相应
+  那天、且收盘价对不上。实时行情已对上该行而它的日 K 还没到行情那天（按行情的 `tradeDate` 判断，行情比日 K 快一天时
+  常见），或它的日 K 从更晚的日期才开始，这一行留 null；核对价格、核对涨跌幅、按 ETF 所属市场取，每一步都按这条规则。
+  0.5.5 里这类行可能被填成另一市场那只。
+- **发请求前的本地文件检查**：
+  - 下载方法的 `output` 是已存在的目录、或以 `/` 结尾时报 `ValidationError`；0.5.5 要等文件下载完、落盘时才失败，按篇
+    计费的下载此时已计费。`output` 传文件路径，或省略它自动命名。
+  - `tool.file_parse` 除了后缀 `.pdf`，还要求文件前 1KB 内有 `%PDF-` 文件头：改了后缀的非 PDF 在上传前就被拒，不再按页
+    扣费。`.pdf` 后缀与上传的文件名都按传入的路径判断：名为 `report.pdf`、指向无后缀文件的软链可以提交（0.5.5 按软链
+    指向的文件判断而拒收），名字不是 `.pdf` 的软链即使指向 PDF 也被拒。
+  - `tool.file_parse`、`vault.drive_upload` 的 `file` 与下载的 `output` 不能指向 SDK 自己的配置目录
+    （`~/.config/gangtise/`，存 token 缓存与标题缓存）或 token 缓存文件（`GANGTISE_TOKEN_CACHE_PATH`），按系统实际解析
+    到的路径判断（软链、`..` 绕不过去）。配置目录尚未创建时同样拒收；下载的 `output` 是配置目录里指向外部的软链时也拒收
+    （写入替换的是软链本身）。
+  - `vault.drive_upload` 读取的是系统实际解析到的那个文件：路径里 `..` 前有软链目录时，0.5.5 按字面折叠的路径可能读到另
+    一个文件。不传 `title` 时上传的文件名仍取传入路径的末段。
+
+### 修复
+
+- **`fundamental.main_business` 的 `period` 不起作用**：此前请求字段写成 `periodList`，服务端忽略它，`period="annual"`
+  照样返回中报与年报；现在按 `period` 发送，只返回所选报告期。
+
+### 文档
+
+- `insight.pamirs_summary_list`：`categoryList` / `marketList` 只在按 `category` 或 `market` 筛选时返回完整；其余查法下
+  `categoryList` 为空、`marketList` 不含 `aShares` / `usChinaConcept`。⚠️ 拉全量后按这两个字段本地分组的脚本，要改为按
+  两个类别、四个市场分别查询。`conceptList` 不随查法变。
+- 三大报表的 `fiscal_year` 要和 `period` 一起传：只传其中一个时，服务端都按默认 `latest` 返回最新一期，传了的那个不起作用
+  （A 股、港股、美股相同）；`fundamental.top_holders` 只传 `period` 时同样返回最新一期。
+- A 股报表的 `period` 取值更正为 `q1` / `interim` / `q3` / `annual` / `latest`，年份放 `fiscal_year`：此前文档与示例写的
+  `"2025annual"` 服务端报 100005。单季报表（`income_statement_quarterly` / `cash_flow_quarterly`）同样取这五个值，
+  `interim`、`annual` 分别是截至 6/30、12/31 的那一季；此前文档写的 `q2` / `q4` 服务端报 100005。
+- `reference.securities_search` 带 `category` 时只返回该类别；不带分类按简称查时同名可转债仍可能排在正股前面——查股票带
+  `category="stock"`，查基金带 `category="fund"`。
+- `reference.official_account_search`：`keyword` 匹配的是公众号名称，名称里用简称的公众号按机构全称查不到（`东吴证券`
+  0 行，`东吴` 能查到）；按全称查到 0 行时换简称再查。
+- `indicator.cross_section` / `time_series` / `screener`：行业组合指标 `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics`
+  必须在 `indicator_param` 里传 `industryLevel`（`0` 全路径、`1`–`4` 各级），不传报 100001。
+- `fund.top10_holders`：2026 年中报起，除另有披露规则的产品（如 REITs）外，基金中报不再披露前十大持有人，查不到这一期
+  属正常、不是数据缺失。
+
 ## [0.5.5] - 2026-11-07
 
 与 `gangtise-openapi-cli` **v0.51.0** 功能对齐。**新增 3 个接口，共 161 个上游接口 / 端点注册表 163 条**（此前 158 / 160）。

@@ -27,6 +27,7 @@ async def main():
             start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
             fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表
+            period=["interim", "annual"],  # 报告期, 要和 fiscal_year 一起传
         ),
         __file__,
     )
@@ -35,7 +36,8 @@ async def main():
     show_result(
         await gangtise.async_.fundamental.cash_flow(
             security_code="000001.SZ",
-            period="2025annual",  # 报告期, 支持单值或列表（如 2025annual、2026q1）
+            fiscal_year=2025,  # 财年, 要和 period 一起传
+            period="annual",  # 报告期: q1/interim/q3/annual/latest, 支持单值或列表
             field=["netOperateCashFlow"],  # 返回字段, 支持单值或列表; 省略则用服务端默认字段
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),

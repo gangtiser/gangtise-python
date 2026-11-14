@@ -25,6 +25,7 @@ from gangtise_openapi._errors import (
     DownloadError,
     ValidationError,
 )
+from gangtise_openapi._state_paths import assert_not_state_path
 from gangtise_openapi._transport import (
     RETRYABLE_HTTP_STATUS,
     TRANSFER_TOTAL_FACTOR,
@@ -362,6 +363,23 @@ def _check_file_type(endpoint: EndpointDef, query: dict[str, str | int]) -> None
         )
 
 
+def _check_output(output: str | Path | None, token_cache_path: Path) -> None:
+    """``output`` names the file itself. A directory there — one that exists, or a path
+    ending in a separator — fails only at the final rename, after the server has sent (and
+    may have billed) the file, so it is refused before any request goes out; so is a path
+    into the SDK's own state (TS v0.52.0)."""
+    if output is None:
+        return
+    text = os.fspath(output)
+    if text.endswith(("/", os.sep)) or Path(text).expanduser().is_dir():
+        raise ValidationError(
+            f"output={text!r} is a directory: pass a file path (e.g. "
+            f"{os.path.join(text, '<name>')!r}), or omit output for an automatic name in the "
+            "current directory"
+        )
+    assert_not_state_path(text, param="output", token_cache_path=token_cache_path)
+
+
 def download_to_path(
     *,
     client: GangtiseClient,
@@ -398,6 +416,7 @@ def download_to_path(
     if endpoint.kind != "download":
         raise DownloadError(f"endpoint {endpoint_key} is not a download endpoint")
     _check_file_type(endpoint, query)
+    _check_output(output, client.config.token_cache_path)
 
     token = client._get_token()
     attempt = 0
@@ -946,6 +965,7 @@ async def download_to_path_async(
     if endpoint.kind != "download":
         raise DownloadError(f"endpoint {endpoint_key} is not a download endpoint")
     _check_file_type(endpoint, query)
+    _check_output(output, client.config.token_cache_path)
 
     token = await client._get_token()
     attempt = 0

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._errors import ApiError, ValidationError
 from gangtise_openapi._logging import get_logger
+from gangtise_openapi._state_paths import assert_not_state_path
 from gangtise_openapi._transport import UploadFile, is_transient_error
 from gangtise_openapi.domains._common import (
     _as_list,
@@ -38,25 +40,36 @@ logger = get_logger()
 FILE_PARSE_MAX_BYTES = 100 * 1024 * 1024
 
 
-def _read_pdf(file: str | Path) -> UploadFile:
+def _read_pdf(file: str | Path, token_cache_path: Path) -> UploadFile:
     """Validate and load the PDF. Billed at submit time (0.8 credits/page), so
     every reason to reject a file is checked before the request goes out."""
-    path = Path(file).expanduser().resolve()
+    # The suffix checked and the name sent come from the path given (abspath is lexical, so
+    # a symlink counts under ITS name); the checks and the read use the file as the OS
+    # reaches it (links, ``..``), the one the state-directory guard compares (TS v0.52.0).
+    shown = Path(os.path.abspath(Path(file).expanduser()))
+    path = Path(os.path.realpath(Path(file).expanduser()))
     try:
         size = path.stat().st_size
     except OSError as error:
         raise ValidationError(f"file not found: {file}") from error
     if not path.is_file():
         raise ValidationError(f"not a file: {file}")
+    assert_not_state_path(path, param="file", token_cache_path=token_cache_path)
     if size == 0:
         raise ValidationError(f"file is empty: {file}")
     if size > FILE_PARSE_MAX_BYTES:
         raise ValidationError(
             f"file is {size / 1024 / 1024:.1f}MB — the parse API accepts at most 100MB"
         )
-    if path.suffix.lower() != ".pdf":
+    if shown.suffix.lower() != ".pdf":
         raise ValidationError(f"only PDF files are supported: {file}")
-    return UploadFile(filename=path.name, data=path.read_bytes(), content_type="application/pdf")
+    data = path.read_bytes()
+    # The name is not the content: a renamed file would be sent, and billed per page, as a
+    # PDF. Readers accept the header anywhere in the first 1KB, so that is where it is
+    # looked for (TS v0.52.0).
+    if b"%PDF-" not in data[:1024]:
+        raise ValidationError(f"not a PDF (no %PDF- header in its first 1KB): {file}")
+    return UploadFile(filename=shown.name, data=data, content_type="application/pdf")
 
 
 def _task_id(result: Any) -> str:
@@ -176,13 +189,14 @@ class Tool:
     def file_parse(self, *, file: str | Path) -> str:
         """提交 PDF 解析任务（tool.file-parse.submit），返回 task_id。
 
-        **0.8 积分/页, 提交时一次性扣费**；取结果免费。上传前本地校验后缀 / 非空 /
-        ≤100MB, 免得为一次注定失败的上传付出传输时间。该端点标 no-replay 且超时下限
-        300 秒——100MB 上传不会被默认 30 秒超时掐断, 也不会因重放而重复扣费。
+        **0.8 积分/页, 提交时一次性扣费**；取结果免费。上传前本地校验后缀 .pdf / 前 1KB 内有
+        %PDF- 文件头（改了后缀的非 PDF 过不去）/ 非空 / ≤100MB / 不在 SDK 自己的配置目录
+        （~/.config/gangtise/，存 token 缓存）里, 免得为一次注定失败的上传付费。该端点标
+        no-replay 且超时下限 300 秒——100MB 上传不会被默认 30 秒超时掐断, 也不会因重放而重复扣费。
 
         拿到 task_id 后用 file_parse_check() 取结果 ZIP（含 file.md + images/）。
         """
-        upload = _read_pdf(file)
+        upload = _read_pdf(file, self._client.config.token_cache_path)
         result = self._client._call("tool.file-parse.submit", body=upload)
         return _task_id(result)
 
@@ -297,13 +311,16 @@ class AsyncTool:
     async def file_parse(self, *, file: str | Path) -> str:
         """提交 PDF 解析任务（tool.file-parse.submit），返回 task_id。
 
-        **0.8 积分/页, 提交时一次性扣费**；取结果免费。上传前本地校验后缀 / 非空 /
-        ≤100MB, 免得为一次注定失败的上传付出传输时间。该端点标 no-replay 且超时下限
-        300 秒——100MB 上传不会被默认 30 秒超时掐断, 也不会因重放而重复扣费。
+        **0.8 积分/页, 提交时一次性扣费**；取结果免费。上传前本地校验后缀 .pdf / 前 1KB 内有
+        %PDF- 文件头（改了后缀的非 PDF 过不去）/ 非空 / ≤100MB / 不在 SDK 自己的配置目录
+        （~/.config/gangtise/，存 token 缓存）里, 免得为一次注定失败的上传付费。该端点标
+        no-replay 且超时下限 300 秒——100MB 上传不会被默认 30 秒超时掐断, 也不会因重放而重复扣费。
 
         拿到 task_id 后用 file_parse_check() 取结果 ZIP（含 file.md + images/）。
         """
-        upload = await anyio.to_thread.run_sync(_read_pdf, file)
+        upload = await anyio.to_thread.run_sync(
+            _read_pdf, file, self._client.config.token_cache_path
+        )
         result = await self._client._call("tool.file-parse.submit", body=upload)
         return _task_id(result)
 

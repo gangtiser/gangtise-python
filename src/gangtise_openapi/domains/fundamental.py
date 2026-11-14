@@ -337,7 +337,10 @@ class Fundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表累计口径（fundamental.income-statement）。
 
-        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
+        （"2025annual" 这种写法服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.income-statement",
@@ -365,7 +368,10 @@ class Fundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表单季口径（fundamental.income-statement-quarterly）。
 
-        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
+        截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.income-statement-quarterly",
@@ -393,7 +399,10 @@ class Fundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股资产负债表（fundamental.balance-sheet）。
 
-        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
+        （"2025annual" 这种写法服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.balance-sheet",
@@ -421,7 +430,10 @@ class Fundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表累计口径（fundamental.cash-flow）。
 
-        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
+        （"2025annual" 这种写法服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.cash-flow",
@@ -449,7 +461,10 @@ class Fundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表单季口径（fundamental.cash-flow-quarterly）。
 
-        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
+        截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.cash-flow-quarterly",
@@ -478,6 +493,8 @@ class Fundamental:
         """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.income-statement-hk",
@@ -506,6 +523,8 @@ class Fundamental:
         """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.balance-sheet-hk",
@@ -534,6 +553,8 @@ class Fundamental:
         """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.cash-flow-hk",
@@ -562,6 +583,8 @@ class Fundamental:
         """查询美股利润表（fundamental.income-statement-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.income-statement-us",
@@ -590,6 +613,8 @@ class Fundamental:
         """查询美股资产负债表（fundamental.balance-sheet-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.balance-sheet-us",
@@ -618,6 +643,8 @@ class Fundamental:
         """查询美股现金流量表（fundamental.cash-flow-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return self._statement(
             "fundamental.cash-flow-us",
@@ -656,7 +683,9 @@ class Fundamental:
                 "startDate": start_date,
                 "endDate": end_date,
                 "breakdown": breakdown,
-                "periodList": _as_list(period, "period"),
+                # Not CLI's ``periodList``: the server ignores it and answers every period;
+                # it filters by ``period`` (probed 2026-11-14).
+                "period": _as_list(period, "period"),
                 "fieldList": _as_list(field, "field"),
             }
         )
@@ -742,6 +771,7 @@ class Fundamental:
 
         holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
         period 取值 q1/interim/q3/annual/latest，支持单值或列表。
+        🔴 period 要和 fiscal_year 一起传：只传 period 时服务端返回最新一期，period 不起作用。
         """
         body = _request_body(
             {
@@ -869,7 +899,10 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表累计口径（fundamental.income-statement）。
 
-        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
+        （"2025annual" 这种写法服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.income-statement",
@@ -897,7 +930,10 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股利润表单季口径（fundamental.income-statement-quarterly）。
 
-        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
+        截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.income-statement-quarterly",
@@ -925,7 +961,10 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股资产负债表（fundamental.balance-sheet）。
 
-        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
+        （"2025annual" 这种写法服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.balance-sheet",
@@ -953,7 +992,10 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表累计口径（fundamental.cash-flow）。
 
-        period 报告期支持单值或列表，如 "2025annual"、"2026q1"。
+        period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
+        （"2025annual" 这种写法服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.cash-flow",
@@ -981,7 +1023,10 @@ class AsyncFundamental:
     ) -> pd.DataFrame | dict[str, Any]:
         """查询 A 股现金流量表单季口径（fundamental.cash-flow-quarterly）。
 
-        period 单季报告期取值 q1/q2/q3/q4/latest，支持单值或列表。
+        period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
+        截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.cash-flow-quarterly",
@@ -1010,6 +1055,8 @@ class AsyncFundamental:
         """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.income-statement-hk",
@@ -1038,6 +1085,8 @@ class AsyncFundamental:
         """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.balance-sheet-hk",
@@ -1066,6 +1115,8 @@ class AsyncFundamental:
         """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.cash-flow-hk",
@@ -1094,6 +1145,8 @@ class AsyncFundamental:
         """查询美股利润表（fundamental.income-statement-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.income-statement-us",
@@ -1122,6 +1175,8 @@ class AsyncFundamental:
         """查询美股资产负债表（fundamental.balance-sheet-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.balance-sheet-us",
@@ -1150,6 +1205,8 @@ class AsyncFundamental:
         """查询美股现金流量表（fundamental.cash-flow-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
+        🔴 fiscal_year 要和 period 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，
+        传了的那个不起作用。
         """
         return await self._statement(
             "fundamental.cash-flow-us",
@@ -1186,7 +1243,9 @@ class AsyncFundamental:
                 "startDate": start_date,
                 "endDate": end_date,
                 "breakdown": breakdown,
-                "periodList": _as_list(period, "period"),
+                # Not CLI's ``periodList``: the server ignores it and answers every period;
+                # it filters by ``period`` (probed 2026-11-14).
+                "period": _as_list(period, "period"),
                 "fieldList": _as_list(field, "field"),
             }
         )
@@ -1268,6 +1327,7 @@ class AsyncFundamental:
 
         holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
         period 取值 q1/interim/q3/annual/latest，支持单值或列表。
+        🔴 period 要和 fiscal_year 一起传：只传 period 时服务端返回最新一期，period 不起作用。
         """
         body = _request_body(
             {

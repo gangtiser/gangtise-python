@@ -15,6 +15,7 @@ from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient
 from gangtise_openapi._download import download_to_path, download_to_path_async
 from gangtise_openapi._errors import ValidationError
 from gangtise_openapi._normalize import to_dataframe
+from gangtise_openapi._state_paths import assert_not_state_path
 from gangtise_openapi._transport import UploadFile
 from gangtise_openapi.domains._common import (
     FilterValue,
@@ -59,27 +60,37 @@ def _utf16_units(text: str) -> int:
 
 
 def _read_drive_upload(
-    file: str | Path, *, space_type: int, folder_id: str | None, title: str | None
+    file: str | Path,
+    *,
+    space_type: int,
+    folder_id: str | None,
+    title: str | None,
+    token_cache_path: Path,
 ) -> UploadFile:
     """Validate and load a drive upload. Every reason to reject the file is checked
     before the request goes out (TS v0.41.0 ``uploadDriveFile``)."""
     _validate_enum(space_type, name="space_type", allowed=_DRIVE_SPACES)
-    # abspath, not resolve(): like Node's path.resolve it is lexical, so a symlink is
-    # uploaded under ITS name rather than the target's.
-    path = Path(os.path.abspath(Path(file).expanduser()))
+    # The name shown and sent comes from abspath: like Node's path.resolve it is lexical,
+    # so a symlink is uploaded under ITS name rather than the target's. The checks and the
+    # read use the file as the OS reaches it (links, ``..``) — the one the state-directory
+    # guard compares; abspath folds ``..`` as text and, after a linked directory, names
+    # another file (TS v0.52.0).
+    shown = Path(os.path.abspath(Path(file).expanduser()))
+    path = Path(os.path.realpath(Path(file).expanduser()))
     try:
         size = path.stat().st_size
     except OSError as error:
         raise ValidationError(f"file not found: {file}") from error
     if not path.is_file():
         raise ValidationError(f"not a file: {file}")
+    assert_not_state_path(path, param="file", token_cache_path=token_cache_path)
     if size == 0:
         raise ValidationError(f"file is empty: {file}")
     if size > DRIVE_UPLOAD_MAX_BYTES:
         raise ValidationError(
             f"file is {size / 1024 / 1024:.1f}MB — the drive accepts at most 100MB per file"
         )
-    name = title if title is not None else path.name
+    name = title if title is not None else shown.name
     units = _utf16_units(name)
     if units > DRIVE_NAME_MAX:
         raise ValidationError(
@@ -91,7 +102,7 @@ def _read_drive_upload(
         fields.append(("folderId", str(folder_id)))
     if title is not None:
         fields.append(("title", title))
-    return UploadFile(filename=path.name, data=path.read_bytes(), fields=tuple(fields))
+    return UploadFile(filename=shown.name, data=path.read_bytes(), fields=tuple(fields))
 
 
 def _stock_note_filter(security: Any, note_id: Any) -> dict[str, Any]:
@@ -415,7 +426,7 @@ class Vault:
         pool_id: FilterValue = "all",
         space_type: int | None = None,
         raw: bool = False,
-    ) -> pd.DataFrame | dict[str, Any]:
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询股票池内的证券列表（vault.stock-pool.stocks），返回 securityCode / securityName。
 
         pool_id 默认 "all" 表示该 space_type 下全部可见的股票池, 显式传空列表或空白字符串同样
@@ -660,7 +671,8 @@ class Vault:
         """上传文件到 AI 云盘（vault.drive.upload，免费），返回 {fileId, title, folderId, spaceType, fileSize}。
 
         单个文件 ≤100MB；试用账号每天累计上传 ≤500MB（超出 230008）。发请求前本地先拦:
-        文件不存在 / 不是文件 / 空文件 / 超过 100MB / 名称超长。
+        文件不存在 / 不是文件 / 空文件 / 超过 100MB / 名称超长 / 位于 SDK 自己的配置目录
+        （~/.config/gangtise/，存 token 缓存）或 GANGTISE_TOKEN_CACHE_PATH 指向的文件。
 
         title 为云盘里的名称，不传用本地文件名；名称 ≤200 个字符，按 UTF-16 计——中文算
         1、emoji 算 2（服务端这样计，超出报 230004），本地按同一口径先拦。
@@ -672,7 +684,13 @@ class Vault:
 
         返回服务端原始 data（dict）；raw 仅为签名统一，返回相同。
         """
-        upload = _read_drive_upload(file, space_type=space_type, folder_id=folder_id, title=title)
+        upload = _read_drive_upload(
+            file,
+            space_type=space_type,
+            folder_id=folder_id,
+            title=title,
+            token_cache_path=self._client.config.token_cache_path,
+        )
         return self._client._call("vault.drive.upload", body=upload)  # type: ignore[no-any-return]
 
     def drive_create_folder(
@@ -1160,7 +1178,7 @@ class AsyncVault:
         pool_id: FilterValue = "all",
         space_type: int | None = None,
         raw: bool = False,
-    ) -> pd.DataFrame | dict[str, Any]:
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """查询股票池内的证券列表（vault.stock-pool.stocks），返回 securityCode / securityName。
 
         pool_id 默认 "all" 表示该 space_type 下全部可见的股票池, 显式传空列表或空白字符串同样
@@ -1409,7 +1427,8 @@ class AsyncVault:
         """上传文件到 AI 云盘（vault.drive.upload，免费），返回 {fileId, title, folderId, spaceType, fileSize}。
 
         单个文件 ≤100MB；试用账号每天累计上传 ≤500MB（超出 230008）。发请求前本地先拦:
-        文件不存在 / 不是文件 / 空文件 / 超过 100MB / 名称超长。
+        文件不存在 / 不是文件 / 空文件 / 超过 100MB / 名称超长 / 位于 SDK 自己的配置目录
+        （~/.config/gangtise/，存 token 缓存）或 GANGTISE_TOKEN_CACHE_PATH 指向的文件。
 
         title 为云盘里的名称，不传用本地文件名；名称 ≤200 个字符，按 UTF-16 计——中文算
         1、emoji 算 2（服务端这样计，超出报 230004），本地按同一口径先拦。
@@ -1429,6 +1448,7 @@ class AsyncVault:
                 space_type=space_type,
                 folder_id=folder_id,
                 title=title,
+                token_cache_path=self._client.config.token_cache_path,
             )
         )
         return await self._client._call("vault.drive.upload", body=upload)  # type: ignore[no-any-return]

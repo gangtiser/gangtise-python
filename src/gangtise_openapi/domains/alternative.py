@@ -79,7 +79,7 @@ class Alternative:
         keyword: str,
         limit: int = 100,
         raw: bool = False,
-    ) -> pd.DataFrame | dict[str, Any]:
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """按关键词搜索行业指标（EDB）列表（alternative.edb-search）。"""
         body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=200)}
         result = self._client._call("alternative.edb-search", body=body)
@@ -201,7 +201,7 @@ class AsyncAlternative:
         keyword: str,
         limit: int = 100,
         raw: bool = False,
-    ) -> pd.DataFrame | dict[str, Any]:
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
         """按关键词搜索行业指标（EDB）列表（alternative.edb-search）。"""
         body = {"keyword": keyword, "limit": _validate_top(limit, name="limit", max_value=200)}
         result = await self._client._call("alternative.edb-search", body=body)

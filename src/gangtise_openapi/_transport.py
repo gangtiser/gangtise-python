@@ -166,9 +166,10 @@ class TracedDict(dict):  # type: ignore[type-arg]
 
 
 class TracedList(list):  # type: ignore[type-arg]
-    """``TracedDict``'s twin for a bare-array payload (the ``expects="array"`` opinion
-    detail endpoints): a batch whose elements turn out malformed downstream is worth
-    reporting, and without this it would reach the user trace-less. Only those
+    """``TracedDict``'s twin for a bare-array payload (the ``expects="array"``
+    endpoints: the opinion details, the EDB / indicator / report-image searches, the
+    stock-pool securities): a batch whose elements turn out malformed downstream is
+    worth reporting, and without this it would reach the user trace-less. Only those
     endpoints are wrapped — every other list payload stays a plain ``list``."""
 
     __slots__ = ("envelope_trace_id",)
@@ -233,11 +234,13 @@ def check_expected_shape(endpoint: EndpointDef, payload: Any, status_code: int, 
     ``expects="list"`` (the seven quote endpoints, bond, fund, …): every legitimate
     answer — including an empty date range or an unknown security code — is
     ``{"total": 0, "list": []}``, so a ``data: null`` or a bare object is a broken
-    response, not an empty one. ``expects="array"`` (the two opinion detail
-    endpoints): the answer is a bare array, ``[]`` when no ID had a body — anything
-    else would otherwise read as "every paid-for body is missing" (TS v0.41.0).
-    Without this the normalizers hand ``None`` back as a success and the caller sees
-    "no data".
+    response, not an empty one. ``expects="array"`` (the opinion details, the EDB /
+    indicator / report-image searches, the stock-pool securities): the answer is a bare
+    array, ``[]`` when nothing matched — on a detail endpoint anything else would
+    otherwise read as "every paid-for body is missing" (TS v0.41.0).
+    ``expects="object"`` (the drive folder listing, a constant category's values): a
+    JSON object whatever matched (TS v0.52.0). Without this the normalizers hand
+    ``None`` back as a success and the caller sees "no data".
 
     Checked HERE, not in a wrapper: ``None`` cannot carry the envelope's traceId
     (``_attach_envelope_trace_id`` only wraps dicts), so a check further down would
@@ -254,6 +257,9 @@ def check_expected_shape(endpoint: EndpointDef, payload: Any, status_code: int, 
             trace_id = parsed.get("traceId") if isinstance(parsed, dict) else None
             if isinstance(trace_id, (str, int)) and not isinstance(trace_id, bool):
                 return TracedList(payload, str(trace_id))
+            return payload
+    elif endpoint.expects == "object":
+        if isinstance(payload, dict):
             return payload
     elif isinstance(payload, dict) and isinstance(payload.get("list"), list):
         return payload

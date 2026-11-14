@@ -84,9 +84,9 @@ class Reference:
         120001）。fund 同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起
         返回，按 gtsName 区分后取一个。
 
-        🔴 **可转债在任何 category 下都可能出现**：按公司简称查 stock 时，同名可转债常排第一
-        （「甬金」→ 113636.SH 甬金转债在 603995.SH 甬金股份之前）。**取第一条 category 等于
-        所查类别的行**，别直接取第一行；查基金同理——债券代码传给 fund 方法返回空结果、不报错。
+        🔴 **查股票带上 category="stock"**：不带分类按公司简称查时，同名可转债常排第一
+        （「甬金」→ 113636.SH 甬金转债在 603995.SH 甬金股份之前）。带了 category 只返回该类别；
+        查基金同理带 category="fund"——债券代码传给 fund 方法返回空结果、不报错。
         """
         # TS body shape (cli.ts:503):
         #   { keyword, category: maybeArray(category) | undefined, top: int }
@@ -283,13 +283,15 @@ class Reference:
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        """按名称/机构/关键字搜索公众号 ID（reference.official-account-search）。
+        """按公众号名称片段搜索公众号 ID（reference.official-account-search）。
 
         结果的 accountId 喂 insight.official_account_list(account_id=...) 拉
-        该公众号资讯。category 分类可多选：listedCompany=上市公司
-        broker=券商团队 government=政府官方 media=媒体；部分公众号不属这
-        四类（category 为 null），一旦传 category 就会漏掉它们，要全量
-        （含未分类）就别传。top 默认 10、上限 10；结果按 matchScore（0~1）
+        该公众号资讯。keyword 匹配的是公众号**名称**（"中信证券" 能查到「中信证券研究」）：
+        名称里用简称的公众号按机构全称查不到——"东吴证券" 返回 0 行，"东吴" 能查到；
+        按全称查到 0 行时换简称再查。
+        category 分类可多选：listedCompany=上市公司 broker=券商团队 government=政府官方
+        media=媒体；部分公众号不属这四类（category 为 null），一旦传 category 就会漏掉它们，
+        要全量（含未分类）就别传。top 默认 10、上限 10；结果按 matchScore（0~1）
         降序。行字段：accountId / accountName / category / matchScore。免费。
         """
         # TS body shape (cli.ts): request key is BARE `category` here (spec),
@@ -304,6 +306,29 @@ class Reference:
             }
         )
         result = self._client._call("reference.official-account-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def overseas_account_search(
+        self,
+        *,
+        keyword: str,
+        from_: int = 0,
+        size: int | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按名称片段搜索海外观点账号 ID（reference.overseas-account-search），免费。
+
+        结果的 accountId 喂 insight.overseas_opinion_list(account=...)。keyword 为账号名称片段，
+        一次一个：在账号名任意位置做子串匹配，英文不区分大小写（"elo" 同时命中 Elon Musk 与
+        Financelot）；按英文账号名匹配，中文名（如「彭博」）查不到——"bloomberg" 查得到 Bloomberg。
+        分页用 from_ / size，省略 size 取全部（单页 50，自动翻页）；结果按 matchScore（0~1）降序。
+        行字段：accountId / accountName / accountIntroduction（中文简介，无简介为空字符串）/
+        matchScore。
+        """
+        body = _request_body({"accountName": keyword, "from": from_, "size": size})
+        result = self._client._call("reference.overseas-account-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
@@ -331,9 +356,9 @@ class AsyncReference:
         120001）。fund 同时返回场内（.SH / .SZ）与场外（.OF）代码，同一基金的不同份额一起
         返回，按 gtsName 区分后取一个。
 
-        🔴 **可转债在任何 category 下都可能出现**：按公司简称查 stock 时，同名可转债常排第一
-        （「甬金」→ 113636.SH 甬金转债在 603995.SH 甬金股份之前）。**取第一条 category 等于
-        所查类别的行**，别直接取第一行；查基金同理——债券代码传给 fund 方法返回空结果、不报错。
+        🔴 **查股票带上 category="stock"**：不带分类按公司简称查时，同名可转债常排第一
+        （「甬金」→ 113636.SH 甬金转债在 603995.SH 甬金股份之前）。带了 category 只返回该类别；
+        查基金同理带 category="fund"——债券代码传给 fund 方法返回空结果、不报错。
         """
         body = _request_body(
             {
@@ -527,13 +552,15 @@ class AsyncReference:
         top: int = 10,
         raw: bool = False,
     ) -> pd.DataFrame | dict[str, Any] | list[Any]:
-        """按名称/机构/关键字搜索公众号 ID（reference.official-account-search）。
+        """按公众号名称片段搜索公众号 ID（reference.official-account-search）。
 
         结果的 accountId 喂 insight.official_account_list(account_id=...) 拉
-        该公众号资讯。category 分类可多选：listedCompany=上市公司
-        broker=券商团队 government=政府官方 media=媒体；部分公众号不属这
-        四类（category 为 null），一旦传 category 就会漏掉它们，要全量
-        （含未分类）就别传。top 默认 10、上限 10；结果按 matchScore（0~1）
+        该公众号资讯。keyword 匹配的是公众号**名称**（"中信证券" 能查到「中信证券研究」）：
+        名称里用简称的公众号按机构全称查不到——"东吴证券" 返回 0 行，"东吴" 能查到；
+        按全称查到 0 行时换简称再查。
+        category 分类可多选：listedCompany=上市公司 broker=券商团队 government=政府官方
+        media=媒体；部分公众号不属这四类（category 为 null），一旦传 category 就会漏掉它们，
+        要全量（含未分类）就别传。top 默认 10、上限 10；结果按 matchScore（0~1）
         降序。行字段：accountId / accountName / category / matchScore。免费。
         """
         # TS body shape (cli.ts): request key is BARE `category` here (spec),
@@ -548,6 +575,29 @@ class AsyncReference:
             }
         )
         result = await self._client._call("reference.official-account-search", body=body)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def overseas_account_search(
+        self,
+        *,
+        keyword: str,
+        from_: int = 0,
+        size: int | None = None,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any] | list[Any]:
+        """按名称片段搜索海外观点账号 ID（reference.overseas-account-search），免费。
+
+        结果的 accountId 喂 insight.overseas_opinion_list(account=...)。keyword 为账号名称片段，
+        一次一个：在账号名任意位置做子串匹配，英文不区分大小写（"elo" 同时命中 Elon Musk 与
+        Financelot）；按英文账号名匹配，中文名（如「彭博」）查不到——"bloomberg" 查得到 Bloomberg。
+        分页用 from_ / size，省略 size 取全部（单页 50，自动翻页）；结果按 matchScore（0~1）降序。
+        行字段：accountId / accountName / accountIntroduction（中文简介，无简介为空字符串）/
+        matchScore。
+        """
+        body = _request_body({"accountName": keyword, "from": from_, "size": size})
+        result = await self._client._call("reference.overseas-account-search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)

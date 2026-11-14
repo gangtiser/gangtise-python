@@ -48,7 +48,9 @@ def _ind(code: str, name: str, **extra) -> dict:
 async def test_async_search(tmp_path):
     rows = [{"indicatorCode": "qte_close"}]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post(_SEARCH).mock(return_value=_ede_response(rows))
+        route = router.post(_SEARCH).mock(
+            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": rows})
+        )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             df = await AsyncIndicator(client).search(keyword="收盘价")
         body = json.loads(route.calls.last.request.read())
@@ -58,16 +60,16 @@ async def test_async_search(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_async_search_inner_999999_keeps_generic_hint(tmp_path):
-    inner = {"code": "999999", "status": False, "msg": "系统错误", "data": None}
+async def test_async_search_999999_keeps_generic_hint(tmp_path):
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(_SEARCH).mock(
-            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": inner})
+        route = router.post(_SEARCH).mock(
+            return_value=httpx.Response(500, json={"code": "999999", "msg": "系统内部错误"})
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
             with pytest.raises(ApiError) as excinfo:
                 await AsyncIndicator(client).search(keyword="收盘价")
     assert excinfo.value.hint == ERROR_HINTS["999999"]
+    assert route.call_count == 1
 
 
 @pytest.mark.anyio

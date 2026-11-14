@@ -99,6 +99,42 @@ def test_live_fundamental_valuation_analysis(client: GangtiseClient) -> None:
     assert len(df) == 5
 
 
+def test_live_fundamental_period_takes_a_bare_period_with_the_year_apart(
+    client: GangtiseClient,
+) -> None:
+    from gangtise_openapi._errors import ApiError
+    from gangtise_openapi.domains.fundamental import Fundamental
+
+    fundamental = Fundamental(client)
+    df = fundamental.income_statement(security_code="600519.SH", fiscal_year=2024, period="annual")
+    assert list(df["endDate"]) == ["20241231"]
+    with pytest.raises(ApiError) as excinfo:
+        fundamental.income_statement(security_code="600519.SH", period="2024annual")
+    assert excinfo.value.code == "100005"
+    # main_business filters by `period`; `periodList` was ignored (every period came back).
+    data = fundamental.main_business(
+        security_code="600519.SH",
+        start_date="2022-01-01",
+        end_date="2025-12-31",
+        period="annual",
+        raw=True,
+    )
+    names = {row[0] for row in data["list"]}
+    assert names
+    assert all(name.endswith("年报") for name in names), names
+
+
+def test_live_reference_overseas_account_search(client: GangtiseClient) -> None:
+    from gangtise_openapi.domains.reference import Reference
+
+    reference = Reference(client)
+    df = reference.overseas_account_search(keyword="bloomberg", size=5)
+    assert len(df) >= 1
+    assert "accountId" in df.columns
+    # No match is an empty list, not a refused shape.
+    assert reference.overseas_account_search(keyword="zqxjw无此账号", size=5).empty
+
+
 def test_live_insight_research_list_small_page(client: GangtiseClient) -> None:
     # Paginated endpoint: size=5 stops after a small first page; also feeds the title cache.
     from gangtise_openapi.domains.insight import Insight

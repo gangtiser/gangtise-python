@@ -428,17 +428,6 @@ def _flag_screener(
     )
 
 
-def _search_result(result: Any) -> Any:
-    """Peel the (historically double-wrapped) search payload.
-
-    ``indicator.search`` takes only a keyword, so the EDE date/scope/param hint
-    would be nonsense here — a 999999 keeps the generic hint (TS v0.28.2).
-    """
-    from gangtise_openapi._transport import unwrap_envelope
-
-    return unwrap_envelope(result)
-
-
 def _matrix_payload(result: Any) -> dict[str, Any]:
     """Unwrap a matrix response, re-pointing a 999999 at the EDE no-data hint.
 
@@ -477,7 +466,7 @@ class Indicator:
         result = self._client._call("indicator.search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return _result_to_dataframe(_search_result(result))
+        return _result_to_dataframe(result)
 
     def cross_section(
         self,
@@ -532,8 +521,9 @@ class Indicator:
         报错与缺数: code 或参数名写错报 100003 并点名, 缺必填参数（含 fiscalYear）报 100001
         并点名; 无数据是保留行列的 null 单元格（不是空表, 也不报错）。parameterList 列了默认
         值的参数也可能必须显式传（如区间指标的 changePeriod / yieldType / riskFreeRate /
-        benchmarkCode, 股东结构类的 rank / shareType）, 漏传同样报 100001。返回的证券（行）
-        顺序不作保证, 一律按 security 列对应, 别按传入顺序对位。
+        benchmarkCode, 股东结构类的 rank / shareType, 行业组合指标 scr_indu_citic /
+        scr_indu_sw / scr_indu_gics 的 industryLevel: 0 全路径、1–4 各级）, 漏传同样报
+        100001。返回的证券（行）顺序不作保证, 一律按 security 列对应, 别按传入顺序对位。
 
         key_by 取 name（默认, 列头用服务端给的指标显示名）或 code（列头就是你传进去的
         indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠; 批量按 code 回填用 code 模式。
@@ -647,8 +637,8 @@ class Indicator:
         date 作为每个变量的 tradeDate 下发（已带 tradeDate / reportDate 的不覆盖）; 绝大多数
         指标必填 tradeDate, 漏传服务端报 100001, 因此它是必填的。报告期类指标同
         cross_section, 用 indicator_param 传 reportDate; indicator_param 里 *Date 键的值同样
-        校验并统一成 YYYY-MM-DD。fiscalYear 等必填参数漏传报 100001 并点名, 同
-        cross_section。security 传板块 ID 时服务端展开成全部成分股。
+        校验并统一成 YYYY-MM-DD。fiscalYear、行业组合指标 scr_indu_* 的 industryLevel 等必填参数
+        漏传报 100001 并点名, 同 cross_section。security 传板块 ID 时服务端展开成全部成分股。
 
         输出同 cross_section 的宽表（每行一只命中的证券）。空结果是正常答案, 但也可能是
         报告期类指标的日期不在报告期末（全为 null, 无一通过）或指标不覆盖这些证券——
@@ -712,7 +702,7 @@ class AsyncIndicator:
         result = await self._client._call("indicator.search", body=body)
         if raw:
             return result  # type: ignore[no-any-return]
-        return _result_to_dataframe(_search_result(result))
+        return _result_to_dataframe(result)
 
     async def cross_section(
         self,
@@ -767,8 +757,9 @@ class AsyncIndicator:
         报错与缺数: code 或参数名写错报 100003 并点名, 缺必填参数（含 fiscalYear）报 100001
         并点名; 无数据是保留行列的 null 单元格（不是空表, 也不报错）。parameterList 列了默认
         值的参数也可能必须显式传（如区间指标的 changePeriod / yieldType / riskFreeRate /
-        benchmarkCode, 股东结构类的 rank / shareType）, 漏传同样报 100001。返回的证券（行）
-        顺序不作保证, 一律按 security 列对应, 别按传入顺序对位。
+        benchmarkCode, 股东结构类的 rank / shareType, 行业组合指标 scr_indu_citic /
+        scr_indu_sw / scr_indu_gics 的 industryLevel: 0 全路径、1–4 各级）, 漏传同样报
+        100001。返回的证券（行）顺序不作保证, 一律按 security 列对应, 别按传入顺序对位。
 
         key_by 取 name（默认, 列头用服务端给的指标显示名）或 code（列头就是你传进去的
         indicatorCode）。服务端按自己的顺序返回列, 位置索引不可靠; 批量按 code 回填用 code 模式。
@@ -882,8 +873,8 @@ class AsyncIndicator:
         date 作为每个变量的 tradeDate 下发（已带 tradeDate / reportDate 的不覆盖）; 绝大多数
         指标必填 tradeDate, 漏传服务端报 100001, 因此它是必填的。报告期类指标同
         cross_section, 用 indicator_param 传 reportDate; indicator_param 里 *Date 键的值同样
-        校验并统一成 YYYY-MM-DD。fiscalYear 等必填参数漏传报 100001 并点名, 同
-        cross_section。security 传板块 ID 时服务端展开成全部成分股。
+        校验并统一成 YYYY-MM-DD。fiscalYear、行业组合指标 scr_indu_* 的 industryLevel 等必填参数
+        漏传报 100001 并点名, 同 cross_section。security 传板块 ID 时服务端展开成全部成分股。
 
         输出同 cross_section 的宽表（每行一只命中的证券）。空结果是正常答案, 但也可能是
         报告期类指标的日期不在报告期末（全为 null, 无一通过）或指标不覆盖这些证券——

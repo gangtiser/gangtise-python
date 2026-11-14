@@ -30,9 +30,10 @@ def test_securities_search(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [
-                        {"code": "000001.SH", "name": "上证指数", "market": "SH"},
-                    ],
+                    "data": {
+                        "returnedCount": 1,
+                        "list": [{"code": "000001.SH", "name": "上证指数", "market": "SH"}],
+                    },
                 },
             )
         )
@@ -51,7 +52,12 @@ def test_securities_search_accepts_the_bond_category(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"gtsCode": "113636.SH", "gtsName": "甬金转债", "category": "bond"}],
+                    "data": {
+                        "returnedCount": 1,
+                        "list": [
+                            {"gtsCode": "113636.SH", "gtsName": "甬金转债", "category": "bond"}
+                        ],
+                    },
                 },
             )
         )
@@ -224,7 +230,10 @@ def test_chiefs_search(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"chiefId": "c1", "chiefName": "张三", "institution": "某券商"}],
+                    "data": {
+                        "returnedCount": 1,
+                        "list": [{"chiefId": "c1", "chiefName": "张三", "institution": "某券商"}],
+                    },
                 },
             )
         )
@@ -244,7 +253,10 @@ def test_institution_search(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"institutionId": "i1", "institutionName": "招商证券"}],
+                    "data": {
+                        "returnedCount": 1,
+                        "list": [{"institutionId": "i1", "institutionName": "招商证券"}],
+                    },
                 },
             )
         )
@@ -267,7 +279,7 @@ def test_institution_search_omits_category_when_unset(tmp_path):
         route = router.post("/application/open-reference/institutions/search").mock(
             return_value=httpx.Response(
                 200,
-                json={"code": "000000", "status": True, "data": []},
+                json={"code": "000000", "status": True, "data": {"returnedCount": 0, "list": []}},
             )
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:

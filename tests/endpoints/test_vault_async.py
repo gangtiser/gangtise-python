@@ -242,7 +242,6 @@ async def test_async_raw_passthrough(tmp_path):
         "/application/open-vault/wechatgroupmsg/list",
         "/application/open-vault/wechatgroupmsg/chatroomId",
         "/application/open-vault/stock-pool/getPoolList",
-        "/application/open-vault/stock-pool/getStockList",
     ]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         for path in paths:
@@ -259,7 +258,6 @@ async def test_async_raw_passthrough(tmp_path):
             assert await vault.wechat_message_list(raw=True) == payload
             assert await vault.wechat_chatroom_list(raw=True) == payload
             assert await vault.stock_pool_list(raw=True) == payload
-            assert await vault.stock_pool_stocks(raw=True) == payload
 
 
 @pytest.mark.anyio

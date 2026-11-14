@@ -14,7 +14,7 @@ from gangtise_openapi._errors import ValidationError
 
 
 def test_endpoint_count():
-    assert len(ENDPOINTS) == 163
+    assert len(ENDPOINTS) == 166
 
 
 def test_lookup_known_endpoint():
@@ -51,6 +51,7 @@ def test_pagination_registry_matches_ts_source():
         "insight.foreign-opinion.list": 50,
         "insight.foreign-opinion.list-with-content": 50,
         "insight.independent-opinion.list": 50,
+        "insight.overseas-opinion.list": 50,
         "insight.official-account.list": 50,
         "insight.qa.list": 500,
         "insight.highlight.list": 50,
@@ -65,6 +66,7 @@ def test_pagination_registry_matches_ts_source():
         "vault.my-conference.list": 50,
         "vault.wechat-message.list": 50,
         "vault.wechat-chatroom.list": 50,
+        "reference.overseas-account-search": 50,
     }
     actual = {
         k: ep.pagination.max_page_size for k, ep in ENDPOINTS.items() if ep.pagination is not None
@@ -138,6 +140,7 @@ def test_retry_policy_registry_matches_ts_source():
         "insight.foreign-report.download",
         "insight.foreign-opinion.list-with-content",
         "insight.foreign-opinion.detail",
+        "insight.overseas-opinion.detail",
         "insight.highlight.list",
         "fundamental.earning-forecast",
         "bond.basic-info",
@@ -278,6 +281,8 @@ def test_all_endpoint_keys_match_ts_source():
         "insight.foreign-opinion.detail",
         "insight.independent-opinion.list",
         "insight.independent-opinion.download",
+        "insight.overseas-opinion.list",
+        "insight.overseas-opinion.detail",
         "insight.official-account.list",
         "insight.official-account.download",
         "insight.qa.list",
@@ -288,6 +293,7 @@ def test_all_endpoint_keys_match_ts_source():
         "reference.chiefs-search",
         "reference.institution-search",
         "reference.official-account-search",
+        "reference.overseas-account-search",
         "reference.constant-category",
         "reference.constant-list",
         "reference.concept-search",
@@ -418,7 +424,8 @@ def test_row_id_registry_matches_ts_source():
     """TS v0.43.0: the row id each list's auto-pagination dedupes repeated rows by;
     v0.48.0: several dotted paths together where no single field identifies a row;
     v0.49.0: the four schedule lists by their per-list id, not ``id``; v0.50.0: stock notes;
-    v0.51.0: expert intel, by an id from the response description only."""
+    v0.51.0: expert intel, by an id from the response description only; v0.52.0: overseas
+    opinions and accounts."""
     assert {k: ep.row_id for k, ep in ENDPOINTS.items() if ep.row_id} == {
         "insight.opinion.list": "chiefOpinionId",
         "insight.summary.list": "summaryId",
@@ -435,6 +442,7 @@ def test_row_id_registry_matches_ts_source():
         "insight.announcement-us.list": "announcementId",
         "insight.foreign-opinion.list": "foreignOpinionId",
         "insight.independent-opinion.list": "independentOpinionId",
+        "insight.overseas-opinion.list": "overseasOpinionId",
         "insight.official-account.list": "articleId",
         "insight.highlight.list": "highlightId",
         "vault.drive.list": "fileId",
@@ -444,6 +452,7 @@ def test_row_id_registry_matches_ts_source():
         "vault.wechat-chatroom.list": "chatroomId",
         "vault.stock-note.list": "stockNoteId",
         "ai.expert-intel.list": "intelId",
+        "reference.overseas-account-search": "accountId",
         "ai.management-sentiment-indicator": (
             "securityCode",
             "source.sourceType",
@@ -475,17 +484,40 @@ def test_offset_window_registry_matches_ts_source():
         if ep.pagination is not None and ep.pagination.max_window is not None
     } == {
         "insight.highlight.list": 10000,
+        "insight.overseas-opinion.list": 10000,
         "vault.wechat-message.list": 10000,
     }
 
 
 def test_expects_registry_matches_ts_source():
+    # TS v0.52.0 added the free lookups whose EMPTY answer was observed: ``{list: []}``
+    # from the statements, main business, top holders and reference searches, ``[]``
+    # from the EDB / indicator / report-image searches and an empty stock pool.
     assert {k for k, ep in ENDPOINTS.items() if ep.expects == "array"} == {
         "insight.opinion.detail",
         "insight.foreign-opinion.detail",
+        "insight.overseas-opinion.detail",
+        "insight.report-image.list",
+        "vault.stock-pool.stocks",
+        "alternative.edb-search",
+        "indicator.search",
+    }
+    assert {k for k, ep in ENDPOINTS.items() if ep.expects == "object"} == {
+        "reference.constant-list",
+        "vault.drive.folder-list",
     }
     assert {k for k, ep in ENDPOINTS.items() if ep.expects == "list"} == {
         "insight.highlight.list",
+        "insight.overseas-opinion.list",
+        "reference.securities-search",
+        "reference.chiefs-search",
+        "reference.institution-search",
+        "reference.official-account-search",
+        "reference.overseas-account-search",
+        "reference.constant-category",
+        "reference.concept-search",
+        "reference.sector-search",
+        "reference.sector-constituents",
         "reference.index-weight",
         "quote.day-kline",
         "quote.day-kline-hk",
@@ -495,6 +527,19 @@ def test_expects_registry_matches_ts_source():
         "quote.realtime",
         "quote.fund-flow",
         "quote.sector-fund-flow",
+        "fundamental.income-statement",
+        "fundamental.income-statement-quarterly",
+        "fundamental.balance-sheet",
+        "fundamental.cash-flow",
+        "fundamental.cash-flow-quarterly",
+        "fundamental.income-statement-hk",
+        "fundamental.balance-sheet-hk",
+        "fundamental.cash-flow-hk",
+        "fundamental.income-statement-us",
+        "fundamental.balance-sheet-us",
+        "fundamental.cash-flow-us",
+        "fundamental.main-business",
+        "fundamental.top-holders",
         "fundamental.valuation-analysis",
         "bond.basic-info",
         "bond.issuer-info",
@@ -604,6 +649,8 @@ def test_billing_registry_matches_ts_source():
         "insight.foreign-opinion.detail": ("row", 30, 20),
         "insight.independent-opinion.list": ("row", 1),
         "insight.independent-opinion.download": ("document", 30),
+        "insight.overseas-opinion.list": ("row", 0.1),
+        "insight.overseas-opinion.detail": ("row", 10, 20),
         "insight.official-account.list": ("row", 0.1),
         "insight.official-account.download": ("document", 10),
         "insight.qa.list": ("row", 0.1),
@@ -787,7 +834,7 @@ def test_the_no_replay_line_actually_bites():
     assert worst_request_credits(ENDPOINTS["alternative.edb-data"]) == 300
 
 
-def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_29():
+def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_30():
     """The README billing note names these: billed, yet retried after an uncertain
     failure. A change here must update that note (and say so in the CHANGELOG)."""
     default_retry = {
@@ -813,6 +860,7 @@ def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_29():
         "insight.announcement-hk.list",
         "insight.announcement-us.list",
         "insight.official-account.list",
+        "insight.overseas-opinion.list",
         "vault.my-conference.list",
     }
     downloads = {
@@ -826,7 +874,7 @@ def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_29():
         "insight.report-image.download",
     }
     assert default_retry == lists | downloads | {"alternative.edb-data"}
-    assert len(default_retry) == 29
+    assert len(default_retry) == 30
     # The same note names the quantity-billed endpoints kept on no-replay although one
     # request stays under the line — pinned by name, so one swapped for another fails.
     under_the_line = {
@@ -845,6 +893,7 @@ def test_billed_endpoints_that_keep_the_default_retry_are_the_documented_29():
         "insight.opinion.detail",
         "insight.foreign-opinion.list-with-content",
         "insight.foreign-opinion.detail",
+        "insight.overseas-opinion.detail",
         "insight.summary.download",
         "insight.foreign-report.download",
         "vault.my-conference.download",

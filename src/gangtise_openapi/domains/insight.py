@@ -27,10 +27,11 @@ from gangtise_openapi.domains._common import (
     _validate_top,
 )
 
-# Enum whitelists. Only applied where the server was probed NOT to reject a bad
-# value — it silently drops the condition and answers with the UNFILTERED set, so
-# a typo masquerades as "these are the results" while billing for the full dump
-# (TS v0.32.0).
+# Enum whitelists. Applied where the server was probed NOT to reject a bad value —
+# it silently drops the condition and answers with the UNFILTERED set, so a typo
+# masquerades as "these are the results" while billing for the full dump (TS v0.32.0).
+# The pamirs list has since started answering 100005 for an unknown category / market
+# (CLI probe 2026-11-11); its whitelists stay, refusing only what the server refuses.
 _PAMIRS_CATEGORIES = ("companyAnalysis", "industryAnalysis")
 _PAMIRS_MARKETS = ("aShares", "hkStocks", "usChinaConcept", "usStocks")
 _PERFORMANCE_MARKETS = ("aShares", "hkStocks", "usChinaConcept", "usStocks")
@@ -80,12 +81,12 @@ _DETAIL_BATCH = 20
 
 
 class _OpinionDetails:
-    """Batching and reconciliation for the two opinion detail endpoints (TS v0.41.0
+    """Batching and reconciliation for the opinion detail endpoints (TS v0.41.0
     ``fetchOpinionDetails``; v0.43.1 per-element handling).
 
     Each endpoint takes at most 20 IDs per call and skips, WITHOUT an error, any ID it
     has no body for — a typo, an ID outside the account's data window, and possibly one
-    published minutes ago. Batches go out one at a time (30 credits per returned body),
+    published minutes ago. Batches go out one at a time (billed per returned body),
     and whatever did not come back is named in the result instead of silently absent.
     The sync and async wrappers drive the same object, so the rules live in one place.
     """
@@ -111,7 +112,7 @@ class _OpinionDetails:
     def take(self, rows: list[Any]) -> None:
         """Keep one batch's bodies.
 
-        An array by contract: both endpoints declare ``expects="array"``, so the
+        An array by contract: the endpoints declare ``expects="array"``, so the
         transport has already refused any other layout — structurally, with its
         traceId — instead of letting a changed layout read as "no bodies" and report
         every paid-for ID as missing. That check does not look inside. Plain objects
@@ -406,18 +407,20 @@ class Insight:
 
         筛选项是 summary_list 的真子集: 只有 search_type / rank_type / keyword /
         research_area / security / category / market——**没有** source / institution /
-        participant_role。故意不复用 summary_list 的 body: 服务端会静默丢弃不认识的字段,
-        照搬会让调用方以为过滤生效、实际拿到全量。
+        participant_role。故意不复用 summary_list 的 body: 本端点不支持的字段服务端不报错——
+        多数被丢弃、返回没过滤的全量, 个别（如 institutionList）会被应用、筛成 0 条。
 
         category 取值 companyAnalysis / industryAnalysis; market 取值
-        aShares / hkStocks / usChinaConcept / usStocks——两者都本地校验, 因为服务端对非法
-        枚举是静默忽略该条件返回全量。research_area 中信码（1008001xx）与申万码
-        （104xx0000）都认, 但方向码（122000xxx）在本端点返 0。
+        aShares / hkStocks / usChinaConcept / usStocks——两者都本地校验（服务端对非法值同样
+        报 100005）。research_area 中信码（1008001xx）与申万码（104xx0000）都认, 但方向码
+        （122000xxx）在本端点返 0。
 
-        ⚠️ 已知返回口径: conceptList / categoryList / marketList 三个标签字段稀疏、不保证完整,
-        是否有值随记录和查法而变——不带筛选时常整条为空, 用 category 或 market 过滤时回填率
-        明显更高（没有 concept 过滤参数）。所以按这几个维度分组要靠过滤参数取, 别拉全量再本地
-        分组; 某条为空也不说明它没有该属性。
+        ⚠️ 已知返回口径: categoryList / marketList **只在按 category 或 market 筛选时返回完整**——
+        不带筛选、或只按 security / research_area / keyword 查时, categoryList 为空, marketList
+        只会出现 hkStocks / usStocks, 不会出现 aShares / usChinaConcept。用 category 或 market
+        任一筛选时, 两个字段都给该记录的全部值（不是回显筛选值）。所以别拉全量再按这两个字段
+        本地分组（A 股、中概股的归属会整批缺失）, 要分组就按两个类别、四个市场各查一遍再合并;
+        某条为空也不说明它没有该属性。conceptList / researchAreaList / securityList 不随查法变。
         """
         body = _request_body(
             {
@@ -1323,6 +1326,116 @@ class Insight:
         )
         return to_dataframe(rows, schema=None)
 
+    # ---- overseas-opinion ----
+
+    def overseas_opinion_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        rank_type: int = 1,
+        account: FilterValue | None = None,
+        security: FilterValue | None = None,
+        category: FilterValue | None = None,
+        industry: FilterValue | None = None,
+        region: FilterValue | None = None,
+        original_flag: int | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外观点列表（insight.overseas-opinion.list）：海外媒体、投资人、分析师等账号
+        发布的帖子（新闻、观点、数据分析等），每条附中文翻译。
+
+        🔴 **列表只含摘要**：brief（原文前 200 字）/ briefTranslate（中文），**0.1 积分/条**。
+        全文与译文（content / contentTranslate）用
+        overseas_opinion_detail(overseas_opinion_id=...) 按 overseasOpinionId 取（10 积分/条）。
+
+        - account：账号 ID，用 reference.overseas_account_search(keyword=<名称片段>) 查。
+        - security：带市场后缀的证券代码，如 NVDA.O；缺后缀报 120001。⚠️ 后缀存在但市场不对
+          （NVDA.N）不报错、返回空结果，拿到空先核对后缀。
+        - category：opinion 观点分析 / news 新闻资讯 / dataAnalysis 数据分析 / promotion 品牌宣传，
+          写错报 100005；传多个取并集。一条记录可属于多个类别（categoryList），在每个所属类别下
+          都会返回——按类别分别取再合并时按 overseasOpinionId 去重；categoryList 为空的记录只在
+          不传 category 时返回。
+        - industry：**GICS 一级行业 ID**（107700001 能源 … 107700011 房地产，用
+          reference.constant_list(category="gicsIndustry") 查）；申万码、中信码报 100005。
+        - region：cn / cnHk / cnTw / us / jp / kr / uk / gl（全球）；regionCategory 的其他取值报 100005。
+        - original_flag：1 只要原创、0 只要转发；不传两者都返回。
+        - start_time / end_time：按发布时间（北京时间）。可查范围跟着账号权限走：start_time 早于
+          账号可查的下界时**整段**报 110003，不会从下界起截断返回——把起点移到下界之后再查。
+        - rank_type 取值 1=综合 2=时间倒序。
+
+        单页上限 50，自动翻页。按偏移量**最多取到第 10000 条**（from_ + 条数不能超过 10000）：
+        命中更多时取到第 10000 条为止并标 partial；from_ 本身 ≥ 10000 本地拒绝。要更多请按时间段
+        分批取。10000 条即 1000 积分，所以额度保护（估算超过 1000 积分拒绝、confirm=True 放行）
+        在本方法上不会拦下请求。
+
+        行字段：overseasOpinionId / accountId / accountName / accountIntroduction / publishTime /
+        originalFlag（1 原创 / 0 转发）/ categoryList[] / brief / briefTranslate /
+        forwardPost{accountName, publishTime, brief, briefTranslate}（仅转发帖，原创为 None）/
+        industryList[]{industryId, industryName} / securityList[]{securityCode, securityName} /
+        regionList[]{regionCode, regionName}。转发帖的 brief 是转发者附带的评论，纯转发时为空
+        字符串；个别转发帖的 forwardPost 为 None，拿不到被转发的原帖。
+        """
+        body = _request_body(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "accountIdList": _as_named_list(account, "account"),
+                "securityList": _as_list(security, "security"),
+                "categoryList": _as_list(category, "category"),
+                "industryList": _as_list(industry, "industry"),
+                "regionList": _as_list(region, "region"),
+                "originalFlag": original_flag,
+            }
+        )
+        result = self._client._call("insight.overseas-opinion.list", body=body, confirm=confirm)
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    def overseas_opinion_detail(
+        self,
+        *,
+        overseas_opinion_id: FilterValue,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """按 ID 取海外观点全文与译文（insight.overseas-opinion.detail）。
+
+        overseas_opinion_id 取自 overseas_opinion_list 返回的 overseasOpinionId，支持单值或列表；
+        去重后按 20 个一批依次请求（接口单次上限 20）。返回字段同 overseas_opinion_list 的行，以
+        content（原文）/ contentTranslate（中文译文）代替 brief / briefTranslate（forwardPost 内同）。
+
+        计费 **10 积分/条**，按返回条数计；超时 / 5xx 不自动重发（重发可能对已交付的正文
+        再计一次费），偶发失败自行重跑。
+
+        一批里有任一条的发布时间超出账号可查范围时，**整批**报 110003——先用
+        overseas_opinion_list 的时间范围筛到账号范围内再取。
+
+        **没有有效正文的 ID 不报错、直接跳过**（ID 写错时即如此）。SDK 比对请求与返回：缺的 ID
+        列在 missingIds；某一批请求失败或返回异常时，已取到的正文（包括这一批里已返回的）照常保留，
+        没取到的 ID 列在 unfetchedIds、原因在 unfetchedError（message / code / traceId），只需对
+        这些 ID 重跑。两种情况都标 partial 并 warnings.warn；这些标记只在 raw=True 返回的 dict 里
+        （{total, list, missingIds?, unfetchedIds?, unfetchedError?, partial?}），默认的 DataFrame
+        只含 list。第一批就失败、一条正文都没拿到时直接抛出原错误。
+        """
+        result = self._fetch_details(
+            "insight.overseas-opinion.detail",
+            "overseasOpinionIdList",
+            "overseasOpinionId",
+            overseas_opinion_id,
+        )
+        if raw:
+            return result
+        return to_dataframe(result["list"], schema=None)
+
     def official_account_list(
         self,
         *,
@@ -1951,18 +2064,20 @@ class AsyncInsight:
 
         筛选项是 summary_list 的真子集: 只有 search_type / rank_type / keyword /
         research_area / security / category / market——**没有** source / institution /
-        participant_role。故意不复用 summary_list 的 body: 服务端会静默丢弃不认识的字段,
-        照搬会让调用方以为过滤生效、实际拿到全量。
+        participant_role。故意不复用 summary_list 的 body: 本端点不支持的字段服务端不报错——
+        多数被丢弃、返回没过滤的全量, 个别（如 institutionList）会被应用、筛成 0 条。
 
         category 取值 companyAnalysis / industryAnalysis; market 取值
-        aShares / hkStocks / usChinaConcept / usStocks——两者都本地校验, 因为服务端对非法
-        枚举是静默忽略该条件返回全量。research_area 中信码（1008001xx）与申万码
-        （104xx0000）都认, 但方向码（122000xxx）在本端点返 0。
+        aShares / hkStocks / usChinaConcept / usStocks——两者都本地校验（服务端对非法值同样
+        报 100005）。research_area 中信码（1008001xx）与申万码（104xx0000）都认, 但方向码
+        （122000xxx）在本端点返 0。
 
-        ⚠️ 已知返回口径: conceptList / categoryList / marketList 三个标签字段稀疏、不保证完整,
-        是否有值随记录和查法而变——不带筛选时常整条为空, 用 category 或 market 过滤时回填率
-        明显更高（没有 concept 过滤参数）。所以按这几个维度分组要靠过滤参数取, 别拉全量再本地
-        分组; 某条为空也不说明它没有该属性。
+        ⚠️ 已知返回口径: categoryList / marketList **只在按 category 或 market 筛选时返回完整**——
+        不带筛选、或只按 security / research_area / keyword 查时, categoryList 为空, marketList
+        只会出现 hkStocks / usStocks, 不会出现 aShares / usChinaConcept。用 category 或 market
+        任一筛选时, 两个字段都给该记录的全部值（不是回显筛选值）。所以别拉全量再按这两个字段
+        本地分组（A 股、中概股的归属会整批缺失）, 要分组就按两个类别、四个市场各查一遍再合并;
+        某条为空也不说明它没有该属性。conceptList / researchAreaList / securityList 不随查法变。
         """
         body = _request_body(
             {
@@ -2855,6 +2970,118 @@ class AsyncInsight:
             rows=rows,
         )
         return to_dataframe(rows, schema=None)
+
+    # ---- overseas-opinion ----
+
+    async def overseas_opinion_list(
+        self,
+        *,
+        from_: int = 0,
+        size: int | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        keyword: str | None = None,
+        rank_type: int = 1,
+        account: FilterValue | None = None,
+        security: FilterValue | None = None,
+        category: FilterValue | None = None,
+        industry: FilterValue | None = None,
+        region: FilterValue | None = None,
+        original_flag: int | None = None,
+        confirm: bool = False,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """查询海外观点列表（insight.overseas-opinion.list）：海外媒体、投资人、分析师等账号
+        发布的帖子（新闻、观点、数据分析等），每条附中文翻译。
+
+        🔴 **列表只含摘要**：brief（原文前 200 字）/ briefTranslate（中文），**0.1 积分/条**。
+        全文与译文（content / contentTranslate）用
+        overseas_opinion_detail(overseas_opinion_id=...) 按 overseasOpinionId 取（10 积分/条）。
+
+        - account：账号 ID，用 reference.overseas_account_search(keyword=<名称片段>) 查。
+        - security：带市场后缀的证券代码，如 NVDA.O；缺后缀报 120001。⚠️ 后缀存在但市场不对
+          （NVDA.N）不报错、返回空结果，拿到空先核对后缀。
+        - category：opinion 观点分析 / news 新闻资讯 / dataAnalysis 数据分析 / promotion 品牌宣传，
+          写错报 100005；传多个取并集。一条记录可属于多个类别（categoryList），在每个所属类别下
+          都会返回——按类别分别取再合并时按 overseasOpinionId 去重；categoryList 为空的记录只在
+          不传 category 时返回。
+        - industry：**GICS 一级行业 ID**（107700001 能源 … 107700011 房地产，用
+          reference.constant_list(category="gicsIndustry") 查）；申万码、中信码报 100005。
+        - region：cn / cnHk / cnTw / us / jp / kr / uk / gl（全球）；regionCategory 的其他取值报 100005。
+        - original_flag：1 只要原创、0 只要转发；不传两者都返回。
+        - start_time / end_time：按发布时间（北京时间）。可查范围跟着账号权限走：start_time 早于
+          账号可查的下界时**整段**报 110003，不会从下界起截断返回——把起点移到下界之后再查。
+        - rank_type 取值 1=综合 2=时间倒序。
+
+        单页上限 50，自动翻页。按偏移量**最多取到第 10000 条**（from_ + 条数不能超过 10000）：
+        命中更多时取到第 10000 条为止并标 partial；from_ 本身 ≥ 10000 本地拒绝。要更多请按时间段
+        分批取。10000 条即 1000 积分，所以额度保护（估算超过 1000 积分拒绝、confirm=True 放行）
+        在本方法上不会拦下请求。
+
+        行字段：overseasOpinionId / accountId / accountName / accountIntroduction / publishTime /
+        originalFlag（1 原创 / 0 转发）/ categoryList[] / brief / briefTranslate /
+        forwardPost{accountName, publishTime, brief, briefTranslate}（仅转发帖，原创为 None）/
+        industryList[]{industryId, industryName} / securityList[]{securityCode, securityName} /
+        regionList[]{regionCode, regionName}。转发帖的 brief 是转发者附带的评论，纯转发时为空
+        字符串；个别转发帖的 forwardPost 为 None，拿不到被转发的原帖。
+        """
+        body = _request_body(
+            {
+                "from": from_,
+                "size": size,
+                "startTime": start_time,
+                "endTime": end_time,
+                "keyword": keyword,
+                "rankType": rank_type,
+                "accountIdList": _as_named_list(account, "account"),
+                "securityList": _as_list(security, "security"),
+                "categoryList": _as_list(category, "category"),
+                "industryList": _as_list(industry, "industry"),
+                "regionList": _as_list(region, "region"),
+                "originalFlag": original_flag,
+            }
+        )
+        result = await self._client._call(
+            "insight.overseas-opinion.list", body=body, confirm=confirm
+        )
+        if raw:
+            return result  # type: ignore[no-any-return]
+        return _result_to_dataframe(result)
+
+    async def overseas_opinion_detail(
+        self,
+        *,
+        overseas_opinion_id: FilterValue,
+        raw: bool = False,
+    ) -> pd.DataFrame | dict[str, Any]:
+        """按 ID 取海外观点全文与译文（insight.overseas-opinion.detail）。
+
+        overseas_opinion_id 取自 overseas_opinion_list 返回的 overseasOpinionId，支持单值或列表；
+        去重后按 20 个一批依次请求（接口单次上限 20）。返回字段同 overseas_opinion_list 的行，以
+        content（原文）/ contentTranslate（中文译文）代替 brief / briefTranslate（forwardPost 内同）。
+
+        计费 **10 积分/条**，按返回条数计；超时 / 5xx 不自动重发（重发可能对已交付的正文
+        再计一次费），偶发失败自行重跑。
+
+        一批里有任一条的发布时间超出账号可查范围时，**整批**报 110003——先用
+        overseas_opinion_list 的时间范围筛到账号范围内再取。
+
+        **没有有效正文的 ID 不报错、直接跳过**（ID 写错时即如此）。SDK 比对请求与返回：缺的 ID
+        列在 missingIds；某一批请求失败或返回异常时，已取到的正文（包括这一批里已返回的）照常保留，
+        没取到的 ID 列在 unfetchedIds、原因在 unfetchedError（message / code / traceId），只需对
+        这些 ID 重跑。两种情况都标 partial 并 warnings.warn；这些标记只在 raw=True 返回的 dict 里
+        （{total, list, missingIds?, unfetchedIds?, unfetchedError?, partial?}），默认的 DataFrame
+        只含 list。第一批就失败、一条正文都没拿到时直接抛出原错误。
+        """
+        result = await self._fetch_details(
+            "insight.overseas-opinion.detail",
+            "overseasOpinionIdList",
+            "overseasOpinionId",
+            overseas_opinion_id,
+        )
+        if raw:
+            return result
+        return to_dataframe(result["list"], schema=None)
 
     async def official_account_list(
         self,

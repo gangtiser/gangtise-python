@@ -194,7 +194,7 @@ async def test_async_chiefs_search(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"chiefId": "c1", "chiefName": "张三"}],
+                    "data": {"returnedCount": 1, "list": [{"chiefId": "c1", "chiefName": "张三"}]},
                 },
             )
         )
@@ -215,7 +215,10 @@ async def test_async_institution_search(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": [{"institutionId": "i1", "institutionName": "招商证券"}],
+                    "data": {
+                        "returnedCount": 1,
+                        "list": [{"institutionId": "i1", "institutionName": "招商证券"}],
+                    },
                 },
             )
         )

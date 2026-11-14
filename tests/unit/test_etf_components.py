@@ -15,12 +15,21 @@ from gangtise_openapi._etf_components import (
     AsyncCodeLookup,
     CodeLookup,
     _Fill,
+    _Quote,
     _TableSearch,
     fill_component_codes,
     fill_component_codes_async,
 )
 
 Listing = tuple  # (code, name) or (code, name, category)
+
+# Quotes are of the trading day after the fixtures' last daily bars (10-27):
+# [previous close, latest].
+QUOTE_DATE = "2026-10-28"
+
+
+def _quote(prices: list[float], date: str | None = QUOTE_DATE) -> _Quote:
+    return _Quote(previous=prices[0], latest=prices[1] if len(prices) > 1 else None, date=date)
 
 
 class _Api:
@@ -34,9 +43,11 @@ class _Api:
         fail_search: str | None = None,
         fail_quote: str | None = None,
         history: dict[str, list[tuple]] | None = None,
+        quote_date: str | None = QUOTE_DATE,
     ) -> None:
         self._search = search
         self._prices = prices
+        self._quote_date = quote_date
         self._fail_search = fail_search
         self._fail_quote = fail_quote
         self._history = history or {}
@@ -53,12 +64,12 @@ class _Api:
             for hit in self._search.get(keyword, [])
         ]
 
-    def quotes(self, codes: list[str]) -> dict[str, list[float]]:
+    def quotes(self, codes: list[str]) -> dict[str, _Quote]:
         self.quoted.append(codes)
         # The quote answers 120001 for the whole batch when one code is unknown.
         if self._fail_quote and self._fail_quote in codes:
             raise ApiError("证券代码无效", code="120001")
-        return {c: self._prices[c] for c in codes if c in self._prices}
+        return {c: _quote(self._prices[c], self._quote_date) for c in codes if c in self._prices}
 
     def closes(self, codes: list[str], start: str, end: str) -> dict[str, Any]:
         self.asked.append(codes)
@@ -74,7 +85,7 @@ class _AsyncApi:
     async def search(self, keyword: str) -> list[dict[str, Any]]:
         return self.api.search(keyword)
 
-    async def quotes(self, codes: list[str]) -> dict[str, list[float]]:
+    async def quotes(self, codes: list[str]) -> dict[str, _Quote]:
         return self.api.quotes(codes)
 
     async def closes(self, codes: list[str], start: str, end: str) -> dict[str, Any]:
@@ -307,7 +318,7 @@ class _FailingQuotes(_Api):
         self.code = code
         self.calls = 0
 
-    def quotes(self, codes: list[str]) -> dict[str, list[float]]:
+    def quotes(self, codes: list[str]) -> dict[str, _Quote]:
         self.calls += 1
         raise ApiError("服务故障", code=self.code)
 
@@ -398,19 +409,40 @@ def test_a_failed_quote_batch_is_sent_once_unless_it_failed_on_120001(code):
     assert api.calls == 1
 
 
-def test_a_batch_failing_on_120001_is_halved_until_the_bad_code_is_alone():
-    class Splitting(_Api):
-        def quotes(self, codes: list[str]) -> dict[str, list[float]]:
-            self.quoted.append(codes)
-            if "600003.SH" in codes:
-                raise ApiError("证券代码无效", code="120001")
-            return {c: [1] for c in codes}
+class _Splitting(_Api):
+    def quotes(self, codes: list[str]) -> dict[str, _Quote]:
+        self.quoted.append(codes)
+        if "600003.SH" in codes:
+            raise ApiError("证券代码无效", code="120001")
+        return {c: _Quote(previous=1) for c in codes}
 
-    api = Splitting(SEARCH16, {})
+
+def test_a_batch_failing_on_120001_is_halved_until_the_bad_code_is_alone():
+    api = _Splitting(SEARCH16, {})
     rows, _ = _fill([dict(r) for r in ROWS16], api)
     # The rejected code has no price; in an ETF of one market its exact name stands.
     assert len([c for c in codes_of(rows) if c]) == 16
     # 16 → 8 + 8 → 4 + 4 → 2 + 2 → 1 + 1, each half after the other.
+    assert [len(batch) for batch in api.quoted] == [16, 8, 4, 2, 2, 1, 1, 4, 8]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("code", ["999999", "429"])
+async def test_async_a_failed_quote_batch_is_sent_once_unless_it_failed_on_120001(code):
+    api = _FailingQuotes(SEARCH16, code)
+    await fill_component_codes_async(
+        _Fill([dict(r) for r in ROWS16]), _AsyncApi(api), concurrency=5
+    )
+    assert api.calls == 1
+
+
+@pytest.mark.anyio
+async def test_async_a_batch_failing_on_120001_is_halved_until_the_bad_code_is_alone():
+    api = _Splitting(SEARCH16, {})
+    fill = await fill_component_codes_async(
+        _Fill([dict(r) for r in ROWS16]), _AsyncApi(api), concurrency=5
+    )
+    assert len([c for c in codes_of(fill.result()[0]) if c]) == 16
     assert [len(batch) for batch in api.quoted] == [16, 8, 4, 2, 2, 1, 1, 4, 8]
 
 
@@ -453,7 +485,7 @@ def test_checks_a_list_whose_prices_lag_the_quote_against_the_closes_of_their_da
     }
     history = {
         "601186.SH": [("2026-10-23", 6.11)],
-        "01186.HK": [("2026-10-26", 4.5), ("2026-10-27", 4.6)],
+        "01186.HK": [("2026-10-23", 4.4), ("2026-10-26", 4.5), ("2026-10-27", 4.6)],
         "600941.SH": [("2026-10-23", 99.14), ("2026-10-26", 101.3), ("2026-10-27", 100.7)],
         "00941.HK": [("2026-10-23", 77.1), ("2026-10-26", 77.3), ("2026-10-27", 78.1)],
         "601857.SH": [("2026-10-23", 12.75), ("2026-10-26", 13.38), ("2026-10-27", 13.2)],
@@ -489,6 +521,22 @@ def test_checks_a_list_whose_prices_lag_the_quote_against_the_closes_of_their_da
         "601186.SH",
     ]
     assert len(api.asked) == 1
+    # The H share's bars must reach 10-23 to rule it out: the rows show no Hong Kong list
+    # day (one vote), and the A share's day says nothing of the H share's.
+    short_h = {**history, "01186.HK": [("2026-10-26", 4.5), ("2026-10-27", 4.6)]}
+    unsure, _ = _fill(rows(), _Api(search, prices, history=short_h))
+    assert codes_of(unsure)[5] is None
+    # Once two Hong Kong rows show that list day (10-27), bars from 10-26 cover it: the H
+    # share is ruled out, whatever day the A share's close is from.
+    known, _ = _fill(
+        [*rows(), row("517180.SH", 7, "腾讯控股", 390)],
+        _Api(
+            {**search, "腾讯控股": [("00700.HK", "腾讯控股")]},
+            {**prices, "00700.HK": [390, 391]},
+            history={**short_h, "00700.HK": [("2026-10-26", 388), ("2026-10-27", 390)]},
+        ),
+    )
+    assert codes_of(known)[5] == "601186.SH"
     # Without daily closes the lagging rows are left to the name: an A+H ETF places none.
     # Nor does the current H row of 中国移动 stand on its quote: nothing rules out the A share.
     unaided, _ = _fill(rows(), _Api(search, prices))
@@ -1178,7 +1226,7 @@ async def test_async_driver_counts_a_settled_tie_as_market_evidence(first):
 class _Down(_Api):
     """Quote and daily closes both fail."""
 
-    def quotes(self, codes: list[str]) -> dict[str, list[float]]:
+    def quotes(self, codes: list[str]) -> dict[str, _Quote]:
         raise ApiError("服务故障", code="999999")
 
     def closes(self, codes: list[str], start: str, end: str) -> dict[str, Any]:
@@ -1441,3 +1489,298 @@ def test_a_row_whose_priced_listings_are_all_taken_still_gets_its_changes_say(fi
     rows, _ = _fill(pair, _Api(CMB_SEARCH, TAKEN_PRICES, history=TAKEN_BARS))
     by_close = {r["close"]: r["componentCode"] for r in rows}
     assert by_close == {42.5: "600036.SH", 42.3: h_row}
+
+
+# ---- a listing is ruled out only by bars that cover the day in question (TS v0.52.0) ----
+
+
+def _cmb_others() -> list[dict[str, Any]]:
+    return [
+        with_change("517180.SH", 1, "贵州茅台", 1349.98, 1.12),
+        with_change("517180.SH", 2, "华润啤酒", 19.48, -0.61),
+    ]
+
+
+def _cmb_row() -> dict[str, Any]:
+    return with_change("517180.SH", 3, "招商银行", 42.5, 0.4728)
+
+
+def test_a_listing_whose_bars_do_not_reach_the_day_in_question_is_not_ruled_out():
+    h_share = [("2026-10-24", 42.5, 0.4728), ("2026-10-27", 42.6, 0.2353)]
+
+    def fill(quote_a: list[float], a_share: list[tuple]) -> list[Any]:
+        api = _Api(
+            CMB_SEARCH,
+            {**CMB_TIE_PRICES, "600036.SH": quote_a, "03968.HK": [42.6, 42.9]},
+            history={"600036.SH": a_share, "03968.HK": h_share},
+        )
+        return codes_of(_fill([*_cmb_others(), _cmb_row()], api)[0])
+
+    # The quote runs a day ahead of the daily bars: the A share closed at 42.5 today, its
+    # bars end the day before, and the H share happened to close at 42.5 on that change
+    # earlier.
+    ahead = [("2026-10-24", 42.43, 0.2), ("2026-10-27", 42.3, -0.3064)]
+    assert fill([42.3, 42.5], ahead) == ["600519.SH", "00291.HK", None]
+    # The A share's bars begin after the day the H share fits: what it closed at then is
+    # not known.
+    assert fill([43.1, 43.4], [("2026-10-28", 43.1, 0.6)]) == ["600519.SH", "00291.HK", None]
+    # Bars that reach back to that day and show another close do rule it out.
+    covered = [("2026-10-24", 42.9, 0.1), ("2026-10-27", 43.1, 0.4662)]
+    assert fill([43.1, 43.4], covered) == ["600519.SH", "00291.HK", "03968.HK"]
+
+
+HK_CMB = {
+    "腾讯控股": [("00700.HK", "腾讯控股")],
+    "华润啤酒": [("00291.HK", "华润啤酒")],
+    "招商银行": [("600036.SH", "招商银行"), ("03968.HK", "招商银行")],
+}
+
+
+def _hk_rows(cmb: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        with_change("513180.SH", 1, "腾讯控股", 390, 0.5),
+        with_change("513180.SH", 2, "华润啤酒", 19.48, -0.61),
+        cmb,
+    ]
+
+
+def test_a_listing_whose_bars_miss_its_quotes_day_stays_open_against_the_etfs_market():
+    # A Hong Kong ETF: 招商银行's A and H shares both closed at 42.5 on 10-27, the day
+    # before the quote.
+    quoted = {
+        "00700.HK": [390, 392],
+        "00291.HK": [19.48, 19.6],
+        "600036.SH": [42.5, 42.7],
+        "03968.HK": [42.5, 42.6],
+    }
+    h_share = [("2026-10-24", 42.3, 0.2), ("2026-10-27", 42.5, 0.4728)]
+
+    def fill(a_share: list[tuple], change: float | None = None) -> list[Any]:
+        cmb = (
+            row("513180.SH", 3, "招商银行", 42.5)
+            if change is None
+            else with_change("513180.SH", 3, "招商银行", 42.5, change)
+        )
+        api = _Api(HK_CMB, quoted, history={"600036.SH": a_share, "03968.HK": h_share})
+        return codes_of(_fill(_hk_rows(cmb), api)[0])
+
+    # The A share's bars stop at 10-23, none at 42.5: its 10-27 close is not in them, so
+    # the other rows' market (Hong Kong) does not settle the row — with its change or
+    # without.
+    short = [("2026-10-22", 42.43, 0.2), ("2026-10-23", 42.0, -1.0141)]
+    assert fill(short, 0.4728) == ["00700.HK", "00291.HK", None]
+    assert fill(short) == ["00700.HK", "00291.HK", None]
+    # Bars that reach 10-27 show the A share's change there, and it is another.
+    reached = [("2026-10-23", 42.0, -1.0141), ("2026-10-27", 42.5, 1.1905)]
+    assert fill(reached, 0.4728) == ["00700.HK", "00291.HK", "03968.HK"]
+
+
+def test_a_listing_whose_bars_begin_after_the_other_listings_day_stays_open_at_every_step():
+    # A Hong Kong ETF; its other rows show no list day. The H share closed at 42.5
+    # (+0.4728%) on 10-26.
+    def fill(h_quote: list[float], a_share: list[tuple], hk_list_day: bool = False) -> list[Any]:
+        h_share = [
+            ("2026-10-23", 42.3, 0.24),
+            ("2026-10-26", 42.5, 0.4728),
+            ("2026-10-27", h_quote[0], 0),
+        ]
+        # With these the rows show the Hong Kong list day (10-27) — and nothing of the A
+        # shares'.
+        hk_bars = (
+            {
+                "00700.HK": [("2026-10-27", 390, 0.26)],
+                "00291.HK": [("2026-10-27", 19.48, -0.1)],
+            }
+            if hk_list_day
+            else {}
+        )
+        api = _Api(
+            HK_CMB,
+            {
+                "00700.HK": [390, 392],
+                "00291.HK": [19.48, 19.6],
+                "600036.SH": [43.0, 43.2],
+                "03968.HK": h_quote,
+            },
+            history={"600036.SH": a_share, "03968.HK": h_share, **hk_bars},
+        )
+        return codes_of(
+            _fill(_hk_rows(with_change("513180.SH", 3, "招商银行", 42.5, 0.4728)), api)[0]
+        )
+
+    # The A share's bars begin on 10-27: what it closed at on 10-26 is not known — neither
+    # the change, nor the other rows' market by name, nor the H share's quote settles it.
+    late = [("2026-10-27", 43.0, 0.7026)]
+    assert fill([42.8, 42.9], late) == ["00700.HK", "00291.HK", None]
+    assert fill([42.5, 42.8], late) == ["00700.HK", "00291.HK", None]
+    assert fill([42.8, 42.9], []) == ["00700.HK", "00291.HK", None]
+    # The Hong Kong list day says nothing of the A share's: still unsettled.
+    assert fill([42.8, 42.9], late, hk_list_day=True) == ["00700.HK", "00291.HK", None]
+    assert fill([42.5, 42.8], late, hk_list_day=True) == ["00700.HK", "00291.HK", None]
+    # Bars that reach back to 10-26 and show another close do rule it out.
+    early = [("2026-10-23", 42.9, 0.1), ("2026-10-26", 42.7, -0.4662), ("2026-10-27", 43.0, 0.7026)]
+    assert fill([42.8, 42.9], early) == ["00700.HK", "00291.HK", "03968.HK"]
+    assert fill([42.5, 42.8], early) == ["00700.HK", "00291.HK", "03968.HK"]
+
+
+def test_a_listing_whose_bars_begin_after_its_own_markets_list_day_stays_open():
+    # 中国石油 and 中国神华 show the A-share list day (10-26). The H share's quote puts it at
+    # 42.5; the A share's bars begin on 10-27, after that day — so the quote does not
+    # settle the row.
+    search = {
+        "中国石油": [("601857.SH", "中国石油")],
+        "中国神华": [("601088.SH", "中国神华")],
+        "招商银行": [("600036.SH", "招商银行"), ("03968.HK", "招商银行")],
+    }
+    quoted = {
+        "601857.SH": [13.38, 13.5],
+        "601088.SH": [38.6, 38.7],
+        "600036.SH": [43.0, 43.2],
+        "03968.HK": [42.5, 42.8],
+    }
+
+    def fill(a_share: list[tuple]) -> list[Any]:
+        history = {
+            "601857.SH": [("2026-10-26", 13.38)],
+            "601088.SH": [("2026-10-26", 38.6)],
+            "600036.SH": a_share,
+            "03968.HK": [("2026-10-27", 42.5)],
+        }
+        rows = [
+            row("517180.SH", 1, "中国石油", 13.38),
+            row("517180.SH", 2, "中国神华", 38.6),
+            row("517180.SH", 3, "招商银行", 42.5),
+        ]
+        return codes_of(_fill(rows, _Api(search, quoted, history=history))[0])
+
+    assert fill([("2026-10-27", 43.0, 0.7026)]) == ["601857.SH", "601088.SH", None]
+    # Bars that reach 10-26 and show another close rule it out: the H share's quote stands.
+    ruled_out = [("2026-10-26", 42.7), ("2026-10-27", 43.0, 0.7026)]
+    assert fill(ruled_out) == ["601857.SH", "601088.SH", "03968.HK"]
+
+
+@pytest.mark.parametrize(
+    ("quote_a", "a_share", "quote_date", "code"),
+    [
+        # The A share's latest price (10-28) is 42.5, a day its bars do not reach; 10-22 at
+        # 42.5 on another change says nothing about it.
+        (
+            [42.3, 42.5],
+            [("2026-10-22", 42.5, 1.2), ("2026-10-24", 42.43, 0.2), ("2026-10-27", 42.3, -0.3064)],
+            QUOTE_DATE,
+            None,
+        ),
+        # The same bars with a quote dated 10-27: they reach the quote's day and show 42.3
+        # there, so the A share is ruled out.
+        (
+            [42.3, 42.5],
+            [("2026-10-24", 42.43, 0.2), ("2026-10-27", 42.3, -0.3064)],
+            "2026-10-27",
+            "03968.HK",
+        ),
+        # Its previous close (10-27) is 42.5, and its bars end days before, on a close that
+        # happens to equal it.
+        ([42.5, 42.7], [("2026-10-22", 42.43, 0.2), ("2026-10-23", 42.5, 1.2)], QUOTE_DATE, None),
+        # A quote that did not move: the latest price's day is not reached.
+        ([42.5, 42.5], [("2026-10-24", 42.5, 0.9), ("2026-10-27", 42.5, 0)], QUOTE_DATE, None),
+        # A quote without its date shows no day, whatever the bars reach.
+        ([42.5, 42.7], [("2026-10-24", 42.43, 0.2), ("2026-10-27", 42.5, 1.2)], None, None),
+        # The bars reach the previous close's day (the weekday before the quote's) and show
+        # another change there.
+        (
+            [42.5, 42.7],
+            [("2026-10-24", 42.43, 0.2), ("2026-10-27", 42.5, 1.2)],
+            QUOTE_DATE,
+            "03968.HK",
+        ),
+        # A Monday quote: the weekday before is the Friday.
+        (
+            [42.5, 42.7],
+            [("2026-10-24", 42.43, 0.2), ("2026-10-30", 42.5, 1.2)],
+            "2026-11-02",
+            "03968.HK",
+        ),
+        # Bars that reach the quote's day reach the previous close's too, even past a
+        # weekday without a bar (a holiday).
+        (
+            [42.5, 42.7],
+            [("2026-10-23", 42.43, 0.2), ("2026-10-26", 42.5, 1.2), ("2026-10-28", 42.7, 0.4706)],
+            QUOTE_DATE,
+            "03968.HK",
+        ),
+        # Bars that reach the quote's day show that day's change, and it is another.
+        (
+            [42.0, 42.5],
+            [
+                ("2026-10-24", 42.43, 0.2),
+                ("2026-10-27", 42.0, -1.0141),
+                ("2026-10-28", 42.5, 1.1905),
+            ],
+            QUOTE_DATE,
+            "03968.HK",
+        ),
+    ],
+)
+def test_a_listing_its_quote_puts_at_the_rows_close_is_judged_by_the_quotes_date(
+    quote_a, a_share, quote_date, code
+):
+    api = _Api(
+        CMB_SEARCH,
+        {**CMB_TIE_PRICES, "600036.SH": quote_a, "03968.HK": [42.6, 42.9]},
+        history={
+            "600036.SH": a_share,
+            "03968.HK": [("2026-10-24", 42.5, 0.4728), ("2026-10-27", 42.6, 0.2353)],
+        },
+        quote_date=quote_date,
+    )
+    filled, _ = _fill([*_cmb_others(), _cmb_row()], api)
+    assert codes_of(filled) == ["600519.SH", "00291.HK", code]
+
+
+@pytest.mark.anyio
+async def test_async_driver_judges_a_quote_by_its_date():
+    history = {
+        "600036.SH": [("2026-10-24", 42.43, 0.2), ("2026-10-27", 42.3, -0.3064)],
+        "03968.HK": [("2026-10-24", 42.5, 0.4728), ("2026-10-27", 42.6, 0.2353)],
+    }
+    prices = {**CMB_TIE_PRICES, "600036.SH": [42.3, 42.5], "03968.HK": [42.6, 42.9]}
+    rows = [*_cmb_others(), _cmb_row()]
+    fill = await fill_component_codes_async(
+        _Fill(rows), _AsyncApi(_Api(CMB_SEARCH, prices, history=history)), concurrency=5
+    )
+    assert codes_of(fill.result()[0]) == ["600519.SH", "00291.HK", None]
+
+
+def test_reads_a_realtime_answers_previous_close_latest_price_and_trading_day():
+    class Realtime(_Client):
+        def _answer(self, endpoint: str, body: Any) -> Any:
+            assert endpoint == "quote.realtime"
+            return {
+                "list": [
+                    {
+                        "securityCode": "600036.SH",
+                        "tradeDate": "2026-11-13",
+                        "preClose": 42.63,
+                        "latestPrice": 42.93,
+                    },
+                    {
+                        "securityCode": "03968.HK",
+                        "tradeDate": "20261113",
+                        "preClose": 54,
+                        "latestPrice": None,
+                    },
+                    {
+                        "securityCode": "00941.HK",
+                        "tradeDate": "2026-11-13",
+                        "preClose": None,
+                        "latestPrice": None,
+                    },
+                ]
+            }
+
+    quotes = CodeLookup(Realtime()).quotes(["600036.SH", "03968.HK", "00941.HK"])
+    assert quotes == {
+        "600036.SH": _Quote(previous=42.63, latest=42.93, date="2026-11-13"),
+        # A date in another form is not compared with the daily bars' days.
+        "03968.HK": _Quote(previous=54, latest=None, date=None),
+    }

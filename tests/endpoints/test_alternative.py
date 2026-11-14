@@ -27,11 +27,7 @@ def test_edb_search(tmp_path):
                 json={
                     "code": "000000",
                     "status": True,
-                    "data": {
-                        "list": [
-                            {"indicatorId": "I001", "indicatorName": "空调销量"},
-                        ]
-                    },
+                    "data": [{"indicatorId": "I001", "indicatorName": "空调销量"}],
                 },
             )
         )

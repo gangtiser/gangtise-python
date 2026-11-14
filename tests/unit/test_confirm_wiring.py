@@ -45,6 +45,7 @@ _CASES: list[tuple[str, str, str, dict[str, Any]]] = [
     ("insight.announcement-hk.list", "insight", "announcement_hk_list", {}),
     ("insight.announcement-us.list", "insight", "announcement_us_list", {}),
     ("insight.independent-opinion.list", "insight", "independent_opinion_list", {}),
+    ("insight.overseas-opinion.list", "insight", "overseas_opinion_list", {}),
     ("insight.official-account.list", "insight", "official_account_list", {}),
     ("insight.qa.list", "insight", "qa_list", {"security_code": "600519.SH"}),
     ("insight.highlight.list", "insight", "highlight_list", {}),

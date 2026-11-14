@@ -52,10 +52,15 @@ def _ind(code: str, name: str, **extra) -> dict:
 # ─────────────────────────────── search ───────────────────────────────
 
 
+def _search_response(rows) -> httpx.Response:
+    # One envelope around a bare array — ``expects="array"`` (TS v0.52.0).
+    return httpx.Response(200, json={"code": "000000", "status": True, "data": rows})
+
+
 def test_search(tmp_path):
     rows = [{"indicatorCode": "qte_close", "indicatorName": "收盘价"}]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        route = router.post(_SEARCH).mock(return_value=_ede_response(rows))
+        route = router.post(_SEARCH).mock(return_value=_search_response(rows))
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             df = Indicator(client).search(keyword="收盘价", limit=20)
         body = json.loads(route.calls.last.request.read())
@@ -64,30 +69,41 @@ def test_search(tmp_path):
     assert df.iloc[0]["indicatorCode"] == "qte_close"
 
 
-def test_search_raw_returns_inner_envelope(tmp_path):
+def test_search_raw_returns_the_array(tmp_path):
     rows = [{"indicatorCode": "qte_close"}]
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(_SEARCH).mock(return_value=_ede_response(rows))
+        router.post(_SEARCH).mock(return_value=_search_response(rows))
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
             out = Indicator(client).search(keyword="x", raw=True)
-    # raw returns the (still-wrapped) inner envelope the client surfaced
-    assert out == {"code": "000000", "status": True, "data": rows}
+    assert out == rows
 
 
-def test_search_inner_999999_keeps_generic_hint(tmp_path):
-    # search's inner-envelope 999999 keeps the generic hint: unlike the data-fetch
-    # endpoints it takes only a keyword, so date/scope/param guidance would be
-    # nonsense (TS v0.28.2).
-    inner = {"code": "999999", "status": False, "msg": "系统错误", "data": None}
+@pytest.mark.parametrize("data", [None, {"code": "000000", "status": True, "data": []}])
+def test_search_refuses_an_answer_that_is_not_an_array(tmp_path, data):
+    # Nothing matched answers ``[]`` (CLI probe 2026-11-12), so ``data: null`` or a
+    # double-wrapped answer is a changed layout, not an empty one (TS v0.52.0).
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
-        router.post(_SEARCH).mock(
-            return_value=httpx.Response(200, json={"code": "000000", "status": True, "data": inner})
+        router.post(_SEARCH).mock(return_value=_search_response(data))
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
+            with pytest.raises(ApiError, match="returned no array payload") as excinfo:
+                Indicator(client).search(keyword="收盘价")
+    assert excinfo.value.structural
+
+
+def test_search_999999_keeps_generic_hint(tmp_path):
+    # search's 999999 keeps the generic hint: unlike the data-fetch endpoints it takes
+    # only a keyword, so date/scope/param guidance would be nonsense (TS v0.28.2). Not
+    # retried (no-999999).
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        route = router.post(_SEARCH).mock(
+            return_value=httpx.Response(500, json={"code": "999999", "msg": "系统内部错误"})
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:  # noqa: SIM117
             with pytest.raises(ApiError) as excinfo:
                 Indicator(client).search(keyword="收盘价")
     assert excinfo.value.code == "999999"
     assert excinfo.value.hint == ERROR_HINTS["999999"]
+    assert route.call_count == 1
 
 
 # ──────────────────────────── cross-section ────────────────────────────

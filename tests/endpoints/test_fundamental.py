@@ -173,10 +173,11 @@ def test_main_business(tmp_path):
             ),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Fundamental(client).main_business(security_code="000001.SZ")
-        body = route.calls.last.request.read()
-        # default breakdown="product" is sent on the wire
-        assert b'"breakdown":"product"' in body.replace(b" ", b"")
+            df = Fundamental(client).main_business(security_code="000001.SZ", period="annual")
+        body = json.loads(route.calls.last.request.read())
+    # default breakdown="product" is sent on the wire; the period goes as ``period`` — the
+    # server ignores CLI's ``periodList``.
+    assert body == {"securityCode": "000001.SZ", "breakdown": "product", "period": ["annual"]}
     assert df.iloc[0]["name"] == "A"
 
 

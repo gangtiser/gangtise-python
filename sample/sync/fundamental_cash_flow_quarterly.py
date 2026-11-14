@@ -24,7 +24,7 @@ def main():
             security_code="600519.SH",  # 单个证券代码, 如 000001.SZ/600519.SH
             start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
-            period=["q1", "q2"],  # 单季报告期: q1/q2/q3/q4/latest, 支持单值或列表
+            period=["q1", "interim"],  # 单季报告期: q1/interim/q3/annual/latest, 支持单值或列表
             fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表
         ),
         __file__,

@@ -177,7 +177,15 @@ class EndpointDef:
     # both opinion detail endpoints). Anything else is a changed layout, and must not
     # read as "no rows": on the detail endpoints that would report every paid-for
     # body as missing (TS v0.41.0).
-    expects: Literal["list", "array"] | None = None
+    # "object": every successful answer is a JSON object with fixed top-level keys whether
+    # or not anything matched (the drive folder listing, a constant category's values), so
+    # ``data: null`` or an array is a changed layout too.
+    # Declared only where the EMPTY answer was observed, not inferred from a full one: a
+    # list that answers "nothing matched" with ``data: null`` would turn every empty query
+    # into a failure (CLI probe 2026-11-12: ``{list: []}`` from the statements, main
+    # business, top holders and reference searches; ``[]`` from the EDB / indicator /
+    # report-image searches and an empty stock pool) (TS v0.52.0).
+    expects: Literal["list", "array", "object"] | None = None
     # The row field that identifies a record of a paginated list. Auto-pagination
     # drops a row identical to one it already kept under the same id: lists sorted on
     # a non-unique key (``msgTime``, ``publishTime``) reorder a same-timestamp group
@@ -249,7 +257,7 @@ def _ep(
     timeout_ms: int | None = None,
     big_int_fields: tuple[str, ...] = (),
     file_types: tuple[int, ...] = (),
-    expects: Literal["list", "array"] | None = None,
+    expects: Literal["list", "array", "object"] | None = None,
     row_id: str | tuple[str, ...] | None = None,
     row_id_unverified: bool = False,
     billing: Billing | None = None,
@@ -535,6 +543,29 @@ ENDPOINTS: dict[str, EndpointDef] = {
         file_types=(1, 2),
         billing=Billing("document", 30),
     ),
+    # Same split as insight.foreign-opinion: brief / briefTranslate in the list, content /
+    # contentTranslate via getDetail. An offset past 10000 answers ``{total: 0, list: []}``
+    # without an error (CLI probe 2026-11-11), so pages stay inside the window.
+    "insight.overseas-opinion.list": _ep(
+        "insight.overseas-opinion.list",
+        "POST",
+        "/application/open-insight/overseasOpinion/getList",
+        "List overseas opinions (brief only; body via detail)",
+        paginated=50,
+        max_window=10000,
+        expects="list",
+        row_id="overseasOpinionId",
+        billing=Billing("row", 0.1),
+    ),
+    "insight.overseas-opinion.detail": _ep(
+        "insight.overseas-opinion.detail",
+        "POST",
+        "/application/open-insight/overseasOpinion/getDetail",
+        "Get overseas opinion bodies by ID (max 20 IDs per call)",
+        retry="no-replay",
+        expects="array",
+        billing=Billing("row", 10, max_units=20),
+    ),
     "insight.official-account.list": _ep(
         "insight.official-account.list",
         "POST",
@@ -567,6 +598,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-insight/report-image/getList",
         "Search research report images by keyword (returns chunkId + metadata)",
+        expects="array",
     ),
     "insight.report-image.download": _ep(
         "insight.report-image.download",
@@ -582,54 +614,73 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-reference/securities/search",
         "Search GTS codes (securities)",
+        expects="list",
     ),
     "reference.chiefs-search": _ep(
         "reference.chiefs-search",
         "POST",
         "/application/open-reference/chiefs/search",
         "Search chief analyst IDs by name / institution / team",
+        expects="list",
     ),
     "reference.institution-search": _ep(
         "reference.institution-search",
         "POST",
         "/application/open-reference/institutions/search",
         "Search institution IDs by keyword (domestic broker / foreign / lead / opinion)",
+        expects="list",
     ),
     "reference.official-account-search": _ep(
         "reference.official-account-search",
         "POST",
         "/application/open-reference/officialAccount/search",
         "Search official account (WeChat public account) IDs by name / institution / category",
+        expects="list",
+    ),
+    # Free. Paged with from / size, unlike the other searches' ``top``.
+    "reference.overseas-account-search": _ep(
+        "reference.overseas-account-search",
+        "POST",
+        "/application/open-reference/overseasAccount/search",
+        "Search overseas opinion account IDs by name fragment",
+        paginated=50,
+        expects="list",
+        row_id="accountId",
     ),
     "reference.constant-category": _ep(
         "reference.constant-category",
         "GET",
         "/application/open-reference/constants/category",
         "List constant categories and their API usage scopes",
+        expects="list",
     ),
     "reference.constant-list": _ep(
         "reference.constant-list",
         "POST",
         "/application/open-reference/constants/getList",
         "List all constant values of a category",
+        expects="object",
     ),
     "reference.concept-search": _ep(
         "reference.concept-search",
         "POST",
         "/application/open-reference/concepts/search",
         "Search concept (theme) IDs by keyword",
+        expects="list",
     ),
     "reference.sector-search": _ep(
         "reference.sector-search",
         "POST",
         "/application/open-reference/sectors/search",
         "Search sector IDs by keyword",
+        expects="list",
     ),
     "reference.sector-constituents": _ep(
         "reference.sector-constituents",
         "POST",
         "/application/open-reference/sectors/constituents",
         "List constituent securities of a sector",
+        expects="list",
     ),
     # Under open-quote, filed by the platform under reference data. Not paginated: one
     # call returns every constituent of every index asked for; an empty answer is
@@ -704,72 +755,84 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-fundamental/financial-report/income-statement/accumulated",
         "Query A-share income statement (accumulated)",
+        expects="list",
     ),
     "fundamental.income-statement-quarterly": _ep(
         "fundamental.income-statement-quarterly",
         "POST",
         "/application/open-fundamental/financial-report/income-statement/quarterly",
         "Query A-share income statement (quarterly)",
+        expects="list",
     ),
     "fundamental.balance-sheet": _ep(
         "fundamental.balance-sheet",
         "POST",
         "/application/open-fundamental/financial-report/balance-sheet/accumulated",
         "Query A-share balance sheet (accumulated)",
+        expects="list",
     ),
     "fundamental.cash-flow": _ep(
         "fundamental.cash-flow",
         "POST",
         "/application/open-fundamental/financial-report/cash-flow-statement/accumulated",
         "Query A-share cash flow statement (accumulated)",
+        expects="list",
     ),
     "fundamental.cash-flow-quarterly": _ep(
         "fundamental.cash-flow-quarterly",
         "POST",
         "/application/open-fundamental/financial-report/cash-flow-statement/quarterly",
         "Query A-share cash flow statement (quarterly)",
+        expects="list",
     ),
     "fundamental.income-statement-hk": _ep(
         "fundamental.income-statement-hk",
         "POST",
         "/application/open-fundamental/financial-report/income-statement/hk",
         "Query HK income statement (China GAAP)",
+        expects="list",
     ),
     "fundamental.balance-sheet-hk": _ep(
         "fundamental.balance-sheet-hk",
         "POST",
         "/application/open-fundamental/financial-report/balance-sheet/hk",
         "Query HK balance sheet (China GAAP)",
+        expects="list",
     ),
     "fundamental.cash-flow-hk": _ep(
         "fundamental.cash-flow-hk",
         "POST",
         "/application/open-fundamental/financial-report/cash-flow-statement/hk",
         "Query HK cash flow statement (China GAAP)",
+        expects="list",
     ),
     "fundamental.income-statement-us": _ep(
         "fundamental.income-statement-us",
         "POST",
         "/application/open-fundamental/financial-report/income-statement/us",
         "Query US income statement",
+        expects="list",
     ),
     "fundamental.balance-sheet-us": _ep(
         "fundamental.balance-sheet-us",
         "POST",
         "/application/open-fundamental/financial-report/balance-sheet/us",
         "Query US balance sheet",
+        expects="list",
     ),
     "fundamental.cash-flow-us": _ep(
         "fundamental.cash-flow-us",
         "POST",
         "/application/open-fundamental/financial-report/cash-flow-statement/us",
         "Query US cash flow statement",
+        expects="list",
     ),
     "fundamental.main-business": _ep(
         "fundamental.main-business",
         "POST",
         "/application/open-fundamental/main-business",
         "Query main business composition",
+        expects="list",
     ),
     "fundamental.valuation-analysis": _ep(
         "fundamental.valuation-analysis",
@@ -783,6 +846,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-fundamental/capital-structure/top-holders",
         "Query top holders (top10 / top10 float)",
+        expects="list",
     ),
     "fundamental.earning-forecast": _ep(
         "fundamental.earning-forecast",
@@ -1068,6 +1132,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-vault/stock-pool/getStockList",
         "List securities in stock pool(s)",
+        expects="array",
     ),
     # ─── alternative ───
     "alternative.edb-search": _ep(
@@ -1075,6 +1140,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-alternative/EDB/search",
         "Search industry indicator list by keyword",
+        expects="array",
     ),
     "alternative.edb-data": _ep(
         "alternative.edb-data",
@@ -1107,6 +1173,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "/application/open-indicator/EDE/search",
         "Search data indicators by keyword (returns indicatorCode + params)",
         retry="no-999999",
+        expects="array",
     ),
     "indicator.cross-section": _ep(
         "indicator.cross-section",
@@ -1535,6 +1602,7 @@ ENDPOINTS: dict[str, EndpointDef] = {
         "POST",
         "/application/open-vault/drive/getFolderList",
         "List the direct subfolders and files of a drive folder",
+        expects="object",
     ),
     "vault.drive.create-folder": _ep(
         "vault.drive.create-folder",

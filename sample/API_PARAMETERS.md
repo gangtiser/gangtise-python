@@ -1,6 +1,6 @@
 # API 参数说明
 
-本文档按 SDK 的方法签名整理，覆盖 160 个公开方法，对应 161 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
+本文档按 SDK 的方法签名整理，覆盖 163 个公开方法，对应 164 个上游接口（观点列表的 `with_content=`、题材的 `full=` 用开关在两个接口间切换），另有 2 个本地查表方法与 `auth.status` 本地状态方法。同步与异步方法参数一致；异步调用路径为 `gangtise.async_.<领域>.<方法>(...)`。
 
 运行示例前请配置：
 
@@ -23,6 +23,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `reference` | `chiefs_search` | [reference_chiefs_search.py](sync/reference_chiefs_search.py) | [reference_chiefs_search.py](async/reference_chiefs_search.py) |
 | `reference` | `institution_search` | [reference_institution_search.py](sync/reference_institution_search.py) | [reference_institution_search.py](async/reference_institution_search.py) |
 | `reference` | `official_account_search` | [reference_official_account_search.py](sync/reference_official_account_search.py) | [reference_official_account_search.py](async/reference_official_account_search.py) |
+| `reference` | `overseas_account_search` | [reference_overseas_account_search.py](sync/reference_overseas_account_search.py) | [reference_overseas_account_search.py](async/reference_overseas_account_search.py) |
 | `reference` | `constant_category` | [reference_constant_category.py](sync/reference_constant_category.py) | [reference_constant_category.py](async/reference_constant_category.py) |
 | `reference` | `constant_list` | [reference_constant_list.py](sync/reference_constant_list.py) | [reference_constant_list.py](async/reference_constant_list.py) |
 | `reference` | `concept_search` | [reference_concept_search.py](sync/reference_concept_search.py) | [reference_concept_search.py](async/reference_concept_search.py) |
@@ -50,6 +51,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `insight` | `announcement_us_list` | [insight_announcement_us_list.py](sync/insight_announcement_us_list.py) | [insight_announcement_us_list.py](async/insight_announcement_us_list.py) |
 | `insight` | `foreign_opinion_list` | [insight_foreign_opinion_list.py](sync/insight_foreign_opinion_list.py) | [insight_foreign_opinion_list.py](async/insight_foreign_opinion_list.py) |
 | `insight` | `independent_opinion_list` | [insight_independent_opinion_list.py](sync/insight_independent_opinion_list.py) | [insight_independent_opinion_list.py](async/insight_independent_opinion_list.py) |
+| `insight` | `overseas_opinion_list` | [insight_overseas_opinion_list.py](sync/insight_overseas_opinion_list.py) | [insight_overseas_opinion_list.py](async/insight_overseas_opinion_list.py) |
 | `insight` | `official_account_list` | [insight_official_account_list.py](sync/insight_official_account_list.py) | [insight_official_account_list.py](async/insight_official_account_list.py) |
 | `insight` | `summary_download` | [insight_summary_download.py](sync/insight_summary_download.py) | [insight_summary_download.py](async/insight_summary_download.py) |
 | `insight` | `research_download` | [insight_research_download.py](sync/insight_research_download.py) | [insight_research_download.py](async/insight_research_download.py) |
@@ -64,6 +66,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `insight` | `report_image_download` | [insight_report_image_download.py](sync/insight_report_image_download.py) | [insight_report_image_download.py](async/insight_report_image_download.py) |
 | `insight` | `opinion_detail` | [insight_opinion_detail.py](sync/insight_opinion_detail.py) | [insight_opinion_detail.py](async/insight_opinion_detail.py) |
 | `insight` | `foreign_opinion_detail` | [insight_foreign_opinion_detail.py](sync/insight_foreign_opinion_detail.py) | [insight_foreign_opinion_detail.py](async/insight_foreign_opinion_detail.py) |
+| `insight` | `overseas_opinion_detail` | [insight_overseas_opinion_detail.py](sync/insight_overseas_opinion_detail.py) | [insight_overseas_opinion_detail.py](async/insight_overseas_opinion_detail.py) |
 | `insight` | `highlight_list` | [insight_highlight_list.py](sync/insight_highlight_list.py) | [insight_highlight_list.py](async/insight_highlight_list.py) |
 | `fundamental` | `income_statement` | [fundamental_income_statement.py](sync/fundamental_income_statement.py) | [fundamental_income_statement.py](async/fundamental_income_statement.py) |
 | `fundamental` | `income_statement_quarterly` | [fundamental_income_statement_quarterly.py](sync/fundamental_income_statement_quarterly.py) | [fundamental_income_statement_quarterly.py](async/fundamental_income_statement_quarterly.py) |
@@ -236,7 +239,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `keyword` | `str` | 是 | - | `"平安银行"` | 搜索关键词。 |
-| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 stock / dr / index / fund / bond。bond 覆盖交易所可转债、国债、地方债、金融债与银行间债券（.SH / .SZ / .IB），代码用于 `gangtise.bond`。🔴 可转债在任何分类下都可能出现（按公司简称查 stock 时同名可转债常排第一），取第一条 category 等于所查类别的行，别直接取第一行。 |
+| `category` | `Any` | 否 | `None` | `"stock"` | 分类过滤，支持单值或列表，取值 stock / dr / index / fund / bond。bond 覆盖交易所可转债、国债、地方债、金融债与银行间债券（.SH / .SZ / .IB），代码用于 `gangtise.bond`。🔴 查股票带上 `category="stock"`：不带分类按公司简称查时同名可转债常排第一，带了分类只返回该类别。 |
 | `top` | `int` | 否 | `10` | `3` | 每个查询返回的最大候选数。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -276,10 +279,26 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `keyword` | `str` | 是 | - | `"中信证券"` | 公众号名称 / 所属机构 / 关键字。 |
+| `keyword` | `str` | 是 | - | `"中信证券"` | 公众号名称片段（"中信证券" 能查到「中信证券研究」）。匹配的是名称：名称里用简称的公众号按机构全称查不到（"东吴证券" 0 行，"东吴" 能查到），查到 0 行时换简称再查。 |
 | `category` | `Any` | 否 | `None` | `["broker", "media"]` | 分类，支持单值或列表；枚举：`listedCompany` / `broker` / `government` / `media`。部分公众号不属四类（category 为 null），传 category 会漏掉它们，要全量就别传。 |
 | `top` | `int` | 否 | `10` | `5` | 最大返回数，默认 10，上限 10；结果按 matchScore 降序。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+### `reference.overseas_account_search`
+
+- 接口：`reference.overseas-account-search` `POST /application/open-reference/overseasAccount/search`
+- 同步示例：`sample/sync/reference_overseas_account_search.py`
+- 异步示例：`sample/async/reference_overseas_account_search.py`
+- 返回类型：`pd.DataFrame | dict[str, Any] | list[Any]`
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `keyword` | `str` | 是 | - | `"bloomberg"` | 海外观点账号名称片段，一次一个：在账号名任意位置做子串匹配，英文不区分大小写；按英文账号名匹配，中文名（如「彭博」）查不到。 |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；省略取全部（单页 50，自动翻页）。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+**说明**：免费。结果的 `accountId` 喂 `insight.overseas_opinion_list(account=...)`；按 `matchScore`（0~1）降序。行字段：accountId / accountName / accountIntroduction（中文简介，无简介为空字符串）/ matchScore。
 
 ### `reference.constant_category`
 
@@ -808,6 +827,32 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `confirm` | `bool` | 否 | `False` | `False` | 按条计费（1 积分/条）的额度确认：省略 size 时按 total × 单价估算、显式 size 按 min(size, total) × 单价估算，超过 1000 积分本地拒绝（ValidationError）；True=确认全量拉取。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
+### `insight.overseas_opinion_list`
+
+- 接口：`insight.overseas-opinion.list` `POST /application/open-insight/overseasOpinion/getList`
+- 同步示例：`sample/sync/insight_overseas_opinion_list.py`
+- 异步示例：`sample/async/insight_overseas_opinion_list.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `from_` | `int` | 否 | `0` | `0` | 分页起始偏移量；Python 参数名 from_ 会映射为请求字段 from。from_ ≥ 10000 本地拒绝。 |
+| `size` | `int \| None` | 否 | `None` | `5` | 返回条数；省略取全部（单页 50，自动翻页）。最多取到第 10000 条（from_ + 条数 ≤ 10000），命中更多时取到第 10000 条为止并标 partial，按时间段分批取。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-11-01"` | 发布时间起点（北京时间），接受日期或时间字符串。早于账号可查的下界时整段报 110003，不会从下界起截断返回。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-11-14"` | 发布时间终点；接受日期或时间字符串。 |
+| `keyword` | `str \| None` | 否 | `None` | `"Nvidia"` | 搜索关键词。 |
+| `rank_type` | `int` | 否 | `1` | `2` | 排序方式：1=综合（默认） 2=时间倒序。 |
+| `account` | `Any` | 否 | `None` | `"34713362"` | 账号 ID，用 `reference.overseas_account_search` 查；支持单值或列表。 |
+| `security` | `Any` | 否 | `None` | `"NVDA.O"` | 带市场后缀的证券代码，支持单值或列表；缺后缀报 120001，后缀存在但市场不对（NVDA.N）返回空结果、不报错。 |
+| `category` | `Any` | 否 | `None` | `"opinion"` | 类别：opinion 观点分析 / news 新闻资讯 / dataAnalysis 数据分析 / promotion 品牌宣传，写错报 100005；传多个取并集。一条记录可属于多个类别，按类别分别取再合并时按 overseasOpinionId 去重；categoryList 为空的记录只在不传 category 时返回。 |
+| `industry` | `Any` | 否 | `None` | `107700008` | GICS 一级行业 ID（107700001 能源 … 107700011 房地产，`reference.constant_list(category="gicsIndustry")` 查）；申万码、中信码报 100005。支持单值或列表。 |
+| `region` | `Any` | 否 | `None` | `"us"` | 地区代码：cn / cnHk / cnTw / us / jp / kr / uk / gl（全球）；regionCategory 的其他取值报 100005。支持单值或列表。 |
+| `original_flag` | `int \| None` | 否 | `None` | `1` | 1=只要原创，0=只要转发；不传两者都返回。 |
+| `confirm` | `bool` | 否 | `False` | `False` | 按条计费（0.1 积分/条）的额度确认；本接口最多取 10000 条即 1000 积分，额度保护（超过 1000 积分拒绝）不会拦下请求。 |
+| `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
+
+**说明**：海外媒体、投资人、分析师等账号发布的帖子，每条附中文翻译。列表只含摘要 brief（原文前 200 字）/ briefTranslate，0.1 积分/条；全文与译文用 `insight.overseas_opinion_detail` 按 overseasOpinionId 取（10 积分/条）。行字段：overseasOpinionId / accountId / accountName / accountIntroduction / publishTime / originalFlag / categoryList / brief / briefTranslate / forwardPost（仅转发帖，原创为 None）/ industryList / securityList / regionList。
+
 ### `insight.official_account_list`
 
 - 接口：`insight.official-account.list` `POST /application/open-insight/officialAccount/getList`
@@ -842,7 +887,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `summary_id` | `str` | 是 | - | `"<summaryId>"` | 纪要 ID，通常来自 insight.summary_list 返回结果。 |
 | `file_type` | `int \| None` | 否 | `None` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.research_download`
@@ -856,7 +901,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `report_id` | `str` | 是 | - | `"<reportId>"` | 研报 ID，通常来自 research/foreign_report 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.foreign_report_download`
@@ -870,7 +915,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `report_id` | `str` | 是 | - | `"<reportId>"` | 研报 ID，通常来自 research/foreign_report 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.announcement_download`
@@ -884,7 +929,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 公告 ID，通常来自 announcement 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.announcement_hk_download`
@@ -898,7 +943,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 公告 ID，通常来自 announcement 列表接口。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=原文（默认） 2=Markdown。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.announcement_us_download`
@@ -912,7 +957,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `announcement_id` | `str` | 是 | - | `"<announcementId>"` | 美股公告 ID，通常来自 insight.announcement_us_list 返回的 announcementId 列。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=原文 PDF（默认） 2=Markdown。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.independent_opinion_download`
@@ -926,7 +971,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `independent_opinion_id` | `str` | 是 | - | `"<independentOpinionId>"` | 独立观点 ID，通常来自 independent_opinion_list。 |
 | `file_type` | `int` | 是 | - | `1` | 文件类型代码；下载接口常用 1。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 🔴 本方法**不支持** `True`（发请求前报 `ValidationError`）：其 list 按 1 积分/条计费，回查 200 条要 200 积分只为一个文件名。先调 `independent_opinion_list()` 让标题进缓存，下载自动命中（免费）。参数保留只为签名兼容。 |
 
 ### `insight.official_account_download`
@@ -940,7 +985,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `article_id` | `str` | 是 | - | `"<articleId>"` | 文章 ID，通常来自 official_account_list 返回的 articleId 列。 |
 | `file_type` | `int` | 否 | `1` | `1` | 文件类型：1=txt（默认） 2=HTML。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.txt")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.txt")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.qa_list`
@@ -989,7 +1034,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `chunk_id` | `str` | 是 | - | `"<chunkId>"` | 图片唯一标识，取自 report_image_list 返回的 chunkId 列。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/img.jpg")` | 下载保存路径；None 时按服务端文件名或 `report-image-<chunkId>` 自动命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/img.jpg")` | 下载保存路径；None 时按服务端文件名或 `report-image-<chunkId>` 自动命名。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 
 ### `insight.opinion_detail`
 
@@ -1018,6 +1063,20 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `raw` | `bool` | 否 | `False` | `False` | True 返回 dict：`{total, list, missingIds?, unfetchedIds?, unfetchedError?, partial?}`；False 返回 list 的 DataFrame（缺失 / 未取到的 ID 只在 dict 与 UserWarning 里）。 |
 
 **说明**：去重后按 20 个一批依次请求，30 积分/条（按返回条数计），超时 / 5xx 不自动重发。没有有效正文的 ID 不报错、直接跳过——列在 `missingIds` 并标 `partial` + UserWarning；某一批失败或返回异常时已取到的正文保留，没取到的 ID 在 `unfetchedIds`、原因在 `unfetchedError`（message / code / traceId），只对这些 ID 重跑即可；第一批就失败且一条正文都没拿到时直接抛出原错误。
+
+### `insight.overseas_opinion_detail`
+
+- 接口：`insight.overseas-opinion.detail` `POST /application/open-insight/overseasOpinion/getDetail`
+- 同步示例：`sample/sync/insight_overseas_opinion_detail.py`
+- 异步示例：`sample/async/insight_overseas_opinion_detail.py`
+- 返回类型：`pd.DataFrame | dict[str, Any]`
+
+| 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `overseas_opinion_id` | `Any` | 是 | - | `"<overseasOpinionId>"` | 海外观点 ID（取自 insight.overseas_opinion_list 返回的 overseasOpinionId），支持单值或列表。返回字段同列表行，以 content（原文）/ contentTranslate（中文译文）代替 brief / briefTranslate（forwardPost 内同）。 |
+| `raw` | `bool` | 否 | `False` | `False` | True 返回 dict：`{total, list, missingIds?, unfetchedIds?, unfetchedError?, partial?}`；False 返回 list 的 DataFrame（缺失 / 未取到的 ID 只在 dict 与 UserWarning 里）。 |
+
+**说明**：去重后按 20 个一批依次请求，10 积分/条（按返回条数计），超时 / 5xx 不自动重发。一批里有任一条的发布时间超出账号可查范围时整批报 110003——先用列表的时间范围筛到账号范围内再取。没有有效正文的 ID 不报错、直接跳过——列在 `missingIds` 并标 `partial` + UserWarning；某一批失败或返回异常时已取到的正文保留，没取到的 ID 在 `unfetchedIds`、原因在 `unfetchedError`（message / code / traceId），只对这些 ID 重跑即可；第一批就失败且一条正文都没拿到时直接抛出原错误。
 
 ### `insight.highlight_list`
 
@@ -1053,8 +1112,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表；年份放 `fiscal_year`（`"2025annual"` 这种写法服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1071,8 +1130,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"q1"` | 单季报告期：q1/interim/q3/annual/latest，支持单值或列表；`interim`、`annual` 分别是截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1089,8 +1148,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表；年份放 `fiscal_year`（`"2025annual"` 这种写法服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1107,8 +1166,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表；年份放 `fiscal_year`（`"2025annual"` 这种写法服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1125,8 +1184,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"q1"` | 单季报告期：q1/interim/q3/annual/latest，支持单值或列表；`interim`、`annual` 分别是截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1143,8 +1202,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 港股报告期：q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1161,8 +1220,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 港股报告期：q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1179,8 +1238,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 港股报告期：q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
@@ -1197,7 +1256,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1215,7 +1274,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1233,7 +1292,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1252,7 +1311,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
 | `breakdown` | `str` | 否 | `'product'` | `"product"` | 主营构成维度，例如 product 或 industry。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：interim=中报 / annual=年报，支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
@@ -1287,8 +1346,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `holder_type` | `str` | 是 | - | `"top10"` | 股东类型，例如 top10 或 top10Float。 |
 | `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。 |
-| `period` | `Any` | 否 | `None` | `"2025annual"` | 报告期/财报期；AI 财报点评常用 2025annual、2026q1。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表；要和 `period` 一起传。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表。🔴 要和 `fiscal_year` 一起传：只传 `period` 时服务端返回最新一期，`period` 不起作用。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `fundamental.earning_forecast`
@@ -1606,7 +1665,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | --- | --- | --- | --- | --- | --- |
 | `resource_type` | `int` | 是 | - | `1` | 知识资源类型代码。 |
 | `source_id` | `str` | 是 | - | `"<sourceId>"` | 知识资源源 ID。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 
 ## 个人云盘与股票池（`gangtise.vault`）
 
@@ -1720,7 +1779,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 - 接口：`vault.stock-pool.stocks` `POST /application/open-vault/stock-pool/getStockList`
 - 同步示例：`sample/sync/vault_stock_pool_stocks.py`
 - 异步示例：`sample/async/vault_stock_pool_stocks.py`
-- 返回类型：`pd.DataFrame | dict[str, Any]`
+- 返回类型：`pd.DataFrame | dict[str, Any] | list[Any]`
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -1738,7 +1797,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `file_id` | `str` | 是 | - | `"<fileId>"` | 网盘文件 ID，通常来自 vault.drive_list。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `vault.record_download`
@@ -1752,7 +1811,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | --- | --- | --- | --- | --- | --- |
 | `record_id` | `str` | 是 | - | `"<recordId>"` | 录音记录 ID，通常来自 vault.record_list。 |
 | `content_type` | `str` | 是 | - | `"summary"` | 下载内容：original=原始文件 / asr=语音识别 / summary=AI 速记；其他取值本地拒绝、不发请求（接口对错值报 130003「没有文件可供下载」，易误读成没附件）。「与我分享」类录音无法下载原始文件。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `vault.my_conference_download`
@@ -1766,7 +1825,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | --- | --- | --- | --- | --- | --- |
 | `conference_id` | `str` | 是 | - | `"<conferenceId>"` | 会议 ID，通常来自 vault.my_conference_list。 |
 | `content_type` | `str` | 是 | - | `"summary"` | 下载内容：asr=语音识别 / summary=AI 速记（没有 original）；其他取值本地拒绝、不发请求（接口对错值报 130003「没有文件可供下载」）。30 积分/篇，超时不自动重发。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时根据标题、响应头或 fallback 文件名生成。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `vault.wechat_message_download`
@@ -1781,7 +1840,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `msg_id` | `str` | 是 | - | `"<msgId>"` | 消息 ID，取自 vault.wechat_message_list 的 msgId（长数字串，按字符串传）；引用里的文件用 quoteMsg.quoteMsgId。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时按服务端文件名保存（同名自动加 -1、-2），没有文件名时为 `wechat-file-<msg_id>`。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `Path("sample_downloads/file.pdf")` | 下载保存路径；None 时按服务端文件名保存（同名自动加 -1、-2），没有文件名时为 `wechat-file-<msg_id>`。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 
 ### `vault.stock_pool_create`
 
@@ -1925,7 +1984,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `file` | `str \| Path` | 是 | - | `Path("sample_downloads/example.pdf")` | 本地文件路径；本地先拦不存在 / 非文件 / 空文件 / >100MB。试用账号每天累计 ≤500MB（超出 230008）。 |
+| `file` | `str \| Path` | 是 | - | `Path("sample_downloads/example.pdf")` | 本地文件路径；本地先拦不存在 / 非文件 / 空文件 / >100MB / 位于 SDK 配置目录（`~/.config/gangtise/`）或是 token 缓存文件。不传 `title` 时上传的文件名取传入路径的末段（软链看它自己的名字）。试用账号每天累计 ≤500MB（超出 230008）。 |
 | `space_type` | `int` | 否 | `1` | `1` | 目标空间：1=我的云盘，2=租户云盘（对整个租户可见）。 |
 | `folder_id` | `str \| None` | 否 | `None` | `"root"` | 目标文件夹 ID；不传或 "root" 即根目录；属于另一空间报 100003。 |
 | `title` | `str \| None` | 否 | `None` | `"示例文档.pdf"` | 云盘里的名称，不传用本地文件名；≤200 个字符，按 UTF-16 计（emoji 算 2），本地先拦（服务端 230004）。云盘允许同名，重复上传会多一份，且不自动重发。 |
@@ -2033,7 +2092,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 - 接口：`alternative.edb-search` `POST /application/open-alternative/EDB/search`
 - 同步示例：`sample/sync/alternative_edb_search.py`
 - 异步示例：`sample/async/alternative_edb_search.py`
-- 返回类型：`pd.DataFrame | dict[str, Any]`
+- 返回类型：`pd.DataFrame | dict[str, Any] | list[Any]`
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -2103,7 +2162,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | `market` | `Any` | 否 | `None` | `"aShares"` | aShares / hkStocks / usChinaConcept / usStocks，本地白名单。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data。 |
 
-**注意**：这是独立的专家纪要库，需单独购买（未开通报 `999004`），筛选项是 `summary_list` 的真子集（没有 source / institution / participant_role）。已知返回口径：`conceptList` / `categoryList` / `marketList` 三个标签字段稀疏、不保证完整，是否有值随记录和查法而变——不带筛选时常整条为空，用 category 或 market 过滤时回填率明显更高。按这几个维度分组要靠过滤参数取，别拉全量再本地分组；某条为空也不说明它没有该属性。
+**注意**：这是独立的专家纪要库，需单独购买（未开通报 `999004`），筛选项是 `summary_list` 的真子集（没有 source / institution / participant_role）。已知返回口径：`categoryList` / `marketList` 只在按 category 或 market 筛选时返回完整——其余查法下 `categoryList` 为空、`marketList` 不含 aShares / usChinaConcept。别拉全量再按这两个字段本地分组（A 股、中概股的归属会整批缺失），要分组就按两个类别、四个市场各查一遍再合并；某条为空也不说明它没有该属性。`conceptList` / `researchAreaList` / `securityList` 不随查法变。
 
 ### `insight.pamirs_summary_download`
 
@@ -2116,7 +2175,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | --- | --- | --- | --- | --- | --- |
 | `summary_id` | `str` | 是 | - | `"12345"` | 纪要唯一标识，取自列表的 summaryId。 |
 | `file_type` | `int \| None` | 否 | `None` | `2` | 1=原文（默认） 2=HTML。本地白名单，其他值直接报错。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则按标题 / 服务端文件名命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则按标题 / 服务端文件名命名。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 ### `insight.performance_calendar_list`
@@ -2150,7 +2209,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `performance_report_id` | `str` | 是 | - | `"12345"` | 报告唯一标识，取自列表的 performanceReportId。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则用 title-cache 里的真实标题命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `"out.pdf"` | 显式落盘路径；省略则用 title-cache 里的真实标题命名。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `resolve_title` | `bool` | 否 | `False` | `False` | 标题缓存未命中时是否回查 list 接口取文件名（额外 4 次请求，这些 list 多数按条计费）；关闭时用服务端 Content-Disposition 文件名或 `<前缀>-<id>`。给了 output 时忽略。 |
 
 **计费**：A股 1 积分 / 港美股 2 积分；仅 `hasAttachment: true` 的记录可下。
@@ -2184,7 +2243,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 10 位 sectorId，与代码混传取并集；服务端展开成**全部成分股**）。🔴 单次上限 30000 单元格（证券数 × 指标数），超出报 100006、不返回部分结果，按乘积拆批。 |
 | `currency` | `str \| None` | 否 | `None` | `"CNY"` | 币种：DFT/CNY/HKD/USD/EUR/GBP/JPY/TWD/MOP/AUD（默认 DFT）。 |
 | `scale` | `str \| None` | 否 | `None` | `"8"` | 数量级：0=个 3=千 4=万 6=百万 8=亿 9=十亿（默认 0）。只作用于支持该参数的指标，价格类与金额类可以混查。 |
-| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。参数名以 search 的 parameterList 为准（复权是 **adjustType**，2=前复权 3=后复权；写错名报 100003 并点名）。键名以 Date 结尾的值与 date 同样校验，年在前三种写法统一成 YYYY-MM-DD、年在后本地拒绝。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族、`finc_roe_avg_avg`）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。tradeDate 与 reportDate 都必填的（如 div_cash_yld）两个都显式给。fiscalYear 等必填参数漏传报 100001 并点名。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"qte_close": {"adjustType": "2"}}` | 单指标参数映射（按 indicatorCode 索引）。参数名以 search 的 parameterList 为准（复权是 **adjustType**，2=前复权 3=后复权；写错名报 100003 并点名）。键名以 Date 结尾的值与 date 同样校验，年在前三种写法统一成 YYYY-MM-DD、年在后本地拒绝。⚠️ 注入的 tradeDate 会被拒，**当且仅当该指标的 parameterList 里没有 tradeDate**。四种情形：① 有 tradeDate → 不用管；② 无 tradeDate 有 reportDate（`is_*` 那族、`finc_roe_avg_avg`）→ 传 reportDate，SDK 自动不再注入；③ 无 tradeDate 但有别的参数（currency / scale / fiscalYear …）→ 传那些参数**再加** `"tradeDate": None`，如 `{"pty_shr_reg": {"currency": "CNY", "tradeDate": None}}`；④ parameterList 为空 → 传 `{}`。tradeDate 与 reportDate 都必填的（如 div_cash_yld）两个都显式给。fiscalYear 等必填参数漏传报 100001 并点名；行业组合指标 `scr_indu_citic` / `scr_indu_sw` / `scr_indu_gics` 的 `industryLevel`（0 全路径、1–4 各级）同样必填。**键必须是 `indicator` 里列出的 code**，未绑定的 code 本地报错。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=服务端给的指标显示名；code=你传进去的 indicatorCode。服务端按自己的顺序返回列，位置索引不可靠；name 模式还需再查一次 search 才能把显示名映射回 code。非法值发请求前抛 ValidationError。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一证券、指标名作列的宽表 DataFrame。 |
 
@@ -2221,7 +2280,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | `expression` | `str` | 是 | - | `"F1 >= 500 && F2 <= 30"` | 筛选表达式，支持 `&&` / `\|\|` / 括号，以及 contains / notcontains 文本匹配（仅 dataType 为 string 的指标）。只能引用已绑定的变量，否则本地报 ValidationError。 |
 | `indicator` | `dict[str, str]` | 是 | - | `{"F1": "qte_mkt_cptl", "F2": "finc_pe_ttm"}` | 变量 → 指标码绑定；变量名必须是 F + 正整数。同一指标可绑到两个变量取不同参数。 |
 | `security` | `Any` | 是 | - | `"600519.SH"` | 证券代码或代码列表，也接受板块 ID（reference.sector_search 的 sectorId，服务端展开成全部成分股）。 |
-| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形、*Date 键的日期校验、必填参数漏传报 100001 都同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
+| `indicator_param` | `dict[str, dict[str, Any]] \| None` | 否 | `None` | `{"F1": {"scale": "8"}}` | 单指标参数，**按变量索引**（不是按 code）——只有变量能区分同一指标的两次绑定。引用未绑定变量本地报错。tradeDate 注入的四种情形、*Date 键的日期校验、必填参数（含行业组合指标的 `industryLevel`）漏传报 100001 都同 `cross_section`，只是键写变量名，如 `{"F1": {"currency": "CNY", "tradeDate": None}}`。 |
 | `key_by` | `str` | 否 | `"name"` | `"code"` | 列头来源：name=显示名（默认）；code=indicatorCode。同一 code 绑到两个变量时两列都会带上 (F1)/(F2) 后缀。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时摊平为每行一只命中证券的宽表 DataFrame。 |
 
@@ -2687,7 +2746,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `file` | `str \| Path` | 是 | - | `"report.pdf"` | 本地 PDF 路径。上传前本地校验后缀 / 非空 / ≤100MB。 |
+| `file` | `str \| Path` | 是 | - | `"report.pdf"` | 本地 PDF 路径。上传前本地校验：`.pdf` 后缀（按传入的路径判断，软链看它自己的名字）/ 文件前 1KB 内有 `%PDF-` 文件头 / 非空 / ≤100MB / 不在 SDK 配置目录（`~/.config/gangtise/`）、不是 token 缓存文件。上传的文件名取传入路径的末段。 |
 
 **计费**：0.8 积分/页，**提交时一次性扣费**；取结果免费。该端点标 `no-replay`（不重放，避免重复扣费）且超时下限 300 秒（100MB 上传不会被默认 30 秒超时掐断）。返回 `task_id`，交给 `tool.file_parse_check` 取结果。
 
@@ -2701,7 +2760,7 @@ AI 从专家会议、会议纪要提炼的个股情报：一行 = 主体公司 `
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `task_id` | `str` | 是 | - | `"1782345678901234567"` | `tool.file_parse` 返回的任务号。 |
-| `output` | `str \| Path \| None` | 否 | `None` | `"out.zip"` | 显式落盘路径；省略则按服务端文件名 / `file-parse-<taskId>` 命名。 |
+| `output` | `str \| Path \| None` | 否 | `None` | `"out.zip"` | 显式落盘路径；省略则按服务端文件名 / `file-parse-<taskId>` 命名。须是文件路径：已存在的目录、以 `/` 结尾的路径，以及指向 SDK 配置目录（`~/.config/gangtise/`）或 token 缓存文件的路径，都在下载请求发出前报 ValidationError。 |
 | `wait` | `bool` | 否 | `False` | `True` | True=按与 AI 异步接口相同的退避预算（约 316 秒）轮询到就绪；False 时未就绪直接抛 ApiError（码 140001 / 旧 410110）。 |
 
 **返回**：ZIP 路径，包内是 `file.md` 与 `images/`。取结果免费，所以未就绪时重复调用不产生费用；`140002` 是终态失败，不会消耗整个轮询预算。

@@ -352,7 +352,7 @@ async def test_async_cash_flow_hk_body(tmp_path):
 
 @pytest.mark.anyio
 async def test_async_main_business_body(tmp_path):
-    # main_business maps `period` -> `periodList` (NOT bare `period`); the default
+    # main_business sends `period` (the server ignores `periodList`); the default
     # breakdown="product" must appear on the wire.
     with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
         route = router.post("/application/open-fundamental/main-business").mock(
@@ -371,11 +371,11 @@ async def test_async_main_business_body(tmp_path):
     assert body == {
         "securityCode": "000001.SZ",
         "breakdown": "product",
-        "periodList": ["annual"],
+        "period": ["annual"],
         "fieldList": ["revenue"],
     }
-    # Guard the divergence: this endpoint must NOT send a bare `period`.
-    assert "period" not in body
+    # The server ignores `periodList` here: every period came back (probed 2026-11-14).
+    assert "periodList" not in body
     assert list(df.columns) == ["securityCode", "breakdown", "name", "revenue"]
     assert df.iloc[0]["name"] == "A"
     assert df.iloc[0]["revenue"] == 1.0
@@ -406,8 +406,7 @@ async def test_async_top_holders_body(tmp_path):
         "period": ["annual"],
         "fiscalYear": [2025],
     }
-    # Guard the divergence from main_business: bare `period`, never `periodList`,
-    # and no `fieldList` on this endpoint.
+    # Bare `period`, never `periodList`, and no `fieldList` on this endpoint.
     assert "periodList" not in body
     assert "fieldList" not in body
     assert list(df.columns) == ["securityCode", "holderType", "holderName"]

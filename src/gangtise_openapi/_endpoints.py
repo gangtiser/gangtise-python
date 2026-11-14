@@ -544,8 +544,9 @@ ENDPOINTS: dict[str, EndpointDef] = {
         billing=Billing("document", 30),
     ),
     # Same split as insight.foreign-opinion: brief / briefTranslate in the list, content /
-    # contentTranslate via getDetail. An offset past 10000 answers ``{total: 0, list: []}``
-    # without an error (CLI probe 2026-11-11), so pages stay inside the window.
+    # contentTranslate via getDetail. A page reaching past offset 10000 is refused with 100006
+    # while ``total`` reports the real count (CLI probe 2026-11-14), so pages stay inside the
+    # window.
     "insight.overseas-opinion.list": _ep(
         "insight.overseas-opinion.list",
         "POST",

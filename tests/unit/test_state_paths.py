@@ -76,6 +76,16 @@ def test_refuses_a_moved_token_cache_before_it_exists_too(state):
     _allowed(moved.parent / "export.csv", moved)
 
 
+def _disk_ignores_case(directory: Path) -> bool:
+    """The temporary directory's disk: macOS ignores case by default, Linux CI does not."""
+    probe = directory / "case-probe"
+    probe.write_text("")
+    try:
+        return (directory / "CASE-PROBE").exists()
+    finally:
+        probe.unlink()
+
+
 def test_refuses_the_state_directory_and_paths_in_it_before_it_exists(tmp_path, monkeypatch):
     missing = tmp_path / "missing"
     monkeypatch.setattr(_state_paths, "DEFAULT_TOKEN_CACHE_PATH", missing / "token.json")
@@ -83,10 +93,95 @@ def test_refuses_the_state_directory_and_paths_in_it_before_it_exists(tmp_path, 
     _refused(missing, token)
     _refused(missing / "title-cache.json", token)
     _refused(f"{missing}{os.sep}", token)
-    # Another spelling of the same place on a case-insensitive disk.
-    _refused(tmp_path / "Missing" / "title-cache.json", token)
-    _refused(tmp_path / "MISSING" / "TOKEN.JSON", token)
+    # Another spelling of the same place where the disk ignores case; elsewhere another directory.
+    other_case = _refused if _disk_ignores_case(tmp_path) else _allowed
+    other_case(tmp_path / "Missing" / "title-cache.json", token)
+    other_case(tmp_path / "MISSING" / "TOKEN.JSON", token)
     _allowed(tmp_path / "missing-like" / "export.csv", token)
+
+
+def test_tells_a_token_cache_from_a_file_differing_only_in_case_by_the_disks_rule(tmp_path):
+    # Token.json is not created yet; token.json beside it is another file where names are
+    # case-sensitive, and the same one where case is ignored.
+    (tmp_path / "probe.txt").write_text("")
+    token = tmp_path / "cased" / "Token.json"
+    _refused(token, token)
+    other_case = _refused if _disk_ignores_case(tmp_path) else _allowed
+    other_case(tmp_path / "cased" / "token.json", token)
+    _allowed(tmp_path / "cased" / "export.csv", token)
+
+
+@pytest.mark.parametrize("ignores_case", [True, False])
+def test_the_case_rule_is_the_existing_directorys_own(tmp_path, monkeypatch, ignores_case):
+    # A volume mounted on a disk with the other rule: the rule of the deepest existing
+    # directory on the token cache's path decides, whatever the disk under it does.
+    monkeypatch.setattr(_state_paths, "_ignores_case", lambda directory: ignores_case)
+    token = tmp_path / "cased" / "Token.json"
+    (_refused if ignores_case else _allowed)(tmp_path / "cased" / "token.json", token)
+    _refused(token, token)
+
+
+def test_reads_the_case_rule_from_an_entry_with_ascii_letters(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    # Nothing to ask: read as ignoring case, so a possible token cache is refused, not overwritten.
+    assert _state_paths._ignores_case(str(empty)) is True
+    token = empty / "cased" / "Token.json"
+    _refused(empty / "cased" / "token.json", token)
+    _allowed(empty / "cased" / "other.json", token)
+    # A name without ASCII letters cannot say either.
+    (empty / "数据").write_text("")
+    assert _state_paths._ignores_case(str(empty)) is True
+    (empty / "probe.txt").write_text("")
+    assert _state_paths._ignores_case(str(empty)) is _disk_ignores_case(tmp_path)
+
+
+@pytest.mark.skipif(
+    not Path("/System/Volumes/Data").is_dir(), reason="macOS firmlinks reach a directory twice"
+)
+def test_compares_the_existing_directory_by_identity_not_spelling(tmp_path, monkeypatch):
+    # /System/Volumes/Data/<path> is the same directory as <path>, under another spelling that
+    # realpath keeps: before the state directory exists, its parent is known by its inode.
+    real = Path(os.path.realpath(tmp_path))
+    alias = Path("/System/Volumes/Data") / real.relative_to("/")
+    if not alias.is_dir():
+        pytest.skip("temporary directory not on the data volume")
+    missing = real / "missing"
+    monkeypatch.setattr(_state_paths, "DEFAULT_TOKEN_CACHE_PATH", missing / "token.json")
+    _refused(alias / "missing", missing / "token.json")
+    _refused(alias / "missing" / "token.json", missing / "token.json")
+    _allowed(alias / "export.csv", missing / "token.json")
+
+
+def test_refuses_another_name_for_the_token_cache(state):
+    # A hard link is the token file itself under another name.
+    token = state / "token.json"
+    alias = state.parent / "outside" / "alias.json"
+    os.link(token, alias)
+    _refused(alias, token)
+
+
+def test_refuses_a_token_cache_replaced_while_the_check_runs(tmp_path, monkeypatch):
+    # A refresh renames a new token file over the cache: its path stays the cache while the
+    # inode read at the start of the check is gone.
+    cache = tmp_path / "refreshing" / "token.json"
+    cache.parent.mkdir()
+    cache.write_text("{}")
+    real = os.path.realpath(cache)
+    stat = os.stat
+    replaced = []
+
+    def stat_then_replace(path, *args, **kwargs):
+        result = stat(path, *args, **kwargs)
+        if not replaced and os.fspath(path) == real:
+            replaced.append(True)
+            (cache.parent / "next").write_text("{}")
+            os.replace(cache.parent / "next", cache)
+        return result
+
+    monkeypatch.setattr(_state_paths.os, "stat", stat_then_replace)
+    _refused(cache, cache)
+    assert replaced
 
 
 def test_refuses_a_link_in_the_state_directory_that_points_out_of_it(state):

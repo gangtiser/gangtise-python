@@ -5,6 +5,27 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.7] - 2026-11-14
+
+与 `gangtise-openapi-cli` **v0.52.1** 对齐，无新增接口。
+
+### 修复
+
+- **`file` / `output` 指向 SDK 配置目录的检查按磁盘自身的大小写规则判断**：只差大小写的路径，在不区分大小写的磁盘
+  上视为同一位置、仍然拒收；在区分大小写的磁盘上（多数 Linux）视为另一个文件、放行。0.5.6 一律不分大小写比较，会在
+  这类磁盘上误拒用户自己的路径，例如 token 缓存设为 `Token.json` 时旁边的 `token.json`，或配置目录尚未创建时的
+  `~/.config/Gangtise/`。
+- **配置目录或 token 缓存尚未创建时，经另一种写法到达同一目录的路径同样拒收**，例如 macOS 的
+  `/System/Volumes/Data/Users/…`、Linux 的 bind mount：按路径上已存在的那一级目录本身比对，不再只比路径字面。
+
+### 文档
+
+- 三大报表（A 股、港股、美股与两张单季报表）与 `fundamental.top_holders`：按年份或日期取，要同时给 `latest` 以外的
+  `period`。`fiscal_year`、`start_date` / `end_date` 只在配了这样的 `period` 时生效，`period` 也只在配了年份或日期时
+  生效；只给一边（包括显式 `period="latest"`）都返回最新一期、不报错。年份与日期都给时按日期取。
+- `insight.report_image_list` 的 `start_time` / `end_time` 目前不起筛选作用：返回的图表不限于该区间，要限定时间按
+  返回的 `publishTime` 自行过滤；示例不再传这两个参数。
+
 ## [0.5.6] - 2026-11-14
 
 与 `gangtise-openapi-cli` **v0.52.0** 功能对齐。**新增 3 个接口，共 164 个上游接口 / 端点注册表 166 条**（此前 161 / 163）。

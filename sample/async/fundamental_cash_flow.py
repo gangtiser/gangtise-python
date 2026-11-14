@@ -26,8 +26,8 @@ async def main():
             security_code="600519.SH",  # 单个证券代码, 如 000001.SZ/600519.SH
             start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
-            fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表
-            period=["interim", "annual"],  # 报告期, 要和 fiscal_year 一起传
+            fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表; 与日期都给时按日期取
+            period=["interim", "annual"],  # 报告期; 不配年份或日期时返回最新一期
         ),
         __file__,
     )

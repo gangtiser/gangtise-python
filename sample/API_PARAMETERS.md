@@ -1020,8 +1020,8 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `keyword` | `str` | 是 | - | `"AI"` | 搜索关键词，如 `AI`、`新能源汽车`。 |
 | `top` | `int` | 否 | `10` | `20` | 最大返回数，默认 10，上限 20（超限本地报错；服务端会静默截断）。 |
 | `source_id` | `str \| None` | 否 | `None` | `"<研报ID>"` | 限定到某篇研报（可从研报列表或知识库取）。 |
-| `start_time` | `str \| None` | 否 | `None` | `"2026-01-01"` | 限定图片所属研报发布时间，`yyyy-MM-dd HH:mm:ss`（`yyyy-MM-dd` 自动补全）。 |
-| `end_time` | `str \| None` | 否 | `None` | `"2026-07-01 23:59:59"` | 结束时间，格式同上。 |
+| `start_time` | `str \| None` | 否 | `None` | `"2026-01-01"` | 起始时间，`yyyy-MM-dd HH:mm:ss`（`yyyy-MM-dd` 自动补全）。⚠️ 目前不起筛选作用：返回的图表不限于该区间，要限定时间按返回的 `publishTime` 自行过滤。 |
+| `end_time` | `str \| None` | 否 | `None` | `"2026-07-01 23:59:59"` | 结束时间，格式同上；同样目前不起筛选作用。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `insight.report_image_download`
@@ -1110,9 +1110,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表；年份放 `fiscal_year`（`"2025annual"` 这种写法服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1128,9 +1128,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"q1"` | 单季报告期：q1/interim/q3/annual/latest，支持单值或列表；`interim`、`annual` 分别是截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1146,9 +1146,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表；年份放 `fiscal_year`（`"2025annual"` 这种写法服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1164,9 +1164,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表；年份放 `fiscal_year`（`"2025annual"` 这种写法服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1182,9 +1182,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"q1"` | 单季报告期：q1/interim/q3/annual/latest，支持单值或列表；`interim`、`annual` 分别是截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。⚠️ 返回的是最新版本数值：重述过的报告期在 `consolidated` 下也是重述后数值，`announcementDate` 是该数值所属公告的日期，`earliestAnncDate` 是该期首次公告日。做时点回测别把这些数值按 `earliestAnncDate` 回填（会用到当时还没公布的重述值）；数值从 `announcementDate` 起可得，首次披露的原始数不在返回里。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1200,9 +1200,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 港股报告期：q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1218,9 +1218,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 港股报告期：q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1236,9 +1236,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 港股报告期：q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1254,9 +1254,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1272,9 +1272,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1290,9 +1290,9 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"AAPL.O"` | 单个美股代码，例如 AAPL.O、TSLA.O。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2024-01-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要和 `period` 一起传：只传其中一个时，服务端都按默认 latest 返回最新一期，传了的那个不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 按年份或日期取，要同时给 `latest` 以外的 `period`：只给一边（包括显式 `period="latest"`）都返回最新一期、不报错；年份与日期都给时按日期取。 |
 | `period` | `Any` | 否 | `None` | `"annual"` | 美股报告期：q1/h1/q3/nsd/annual/latest，支持单值或列表。 |
 | `report_type` | `Any` | 否 | `None` | `None` | 报表类型：`consolidated` 合并（默认）/ `consolidatedRestated` 合并（调整）/ `standalone` 母公司 / `standaloneRestated` 母公司（调整）；支持单值或列表。 |
 | `field` | `Any` | 否 | `None` | `None` | 返回字段名或字段名列表；None 表示使用服务端默认字段。 |
@@ -1344,10 +1344,10 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | --- | --- | --- | --- | --- | --- |
 | `security_code` | `str` | 是 | - | `"000001.SZ"` | 单个证券代码，例如 000001.SZ、600519.SH、00700.HK。 |
 | `holder_type` | `str` | 是 | - | `"top10"` | 股东类型，例如 top10 或 top10Float。 |
-| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。 |
+| `start_date` | `str \| None` | 否 | `None` | `"2026-05-01"` | 开始日期，格式通常为 YYYY-MM-DD。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期（见 `fiscal_year`）。 |
 | `end_date` | `str \| None` | 否 | `None` | `"2026-05-28"` | 结束日期，格式通常为 YYYY-MM-DD。 |
-| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表；要和 `period` 一起传。 |
-| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表。🔴 要和 `fiscal_year` 一起传：只传 `period` 时服务端返回最新一期，`period` 不起作用。 |
+| `fiscal_year` | `Any` | 否 | `None` | `2025` | 财年过滤，支持单值或列表。🔴 要同时给 `latest` 以外的 `period`，否则返回最新一期；与日期都给时按日期取。 |
+| `period` | `Any` | 否 | `None` | `"annual"` | 报告期：q1/interim/q3/annual/latest，支持单值或列表。🔴 要配 `fiscal_year` 或 `start_date` / `end_date`：只给一边（包括显式 `"latest"`）都返回最新一期、不报错。 |
 | `raw` | `bool` | 否 | `False` | `False` | 返回原始 API data；False 时尽量转换为 pandas.DataFrame。 |
 
 ### `fundamental.earning_forecast`

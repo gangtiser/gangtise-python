@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 164 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.52.0 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 164 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.52.1 功能对齐。
 
 - **覆盖面**：观点（含海外媒体与投资人观点）、研报、公告、纪要与会议、行情 K 线与资金流向、指数成分权重、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容、专家情报与管理层情绪、个人云盘、股票池与个股笔记、微信群消息与群文件、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
@@ -12,6 +12,11 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.7 - 2026-11-14
+- 与 CLI **v0.52.1** 对齐，无新增接口。
+- **修复**：`file` / `output` 的配置目录检查按磁盘自身的大小写规则判断，区分大小写的磁盘上不再误拒只差大小写的路径；配置目录尚未创建时，经另一种写法（如 macOS 的 `/System/Volumes/Data/…`）到达同一目录的路径同样拒收。
+- 文档：三大报表与十大股东按年份或日期取，要同时给 `latest` 以外的 `period`，只给一边（包括 `period="latest"`）都返回最新一期；`insight.report_image_list` 的 `start_time` / `end_time` 目前不起筛选作用。
 
 ### 0.5.6 - 2026-11-14
 - 与 CLI **v0.52.0** 对齐，新增 3 个接口，共 **164 个**。
@@ -41,15 +46,6 @@
 - 🔴 **`fund.etf_pcf_components`**：接口只返回成分名称，SDK 按名称匹配、用收盘价核对，补上带市场后缀的 `componentCode`（如 `600519.SH`，A+H 同名两行据此分开）；匹配不到的为 null，并发 `UserWarning` 列出。额外请求都免费，`component_code=False` 关闭。
 - ⚠️ **服务端口径变化**：管理层情绪的 `publishTime` 现为北京时间（按 0.5.2 说明「先加 8 小时」的处理要去掉）；`fund.holder_structure` 的 `holderCount` 现为整数（去千分位逗号的处理要去掉）。
 - 文档：`ai.security_clue_list` 的 `gts_code` 按 `query_mode` 传股票代码或申万行业码。
-
-### 0.5.2 - 2026-10-25
-- 与 CLI **v0.48.0** 对齐，新增 4 个接口，共 **153 个**。
-- **新增**：`ai.management_sentiment_indicator` / `management_sentiment_conclusion`（管理层情绪评分与结论，5 积分/条，自动翻页、额度保护）、`ai.management_sentiment_detail`（逐条问答评分，10 积分/次）；`bond.default_list`（违约债券）。⚠️ 管理层情绪返回的 `publishTime` 比北京时间早 8 小时。
-- 🔴 **`insight.opinion_list` 的 `llm_tag` 换为 28 项投研业务标签**，新增 `category`（观点类别）与 `broker_tag`（机构标签）。「业绩点评」「头部券商」「新财富团队」改传 `category="earningsReview"`、`broker_tag="topBroker"` / `"newFortune"`，继续传给 `llm_tag` 服务端报 `100005`。`with_content=True` 不收两个新参数（本地报错）。
-- **计费按平台最新价目**：AI 生成多数 10 积分/次（业绩点评、观点辩论 20），热点话题 10/篇，个股看点 1/条，路演等四个日程列表 10/条，独立观点列表 1/条，纪要 / 外资研报 / 我的会议下载 30/篇，公告与财报日历下载 1–2/篇；`alternative.edb_data` 30 积分/指标。额度保护按新单价估算。
-- `reference.securities_search` 新增 `category="bond"`；`bond.daily_quote` / `bond.valuation` 首行比 `start_date` 晚超过 14 天时告警。
-- **修复**：路演 / 调研 / 策略会 / 论坛列表的翻页去重此前按 `id` 认行、实际不生效，现按各自的行 ID 去重并标 `partial`。
-- 文档：四个日程列表的 `location` 传 domesticCity 码可用（传城市名报 `999999`）；A 股财务报表返回的是含重述的最新版本数值，做时点回测别按 `earliestAnncDate` 回填。
 
 ## 安装
 

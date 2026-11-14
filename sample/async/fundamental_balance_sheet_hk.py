@@ -29,7 +29,7 @@ async def main():
             start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
             period=["h1", "annual"],  # 港股报告期: q1/h1/q3/h2/nsd/annual/latest, 支持单值或列表
-            fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表
+            fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表; 与日期都给时按日期取
         ),
         __file__,
     )

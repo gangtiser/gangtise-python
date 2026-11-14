@@ -1560,8 +1560,9 @@ class Insight:
 
         返回 chunkId + 元数据，chunkId 供 report_image_download() 下载原图。
         top 默认 10、上限 20（超限服务端会静默截断，本地先报错）；source_id
-        限定到某篇研报（可从研报列表或知识库取）。start_time/end_time 限定
-        图片所属研报的发布时间。行字段：chunkId / title / sourceId / broker /
+        限定到某篇研报（可从研报列表或知识库取）。start_time/end_time 照常发送，
+        但目前不起筛选作用：返回的图表不限于该区间，要限定时间按返回的 publishTime
+        自行过滤。行字段：chunkId / title / sourceId / broker /
         category / typeList / industry / publishTime / page / totalPages /
         imageCaption / imageFootnote / pageContent。免费。
         """
@@ -3209,8 +3210,9 @@ class AsyncInsight:
 
         返回 chunkId + 元数据，chunkId 供 report_image_download() 下载原图。
         top 默认 10、上限 20（超限服务端会静默截断，本地先报错）；source_id
-        限定到某篇研报（可从研报列表或知识库取）。start_time/end_time 限定
-        图片所属研报的发布时间。行字段：chunkId / title / sourceId / broker /
+        限定到某篇研报（可从研报列表或知识库取）。start_time/end_time 照常发送，
+        但目前不起筛选作用：返回的图表不限于该区间，要限定时间按返回的 publishTime
+        自行过滤。行字段：chunkId / title / sourceId / broker /
         category / typeList / industry / publishTime / page / totalPages /
         imageCaption / imageFootnote / pageContent。免费。
         """

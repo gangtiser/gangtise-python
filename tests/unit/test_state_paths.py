@@ -90,6 +90,9 @@ def test_refuses_the_state_directory_and_paths_in_it_before_it_exists(tmp_path, 
     missing = tmp_path / "missing"
     monkeypatch.setattr(_state_paths, "DEFAULT_TOKEN_CACHE_PATH", missing / "token.json")
     token = missing / "token.json"
+    # The case rule is read from an entry in the deepest existing directory (tmp_path); an
+    # empty one cannot say and reads as ignoring case.
+    (tmp_path / "outside").mkdir()
     _refused(missing, token)
     _refused(missing / "title-cache.json", token)
     _refused(f"{missing}{os.sep}", token)

@@ -15,6 +15,7 @@ These tests compare both against `inspect.signature`, so the drift is red instea
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
 import re
 from pathlib import Path
@@ -23,6 +24,7 @@ from typing import Any
 import pytest
 
 import gangtise_openapi as g
+from gangtise_openapi._facade import _AsyncFacade, _Facade
 from gangtise_openapi.domains._common import _ENUM_FIELDS
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -213,3 +215,36 @@ def test_enum_examples_in_the_table_are_legal_values() -> None:
         if cells[1].strip("`") in ("rank_type", "search_type") and cells[5] not in legal:
             problems.append(f"{_DOC.name}:{lineno} {current}.{cells[1]} example is {cells[5]}")
     assert not problems, "legal values are 1/2:\n" + "\n".join(problems)
+
+
+def _domain_classes(factories: dict[str, str]) -> dict[str, type]:
+    """`{"domain": cls}` from a facade's `"module:Class"` table, without building a client."""
+    classes = {}
+    for domain, spec in factories.items():
+        module_path, class_name = spec.split(":")
+        classes[domain] = getattr(importlib.import_module(module_path), class_name)
+    return classes
+
+
+def _public_method_names(cls: type) -> set[str]:
+    return {n for n in dir(cls) if not n.startswith("_") and callable(getattr(cls, n))}
+
+
+def test_sync_and_async_methods_share_one_docstring() -> None:
+    """Every async method mirrors its sync twin, docstring included.
+
+    A server-side change is written into both classes by hand (one statement rule touched
+    24 docstrings), and the second copy is the one that gets missed.
+    """
+    sync = _domain_classes(_Facade._DOMAIN_FACTORIES)
+    mirror = _domain_classes(_AsyncFacade._DOMAIN_FACTORIES)
+    assert sync.keys() == mirror.keys()
+    drift = []
+    for domain, cls in sorted(sync.items()):
+        names, twin_names = _public_method_names(cls), _public_method_names(mirror[domain])
+        if names != twin_names:
+            drift.append(f"{domain}: only on one side {sorted(names ^ twin_names)}")
+        for name in sorted(names & twin_names):
+            if inspect.getdoc(getattr(cls, name)) != inspect.getdoc(getattr(mirror[domain], name)):
+                drift.append(f"{domain}.{name}")
+    assert not drift, f"sync and async docstrings differ: {drift}"

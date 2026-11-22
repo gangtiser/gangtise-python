@@ -3,7 +3,9 @@
 # text that intentionally uses fullwidth punctuation.)
 from __future__ import annotations
 
+import calendar
 import datetime as dt
+import re
 import warnings
 from typing import Any
 
@@ -268,6 +270,137 @@ def _valuation_rows(rows: list[Any], *, skip_null: bool, filter_fields: list[str
     return [{k: v for k, v in r.items() if k not in filter_fields} for r in kept]
 
 
+# ---- US statements: one fiscal year per request (TS v0.52.2) ----
+
+# The US statements answer a request spanning more than one fiscal year with one fiscal
+# year per period type and report type, not necessarily the latest, without an error
+# (probed 2026-11-22: AAPL.O 2015-2025 annual → one report; 2024 + 2025 annual → one of
+# the two; 2023-09-30..2024-09-28 annual → one; MSFT.O / NVDA.O and all three statements
+# alike — which year stays differs between statements and over time). A single fiscal
+# year comes back whole.
+_US_STATEMENTS = frozenset(
+    {
+        "fundamental.income-statement-us",
+        "fundamental.balance-sheet-us",
+        "fundamental.cash-flow-us",
+    }
+)
+_EIGHT_DIGITS = re.compile(r"\d{8}", re.ASCII)
+_ISO_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+
+
+def _iso_day(value: Any) -> dt.date | None:
+    """``yyyyMMdd`` or ``yyyy-MM-dd…`` as a date; None for anything that is not a real
+    day (``00000000`` included) or lies near the calendar's edges, which the ±371-day
+    arithmetic of :func:`_another_end` would cross."""
+    text = "" if value is None else str(value)
+    if _EIGHT_DIGITS.fullmatch(text):
+        text = f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    elif _ISO_PREFIX.match(text):
+        text = text[:10]
+    else:
+        return None
+    try:
+        day = dt.date.fromisoformat(text)
+    except ValueError:
+        return None
+    return day if 1000 <= day.year <= 9000 else None
+
+
+def _same_month_end(day: dt.date, years: int) -> dt.date:
+    year = day.year + years
+    return dt.date(year, day.month, calendar.monthrange(year, day.month)[1])
+
+
+def _another_end(ends: list[dt.date], start: dt.date, last: dt.date) -> str | None:
+    """How surely ``start..last`` holds another end of a period type it returned one end
+    of: ``"surely"``, ``"maybe"`` or None.
+
+    A 52/53-week year counts whole weeks, so all its ends fall on one weekday, and some
+    of them on a month-end too (AAPL.O: Q1 2022-12-31 and FY 2023-09-30, both
+    Saturdays); the four calendar quarter-ends of a year never all share a weekday. So
+    ends that are all month-ends on two weekdays or more mean calendar quarters, and the
+    other end is the same month-end a year away. Anything else — one weekday, one end
+    alone, an end off a month-end — is read as whole weeks, the reading that errs toward
+    a note: the other end lies 364 to 371 days away (AAPL.O annual: 2022-09-24,
+    2023-09-30, 2024-09-28), so a range past 371 days holds it, one reaching only 364 may.
+    """
+    calendar_quarters = len({d.weekday() for d in ends}) > 1 and all(
+        (d + dt.timedelta(days=1)).day == 1 for d in ends
+    )
+    maybe = False
+    for end in ends:
+        if calendar_quarters:
+            if start <= _same_month_end(end, -1) or _same_month_end(end, 1) <= last:
+                return "surely"
+            continue
+        if start <= end - dt.timedelta(days=371) or end + dt.timedelta(days=371) <= last:
+            return "surely"
+        if start <= end - dt.timedelta(days=364) or end + dt.timedelta(days=364) <= last:
+            maybe = True
+    return "maybe" if maybe else None
+
+
+def _us_span(rows: list[Any], body: dict[str, Any], today: dt.date) -> str | None:
+    """Whether a US-statement answer shows the one-fiscal-year cut: ``"surely"`` /
+    ``"maybe"`` when no period type × report type covers two fiscal years and the
+    request spans more than one — two or more ``fiscalYear``, none (the whole history),
+    or dates (which override ``fiscalYear``) holding another end of a period type that
+    came back. Once every year comes back a type covers two and this goes quiet.
+    ``latest`` alone asks for the newest report (two rows on AAPL.O, two different
+    labels), not a span."""
+    requested = body.get("period") or []
+    if requested and all(p == "latest" for p in requested):
+        return None
+    records = [r for r in rows if isinstance(r, dict)]
+    if not records:
+        return None
+    covered: dict[tuple[str, str], set[str]] = {}
+    for r in records:
+        year = r.get("fiscalYear")
+        key = (repr(r.get("period")), repr(r.get("reportType")))
+        covered.setdefault(key, set()).add(repr(r.get("endDate") if year is None else year))
+    if any(len(years) > 1 for years in covered.values()):
+        return None
+    start, end = _iso_day(body.get("startDate")), _iso_day(body.get("endDate"))
+    if start is None and end is None:
+        return "surely" if len(body.get("fiscalYear") or []) != 1 else None
+    ends = [d for d in (_iso_day(r.get("endDate")) for r in records) if d is not None]
+    if start is None:
+        return "surely" if ends else None
+    return _another_end(ends, start, end or today)
+
+
+def _note_us_one_fiscal_year(
+    endpoint_key: str, result: Any, body: dict[str, Any], *, stacklevel: int = 4
+) -> None:
+    """UserWarning when :func:`_us_span` reads the cut; the rows come back unchanged and
+    unflagged. A layout the DataFrame path refuses is skipped here: ``raw=True`` hands
+    it back as it came, and the DataFrame path raises right after."""
+    try:
+        rows = _extract_rows(result)
+    except ValidationError:
+        return
+    span = _us_span(rows, body, dt.datetime.now(_BEIJING).date())
+    method = endpoint_key.replace("-", "_")
+    if span == "surely":
+        warnings.warn(
+            f"{method}: the request spans more than one fiscal year, yet each period type "
+            "and report type came back for one fiscal year only. The US statements answer "
+            "such a request with one fiscal year per period type and report type (not "
+            "necessarily the latest), without an error — query one fiscal_year at a time.",
+            stacklevel=stacklevel,
+        )
+    elif span == "maybe":
+        warnings.warn(
+            f"{method}: the date range may hold two ends of the same period type (52/53-week "
+            "fiscal years end 364 to 371 days apart), yet each period type and report type "
+            "came back for one fiscal year only. If it does, the US statements kept one of "
+            "them, without an error — query one fiscal_year at a time to be sure.",
+            stacklevel=stacklevel,
+        )
+
+
 class Fundamental:
     """`gangtise.fundamental.*` — financial statements + valuation + holders + forecasts."""
 
@@ -317,6 +450,8 @@ class Fundamental:
             }
         )
         result = self._client._call(endpoint_key, body=body)
+        if endpoint_key in _US_STATEMENTS:
+            _note_us_one_fiscal_year(endpoint_key, result, body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
@@ -339,9 +474,11 @@ class Fundamental:
 
         period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
         （"2025annual" 这种写法服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，不是最新一期——只要最新一期就传
+        period="latest"。fiscal_year 或 start_date/end_date 单传返回该范围内各期，period 单传返回
+        所有该类报告（如 "annual" 即历年年报）；年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束（返回全部报告里的最新一期），与其他取值同传时另加上最新一期，按年份 / 日期取时别带它。
+        多期结果不按报告期排序，按 endDate 排好再用。
         """
         return self._statement(
             "fundamental.income-statement",
@@ -371,9 +508,12 @@ class Fundamental:
 
         period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
         截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期的规则同累计表：都不传时返回全部历史报告期，只要最新一期就传
+        period="latest"；年份或日期单传返回该范围内各期，都给时按日期取；latest 不受年份 / 日期
+        约束，与其他取值同传时另加上最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        ⚠️ 返回行的 period 是报告名，不说明是单季值：除一季报外都是该季度单季值——中报、三季报两行
+        与累计表同名（「2025年中报」「2025年三季报」），年报行写作「2025年报」（累计表是
+        「2025年年报」）。别按 period 标签与累计表合并或对位。
         """
         return self._statement(
             "fundamental.income-statement-quarterly",
@@ -403,9 +543,11 @@ class Fundamental:
 
         period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
         （"2025annual" 这种写法服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，不是最新一期——只要最新一期就传
+        period="latest"。fiscal_year 或 start_date/end_date 单传返回该范围内各期，period 单传返回
+        所有该类报告（如 "annual" 即历年年报）；年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束（返回全部报告里的最新一期），与其他取值同传时另加上最新一期，按年份 / 日期取时别带它。
+        多期结果不按报告期排序，按 endDate 排好再用。
         """
         return self._statement(
             "fundamental.balance-sheet",
@@ -435,9 +577,11 @@ class Fundamental:
 
         period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
         （"2025annual" 这种写法服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，不是最新一期——只要最新一期就传
+        period="latest"。fiscal_year 或 start_date/end_date 单传返回该范围内各期，period 单传返回
+        所有该类报告（如 "annual" 即历年年报）；年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束（返回全部报告里的最新一期），与其他取值同传时另加上最新一期，按年份 / 日期取时别带它。
+        多期结果不按报告期排序，按 endDate 排好再用。
         """
         return self._statement(
             "fundamental.cash-flow",
@@ -467,9 +611,12 @@ class Fundamental:
 
         period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
         截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期的规则同累计表：都不传时返回全部历史报告期，只要最新一期就传
+        period="latest"；年份或日期单传返回该范围内各期，都给时按日期取；latest 不受年份 / 日期
+        约束，与其他取值同传时另加上最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        ⚠️ 返回行的 period 是报告名，不说明是单季值：除一季报外都是该季度单季值——中报、三季报两行
+        与累计表同名（「2025年中报」「2025年三季报」），年报行写作「2025年报」（累计表是
+        「2025年年报」）。别按 period 标签与累计表合并或对位。
         """
         return self._statement(
             "fundamental.cash-flow-quarterly",
@@ -498,9 +645,17 @@ class Fundamental:
         """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，只要最新一期就传 period="latest"。
+        fiscal_year 或日期单传返回该范围内各期，period 单传返回所有该类报告；年份与日期都给时按日期
+        取。latest 单传时不受年份 / 日期约束（返回全部报告里的最新一期），与其他取值同传时不另加
+        最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        🔴 非 12 月财年的公司，fiscal_year 与返回的 fiscalYear 都按期末（endDate）所在的自然年算，
+        period 标签按公司财年：如 3 月财年的公司，fiscal_year=2026 返回截至 2026-03-31 的「2026年度
+        报告」与 2026 年 4 月起的「2027一季报」「2027半年报告」，fiscal_year=2027 取不到这两期。按
+        公司财年取数改用日期区间，或按 period 标签筛。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return self._statement(
             "fundamental.income-statement-hk",
@@ -529,9 +684,14 @@ class Fundamental:
         """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，只要最新一期就传 period="latest"。
+        fiscal_year 或日期单传返回该范围内各期，period 单传返回所有该类报告；年份与日期都给时按日期
+        取。latest 单传时不受年份 / 日期约束（返回全部报告里的最新一期），与其他取值同传时不另加
+        最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        🔴 非 12 月财年的公司，fiscal_year 与返回的 fiscalYear 都按期末（endDate）所在的自然年算，
+        period 标签按公司财年：如 3 月财年的公司，fiscal_year=2026 返回截至 2026-03-31 的「2026年度
+        报告」与 2026 年 4 月起的「2027一季报」「2027半年报告」，fiscal_year=2027 取不到这两期。按
+        公司财年取数改用日期区间，或按 period 标签筛。
         """
         return self._statement(
             "fundamental.balance-sheet-hk",
@@ -560,9 +720,17 @@ class Fundamental:
         """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，只要最新一期就传 period="latest"。
+        fiscal_year 或日期单传返回该范围内各期，period 单传返回所有该类报告；年份与日期都给时按日期
+        取。latest 单传时不受年份 / 日期约束（返回全部报告里的最新一期），与其他取值同传时不另加
+        最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        🔴 非 12 月财年的公司，fiscal_year 与返回的 fiscalYear 都按期末（endDate）所在的自然年算，
+        period 标签按公司财年：如 3 月财年的公司，fiscal_year=2026 返回截至 2026-03-31 的「2026年度
+        报告」与 2026 年 4 月起的「2027一季报」「2027半年报告」，fiscal_year=2027 取不到这两期。按
+        公司财年取数改用日期区间，或按 period 标签筛。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return self._statement(
             "fundamental.cash-flow-hk",
@@ -591,9 +759,17 @@ class Fundamental:
         """查询美股利润表（fundamental.income-statement-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 一次只取一个财年：请求跨多个财年（fiscal_year 给多个、日期区间覆盖同一报告期的两个期末、
+        或年份与日期都不给——含 period="annual" 单传）时，每种报告期与 report_type 的组合只返回
+        其中一年，不一定是最新那年、不报错。多年数据按 fiscal_year 逐年查；结果呈这种形态时发
+        UserWarning（按日期区间查、只能估算区间里是否有两个期末时措辞为「可能」：52 / 53 周财年的
+        两个期末相隔 364～371 天）。财年按公司财年计（如苹果的财年在 9 月底结束）。
+        单个财年内：fiscal_year 或日期单传返回该范围内各期，都给时按日期取；只要最新一期就传
+        period="latest"，它不受年份 / 日期约束，与其他取值同传时不另加最新一期。多期结果不按报告期
+        排序，按 endDate 排好再用。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return self._statement(
             "fundamental.income-statement-us",
@@ -622,9 +798,14 @@ class Fundamental:
         """查询美股资产负债表（fundamental.balance-sheet-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 一次只取一个财年：请求跨多个财年（fiscal_year 给多个、日期区间覆盖同一报告期的两个期末、
+        或年份与日期都不给——含 period="annual" 单传）时，每种报告期与 report_type 的组合只返回
+        其中一年，不一定是最新那年、不报错。多年数据按 fiscal_year 逐年查；结果呈这种形态时发
+        UserWarning（按日期区间查、只能估算区间里是否有两个期末时措辞为「可能」：52 / 53 周财年的
+        两个期末相隔 364～371 天）。财年按公司财年计（如苹果的财年在 9 月底结束）。
+        单个财年内：fiscal_year 或日期单传返回该范围内各期，都给时按日期取；只要最新一期就传
+        period="latest"，它不受年份 / 日期约束，与其他取值同传时不另加最新一期。多期结果不按报告期
+        排序，按 endDate 排好再用。
         """
         return self._statement(
             "fundamental.balance-sheet-us",
@@ -653,9 +834,17 @@ class Fundamental:
         """查询美股现金流量表（fundamental.cash-flow-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 一次只取一个财年：请求跨多个财年（fiscal_year 给多个、日期区间覆盖同一报告期的两个期末、
+        或年份与日期都不给——含 period="annual" 单传）时，每种报告期与 report_type 的组合只返回
+        其中一年，不一定是最新那年、不报错。多年数据按 fiscal_year 逐年查；结果呈这种形态时发
+        UserWarning（按日期区间查、只能估算区间里是否有两个期末时措辞为「可能」：52 / 53 周财年的
+        两个期末相隔 364～371 天）。财年按公司财年计（如苹果的财年在 9 月底结束）。
+        单个财年内：fiscal_year 或日期单传返回该范围内各期，都给时按日期取；只要最新一期就传
+        period="latest"，它不受年份 / 日期约束，与其他取值同传时不另加最新一期。多期结果不按报告期
+        排序，按 endDate 排好再用。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return self._statement(
             "fundamental.cash-flow-us",
@@ -782,8 +971,10 @@ class Fundamental:
 
         holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
         period 取值 q1/interim/q3/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：只给一边（包括显式 period="latest"）
-        都返回最新一期、不报错，规则同三大报表。
+        🔴 period、fiscal_year、日期都不传时返回全部报告期，只要最新一期就传 period="latest"；
+        fiscal_year 或日期单传返回该范围内各期，年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束，与其他取值同传时另加上最新一期。多期结果按 reportPeriod 分组、期内按 rank 排，每期
+        行数不固定（早年有的期只有 6～8 名），别按十行切分。
         """
         body = _request_body(
             {
@@ -893,6 +1084,8 @@ class AsyncFundamental:
             }
         )
         result = await self._client._call(endpoint_key, body=body)
+        if endpoint_key in _US_STATEMENTS:
+            _note_us_one_fiscal_year(endpoint_key, result, body)
         if raw:
             return result  # type: ignore[no-any-return]
         return _result_to_dataframe(result)
@@ -913,9 +1106,11 @@ class AsyncFundamental:
 
         period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
         （"2025annual" 这种写法服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，不是最新一期——只要最新一期就传
+        period="latest"。fiscal_year 或 start_date/end_date 单传返回该范围内各期，period 单传返回
+        所有该类报告（如 "annual" 即历年年报）；年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束（返回全部报告里的最新一期），与其他取值同传时另加上最新一期，按年份 / 日期取时别带它。
+        多期结果不按报告期排序，按 endDate 排好再用。
         """
         return await self._statement(
             "fundamental.income-statement",
@@ -945,9 +1140,12 @@ class AsyncFundamental:
 
         period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
         截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期的规则同累计表：都不传时返回全部历史报告期，只要最新一期就传
+        period="latest"；年份或日期单传返回该范围内各期，都给时按日期取；latest 不受年份 / 日期
+        约束，与其他取值同传时另加上最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        ⚠️ 返回行的 period 是报告名，不说明是单季值：除一季报外都是该季度单季值——中报、三季报两行
+        与累计表同名（「2025年中报」「2025年三季报」），年报行写作「2025年报」（累计表是
+        「2025年年报」）。别按 period 标签与累计表合并或对位。
         """
         return await self._statement(
             "fundamental.income-statement-quarterly",
@@ -977,9 +1175,11 @@ class AsyncFundamental:
 
         period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
         （"2025annual" 这种写法服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，不是最新一期——只要最新一期就传
+        period="latest"。fiscal_year 或 start_date/end_date 单传返回该范围内各期，period 单传返回
+        所有该类报告（如 "annual" 即历年年报）；年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束（返回全部报告里的最新一期），与其他取值同传时另加上最新一期，按年份 / 日期取时别带它。
+        多期结果不按报告期排序，按 endDate 排好再用。
         """
         return await self._statement(
             "fundamental.balance-sheet",
@@ -1009,9 +1209,11 @@ class AsyncFundamental:
 
         period 报告期取值 q1/interim/q3/annual/latest，支持单值或列表；年份放 fiscal_year
         （"2025annual" 这种写法服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，不是最新一期——只要最新一期就传
+        period="latest"。fiscal_year 或 start_date/end_date 单传返回该范围内各期，period 单传返回
+        所有该类报告（如 "annual" 即历年年报）；年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束（返回全部报告里的最新一期），与其他取值同传时另加上最新一期，按年份 / 日期取时别带它。
+        多期结果不按报告期排序，按 endDate 排好再用。
         """
         return await self._statement(
             "fundamental.cash-flow",
@@ -1041,9 +1243,12 @@ class AsyncFundamental:
 
         period 单季报告期取值 q1/interim/q3/annual/latest，支持单值或列表；interim、annual 分别是
         截至 6/30、12/31 的那一季（q2 / q4 服务端报 100005）。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期的规则同累计表：都不传时返回全部历史报告期，只要最新一期就传
+        period="latest"；年份或日期单传返回该范围内各期，都给时按日期取；latest 不受年份 / 日期
+        约束，与其他取值同传时另加上最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        ⚠️ 返回行的 period 是报告名，不说明是单季值：除一季报外都是该季度单季值——中报、三季报两行
+        与累计表同名（「2025年中报」「2025年三季报」），年报行写作「2025年报」（累计表是
+        「2025年年报」）。别按 period 标签与累计表合并或对位。
         """
         return await self._statement(
             "fundamental.cash-flow-quarterly",
@@ -1072,9 +1277,17 @@ class AsyncFundamental:
         """查询港股利润表，中国会计准则（fundamental.income-statement-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，只要最新一期就传 period="latest"。
+        fiscal_year 或日期单传返回该范围内各期，period 单传返回所有该类报告；年份与日期都给时按日期
+        取。latest 单传时不受年份 / 日期约束（返回全部报告里的最新一期），与其他取值同传时不另加
+        最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        🔴 非 12 月财年的公司，fiscal_year 与返回的 fiscalYear 都按期末（endDate）所在的自然年算，
+        period 标签按公司财年：如 3 月财年的公司，fiscal_year=2026 返回截至 2026-03-31 的「2026年度
+        报告」与 2026 年 4 月起的「2027一季报」「2027半年报告」，fiscal_year=2027 取不到这两期。按
+        公司财年取数改用日期区间，或按 period 标签筛。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return await self._statement(
             "fundamental.income-statement-hk",
@@ -1103,9 +1316,14 @@ class AsyncFundamental:
         """查询港股资产负债表，中国会计准则（fundamental.balance-sheet-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，只要最新一期就传 period="latest"。
+        fiscal_year 或日期单传返回该范围内各期，period 单传返回所有该类报告；年份与日期都给时按日期
+        取。latest 单传时不受年份 / 日期约束（返回全部报告里的最新一期），与其他取值同传时不另加
+        最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        🔴 非 12 月财年的公司，fiscal_year 与返回的 fiscalYear 都按期末（endDate）所在的自然年算，
+        period 标签按公司财年：如 3 月财年的公司，fiscal_year=2026 返回截至 2026-03-31 的「2026年度
+        报告」与 2026 年 4 月起的「2027一季报」「2027半年报告」，fiscal_year=2027 取不到这两期。按
+        公司财年取数改用日期区间，或按 period 标签筛。
         """
         return await self._statement(
             "fundamental.balance-sheet-hk",
@@ -1134,9 +1352,17 @@ class AsyncFundamental:
         """查询港股现金流量表，中国会计准则（fundamental.cash-flow-hk）。
 
         period 港股报告期取值 q1/h1/q3/h2/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 period、fiscal_year、日期都不传时返回全部历史报告期，只要最新一期就传 period="latest"。
+        fiscal_year 或日期单传返回该范围内各期，period 单传返回所有该类报告；年份与日期都给时按日期
+        取。latest 单传时不受年份 / 日期约束（返回全部报告里的最新一期），与其他取值同传时不另加
+        最新一期。多期结果不按报告期排序，按 endDate 排好再用。
+        🔴 非 12 月财年的公司，fiscal_year 与返回的 fiscalYear 都按期末（endDate）所在的自然年算，
+        period 标签按公司财年：如 3 月财年的公司，fiscal_year=2026 返回截至 2026-03-31 的「2026年度
+        报告」与 2026 年 4 月起的「2027一季报」「2027半年报告」，fiscal_year=2027 取不到这两期。按
+        公司财年取数改用日期区间，或按 period 标签筛。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return await self._statement(
             "fundamental.cash-flow-hk",
@@ -1165,9 +1391,17 @@ class AsyncFundamental:
         """查询美股利润表（fundamental.income-statement-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 一次只取一个财年：请求跨多个财年（fiscal_year 给多个、日期区间覆盖同一报告期的两个期末、
+        或年份与日期都不给——含 period="annual" 单传）时，每种报告期与 report_type 的组合只返回
+        其中一年，不一定是最新那年、不报错。多年数据按 fiscal_year 逐年查；结果呈这种形态时发
+        UserWarning（按日期区间查、只能估算区间里是否有两个期末时措辞为「可能」：52 / 53 周财年的
+        两个期末相隔 364～371 天）。财年按公司财年计（如苹果的财年在 9 月底结束）。
+        单个财年内：fiscal_year 或日期单传返回该范围内各期，都给时按日期取；只要最新一期就传
+        period="latest"，它不受年份 / 日期约束，与其他取值同传时不另加最新一期。多期结果不按报告期
+        排序，按 endDate 排好再用。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return await self._statement(
             "fundamental.income-statement-us",
@@ -1196,9 +1430,14 @@ class AsyncFundamental:
         """查询美股资产负债表（fundamental.balance-sheet-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 一次只取一个财年：请求跨多个财年（fiscal_year 给多个、日期区间覆盖同一报告期的两个期末、
+        或年份与日期都不给——含 period="annual" 单传）时，每种报告期与 report_type 的组合只返回
+        其中一年，不一定是最新那年、不报错。多年数据按 fiscal_year 逐年查；结果呈这种形态时发
+        UserWarning（按日期区间查、只能估算区间里是否有两个期末时措辞为「可能」：52 / 53 周财年的
+        两个期末相隔 364～371 天）。财年按公司财年计（如苹果的财年在 9 月底结束）。
+        单个财年内：fiscal_year 或日期单传返回该范围内各期，都给时按日期取；只要最新一期就传
+        period="latest"，它不受年份 / 日期约束，与其他取值同传时不另加最新一期。多期结果不按报告期
+        排序，按 endDate 排好再用。
         """
         return await self._statement(
             "fundamental.balance-sheet-us",
@@ -1227,9 +1466,17 @@ class AsyncFundamental:
         """查询美股现金流量表（fundamental.cash-flow-us）。
 
         period 美股报告期取值 q1/h1/q3/nsd/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：fiscal_year、start_date/end_date 只在配了
-        这样的 period 时生效，period 也只在配了年份或日期时生效；只给一边（包括显式
-        period="latest"）都返回最新一期、不报错。年份与日期都给时按日期取。
+        🔴 一次只取一个财年：请求跨多个财年（fiscal_year 给多个、日期区间覆盖同一报告期的两个期末、
+        或年份与日期都不给——含 period="annual" 单传）时，每种报告期与 report_type 的组合只返回
+        其中一年，不一定是最新那年、不报错。多年数据按 fiscal_year 逐年查；结果呈这种形态时发
+        UserWarning（按日期区间查、只能估算区间里是否有两个期末时措辞为「可能」：52 / 53 周财年的
+        两个期末相隔 364～371 天）。财年按公司财年计（如苹果的财年在 9 月底结束）。
+        单个财年内：fiscal_year 或日期单传返回该范围内各期，都给时按日期取；只要最新一期就传
+        period="latest"，它不受年份 / 日期约束，与其他取值同传时不另加最新一期。多期结果不按报告期
+        排序，按 endDate 排好再用。
+        ⚠️ period 只给 latest 时（带不带年份 / 日期都一样）可能回两行：同一 endDate，一行是报告期
+        累计，另一行 period 为空串、是最近一个季度的单季值（startDate 为该季度首日）。要累计数取
+        period 非空那行；两行先后不固定，别直接取第一行。
         """
         return await self._statement(
             "fundamental.cash-flow-us",
@@ -1350,8 +1597,10 @@ class AsyncFundamental:
 
         holder_type 取值 top10=前十大股东 / top10Float=前十大流通股东；
         period 取值 q1/interim/q3/annual/latest，支持单值或列表。
-        🔴 按年份或日期取，要同时给 latest 以外的 period：只给一边（包括显式 period="latest"）
-        都返回最新一期、不报错，规则同三大报表。
+        🔴 period、fiscal_year、日期都不传时返回全部报告期，只要最新一期就传 period="latest"；
+        fiscal_year 或日期单传返回该范围内各期，年份与日期都给时按日期取。latest 不受年份 / 日期
+        约束，与其他取值同传时另加上最新一期。多期结果按 reportPeriod 分组、期内按 rank 排，每期
+        行数不固定（早年有的期只有 6～8 名），别按十行切分。
         """
         body = _request_body(
             {

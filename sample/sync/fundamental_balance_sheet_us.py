@@ -12,20 +12,21 @@ from gangtise_openapi import gangtise
 
 
 def main():
-    # 示例 1 · 最简调用: 仅传必填美股代码
+    # 示例 1 · 最简调用: 美股代码 + 单个财年（美股一次只取一个财年; 不带条件时每种报告期只回某一年, 并发 UserWarning）
     show_result(
-        gangtise.fundamental.balance_sheet_us(security_code="AAPL.O"),  # 单个美股代码
+        gangtise.fundamental.balance_sheet_us(
+            security_code="AAPL.O",  # 单个美股代码
+            fiscal_year=2025,  # 单个财年
+        ),
         __file__,
     )
 
-    # 示例 2 · 时间窗 + 报告期过滤
+    # 示例 2 · 单个财年 + 报告期过滤
     show_result(
         gangtise.fundamental.balance_sheet_us(
             security_code="TSLA.O",  # 单个美股代码, 如 AAPL.O/TSLA.O
-            start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
-            end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
+            fiscal_year=2025,  # 财年; 多年按年逐个查（跨财年时每种报告期只回一年, 发 UserWarning）
             period=["h1", "annual"],  # 美股报告期: q1/h1/q3/nsd/annual/latest, 支持单值或列表
-            fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表; 与日期都给时按日期取
         ),
         __file__,
     )
@@ -35,15 +36,13 @@ def main():
         gangtise.fundamental.balance_sheet_us(
             security_code="AAPL.O",
             period="latest",  # latest=最新报告期
-            field=[
-                "totalAssets",
-                "totalLiabilities",
-            ],  # 返回字段, 支持单值或列表; 省略则用服务端默认字段
+            field=["totalAssets", "totalLiab"],  # 返回字段; 省略返回完整报表, 写错字段名报 100005
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,
     )
     # 其余可选参数:
+    #   start_date / end_date=<YYYY-MM-DD>   日期区间, 与 fiscal_year 都给时按日期取; 区间别覆盖同一报告期的两个期末
     #   report_type=<报告类型>   报表类型: consolidated 合并(默认) / consolidatedRestated 合并(调整) / standalone 母公司 / standaloneRestated 母公司(调整); 支持单值或列表
 
 

@@ -14,7 +14,7 @@ from gangtise_openapi import gangtise
 
 
 async def main():
-    # 示例 1 · 最简调用: 仅传必填证券代码, 取服务端默认期间与字段
+    # 示例 1 · 最简调用: 仅传必填证券代码, 返回全部历史报告期（不按报告期排序）
     show_result(
         await gangtise.async_.fundamental.income_statement(
             security_code="000001.SZ"
@@ -29,7 +29,7 @@ async def main():
             start_date="2024-01-01",  # 起始日期 YYYY-MM-DD
             end_date="2026-05-28",  # 结束日期 YYYY-MM-DD
             fiscal_year=[2024, 2025],  # 财年过滤, 支持单值或列表; 与日期都给时按日期取
-            period=["interim", "annual"],  # 报告期; 不配年份或日期时返回最新一期
+            period=["interim", "annual"],  # 报告期; 只留这几类报告, 不传则返回范围内各期
         ),
         __file__,
     )
@@ -38,9 +38,9 @@ async def main():
     show_result(
         await gangtise.async_.fundamental.income_statement(
             security_code="000001.SZ",
-            fiscal_year=2025,  # 财年, 要和 period 一起传
+            fiscal_year=2025,  # 财年; 单传返回该年各期
             period="annual",  # 报告期: q1/interim/q3/annual/latest, 支持单值或列表
-            field=["revenue", "netProfit"],  # 返回字段, 支持单值或列表; 省略则用服务端默认字段
+            field=["totalOpRev", "netProfit"],  # 返回字段; 省略返回完整报表, 写错字段名报 100005
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

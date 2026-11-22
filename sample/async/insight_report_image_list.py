@@ -23,13 +23,14 @@ async def main():
         __file__,
     )
 
-    # 示例 2 · 控制条数 + 限定研报
+    # 示例 2 · 控制条数 + 限定研报与发布时间
     show_result(
         await gangtise.async_.insight.report_image_list(
             keyword="新能源汽车",
             top=20,  # 最大返回数, 默认 10, 上限 20（超限本地报错; 服务端会静默截断）
             # source_id="<研报ID>",         # 限定到某篇研报（可从研报列表或知识库取）
-            # start_time / end_time 目前不起筛选作用, 要限定时间按返回的 publishTime 自行过滤
+            start_time="2026-01-01",  # 按图片所属研报的发布时间筛选, yyyy-MM-dd 自动补全
+            end_time="2026-07-01 23:59:59",
         ),
         __file__,
     )

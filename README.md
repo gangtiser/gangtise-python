@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 164 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.52.1 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 164 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.52.2 功能对齐。
 
 - **覆盖面**：观点（含海外媒体与投资人观点）、研报、公告、纪要与会议、行情 K 线与资金流向、指数成分权重、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容、专家情报与管理层情绪、个人云盘、股票池与个股笔记、微信群消息与群文件、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
@@ -12,6 +12,13 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.8 - 2026-11-22
+- 与 CLI **v0.52.2** 对齐，无新增接口。
+- ⚠️ **服务端口径变化**（SDK 发出的请求不变，旧版本同样受影响）：三大报表与十大股东不传 `period` / `fiscal_year` / 日期时返回**全部历史报告期**，不再是最新一期——要最新一期传 `period="latest"`；按年份或日期取直接传，不必再配 `period`；多期结果不按报告期排序，按 `endDate` 排好再用。三大报表的 `field` 写了不存在的字段名整条报 `100005`，不再补 null。
+- **美股三张表一次只取一个财年**：跨多个财年时每种报告期与报表类型的组合只返回其中一年、不报错，SDK 发 `UserWarning`；多年数据按 `fiscal_year` 逐年查。
+- `insight.report_image_list` 的 `start_time` / `end_time` 现在按研报发布时间筛选。
+- 文档：港股 / 美股利润表与现金流量表只给 `period="latest"` 时可能多一行最近一季的单季值（`period` 为空），要累计数取 `period` 非空那行；港股非 12 月财年公司的 `fiscal_year` 按期末所在自然年算；单季报表的 `period` 标签是单季值，别与累计表按标签合并。
 
 ### 0.5.7 - 2026-11-14
 - 与 CLI **v0.52.1** 对齐，无新增接口。
@@ -40,12 +47,6 @@
 - `vault.stock_pool_list` / `stock_pool_stocks` 新增 `space_type`（`2` 查所属租户的股票池）；路演 / 调研 / 策略会 / 论坛列表新增 `publish_start_time` / `publish_end_time`（按收录时间筛选）。
 - `indicator.time_series` 不传 `calendar_type` 时不再先查 `indicator.search`、也不再自动发 `TD`，由服务端选日期轴（纯交易日类序列结果不变）；空结果的告警先指向日期轴。⚠️ **服务端口径变化（0.5.3 同样受影响）**：不传 `calendarType` 时服务端按指标定日期轴（行情类交易日、报告期类报告期、混查取并集），报告期类不再返回逐日 null 行，区间里没有报告期末时返回空结果；一致预期类（`frcst_*`）要逐日序列请传 `calendar_type="ND"`。
 - `fund.etf_pcf_components` 补码：同名证券在两个市场都有时，实时价对得上还要另一市场那只的近期收盘价对不上才采用；没补上代码的行里有一行可能在两个市场（含价格同时对得上 A / H 的行）时，不按其余行推断 ETF 的市场，这类行为 null。含 A / H 同名成分的 ETF 每次都会查日 K（免费；此前只在有行与实时价对不上时才查）。
-
-### 0.5.3 - 2026-10-28
-- 与 CLI **v0.49.0** 对齐，无新增接口。
-- 🔴 **`fund.etf_pcf_components`**：接口只返回成分名称，SDK 按名称匹配、用收盘价核对，补上带市场后缀的 `componentCode`（如 `600519.SH`，A+H 同名两行据此分开）；匹配不到的为 null，并发 `UserWarning` 列出。额外请求都免费，`component_code=False` 关闭。
-- ⚠️ **服务端口径变化**：管理层情绪的 `publishTime` 现为北京时间（按 0.5.2 说明「先加 8 小时」的处理要去掉）；`fund.holder_structure` 的 `holderCount` 现为整数（去千分位逗号的处理要去掉）。
-- 文档：`ai.security_clue_list` 的 `gts_code` 按 `query_mode` 传股票代码或申万行业码。
 
 ## 安装
 
@@ -169,6 +170,8 @@ asyncio.run(main())
 | `omittedIndicators` / `omittedSecurities` | 指标矩阵：服务端不认识的指标或证券代码从结果里消失了（多为拼写或市场后缀错误） |
 | `missingIds` / `unfetchedIds` / `unfetchedError` | 观点正文：部分 ID 没有正文 / 后面的批次失败，这些 ID 未取到，失败原因在 `unfetchedError` |
 | `failList` | 股票池、个股笔记与云盘的批量写操作：请求成功但其中部分条目失败（列表非空即标 `partial`） |
+
+另有一类告警只提示、不标 `partial`：SDK 只能从返回的形态推断、不能确证缺了什么，结果原样返回。例如序列首行晚于 `start_date`（上市较晚或超出账号可回溯窗口），美股三张报表跨多个财年时每种报告期只回了一年。
 
 ## 关于日期格式
 

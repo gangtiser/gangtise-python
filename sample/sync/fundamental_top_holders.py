@@ -12,7 +12,7 @@ from gangtise_openapi import gangtise
 
 
 def main():
-    # 示例 1 · 最简调用: 证券代码 + 股东类型（必填）
+    # 示例 1 · 最简调用: 证券代码 + 股东类型（必填）; 返回全部报告期, 按 reportPeriod 分组、期内按 rank 排
     show_result(
         gangtise.fundamental.top_holders(
             security_code="000001.SZ",  # 单个证券代码

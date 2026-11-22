@@ -141,7 +141,7 @@ def test_income_statement_us(tmp_path):
             return_value=_row_response({"securityCode": "TSLA.O", "revenue": 250.0}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Fundamental(client).income_statement_us(security_code="TSLA.O")
+            df = Fundamental(client).income_statement_us(security_code="TSLA.O", fiscal_year=2025)
     assert df.iloc[0]["securityCode"] == "TSLA.O"
 
 
@@ -151,7 +151,7 @@ def test_balance_sheet_us(tmp_path):
             return_value=_row_response({"securityCode": "TSLA.O", "totalAssets": 12345.0}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Fundamental(client).balance_sheet_us(security_code="TSLA.O")
+            df = Fundamental(client).balance_sheet_us(security_code="TSLA.O", fiscal_year=2025)
     assert df.iloc[0]["totalAssets"] == 12345.0
 
 
@@ -161,7 +161,7 @@ def test_cash_flow_us(tmp_path):
             return_value=_row_response({"securityCode": "TSLA.O", "operatingCashFlow": 77.0}),
         )
         with GangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = Fundamental(client).cash_flow_us(security_code="TSLA.O")
+            df = Fundamental(client).cash_flow_us(security_code="TSLA.O", fiscal_year=2025)
     assert df.iloc[0]["operatingCashFlow"] == 77.0
 
 
@@ -787,3 +787,256 @@ def test_earning_forecast_costly_range_needs_confirm(tmp_path):
     assert [b["startDate"] for b in bodies] == ["2025-09-30", "2016-01-01"]
     # confirm is a local switch, never a wire field.
     assert all("confirm" not in b for b in bodies)
+
+
+# ─────────────── US statements: one fiscal year per request (TS v0.52.2) ───────────────
+
+_US_PATHS = {
+    "income_statement_us": "/application/open-fundamental/financial-report/income-statement/us",
+    "balance_sheet_us": "/application/open-fundamental/financial-report/balance-sheet/us",
+    "cash_flow_us": "/application/open-fundamental/financial-report/cash-flow-statement/us",
+}
+# AAPL.O's own period ends (fiscal years 2016-2026, probed 2026-11-22): all Saturdays,
+# some of them month-ends too (2016-12-31, 2017-09-30, 2018-03-31, 2022-12-31, 2023-09-30).
+_APPLE = {
+    2016: {"q1": "2015-12-26", "h1": "2016-03-26", "q3": "2016-06-25", "annual": "2016-09-24"},
+    2017: {"q1": "2016-12-31", "h1": "2017-04-01", "q3": "2017-07-01", "annual": "2017-09-30"},
+    2018: {"q1": "2017-12-30", "h1": "2018-03-31", "q3": "2018-06-30", "annual": "2018-09-29"},
+    2019: {"q1": "2018-12-29", "h1": "2019-03-30", "q3": "2019-06-29", "annual": "2019-09-28"},
+    2020: {"q1": "2019-12-28", "h1": "2020-03-28", "q3": "2020-06-27", "annual": "2020-09-26"},
+    2021: {"q1": "2020-12-26", "h1": "2021-03-27", "q3": "2021-06-26", "annual": "2021-09-25"},
+    2022: {"q1": "2021-12-25", "h1": "2022-03-26", "q3": "2022-06-25", "annual": "2022-09-24"},
+    2023: {"q1": "2022-12-31", "h1": "2023-04-01", "q3": "2023-07-01", "annual": "2023-09-30"},
+    2024: {"q1": "2023-12-30", "h1": "2024-03-30", "q3": "2024-06-29", "annual": "2024-09-28"},
+    2025: {"q1": "2024-12-28", "h1": "2025-03-29", "q3": "2025-06-28", "annual": "2025-09-27"},
+    2026: {"q1": "2025-12-27", "h1": "2026-03-28", "q3": "2026-06-27", "annual": "2026-09-26"},
+}
+_FIELDS = ["securityCode", "endDate", "fiscalYear", "period", "reportType"]
+
+
+def _period_end(code: str, fy: int, period: str) -> str | None:
+    if code in ("CAL.N", "OFFMONTH.N"):
+        h1 = f"{fy}-06-30" if code == "CAL.N" else f"{fy}-06-29"  # made up: one end off a month-end
+        ends = {"q1": f"{fy}-03-31", "h1": h1, "q3": f"{fy}-09-30", "annual": f"{fy}-12-31"}
+        return ends.get(period)
+    return _APPLE.get(fy, {}).get(period)
+
+
+def _us_statement_stub(request: httpx.Request) -> httpx.Response:
+    """As the US statements answered on 2026-11-22: the reports of the fiscal years or the
+    date range asked (the dates override the years; neither = every year), then one fiscal
+    year per period type and report type — the first; LASTYEAR.O the last; SPLITRT.O the
+    first for the first report type and the last for the others (2023 restated beside 2025
+    consolidated, as AAPL.O answered); EACHYEAR.O every year, as the endpoint should.
+    BADDATE.O answers ``00000000``. ``latest`` alone answers two rows with different labels."""
+    body = json.loads(request.read())
+    code = body["securityCode"]
+    asked_periods = body.get("period") or []
+
+    def ok(rows):
+        data = {"total": len(rows), "fieldList": _FIELDS, "list": rows}
+        return httpx.Response(200, json={"code": "000000", "status": True, "data": data})
+
+    if asked_periods and all(p == "latest" for p in asked_periods):
+        return ok(
+            [
+                [code, "20260926", "2026", "", "consolidated"],
+                [code, "20260926", "2026", "annual", "consolidated"],
+            ]
+        )
+    periods = [p for p in asked_periods if p != "latest"] or ["q1", "h1", "q3", "annual"]
+    types = body.get("reportType") or ["consolidated"]
+    start, end = body.get("startDate"), body.get("endDate")
+    years = {str(y) for y in body.get("fiscalYear") or []}
+    asked = []
+    for fy in _APPLE:
+        for p in periods:
+            for t in types:
+                e = _period_end(code, fy, p)
+                if e is None:
+                    continue
+                if start or end:
+                    if (start and e < start) or (end and e > end):
+                        continue
+                elif years and str(fy) not in years:
+                    continue
+                asked.append((fy, p, t, e))
+
+    def group(r):
+        return [o for o in asked if o[1] == r[1] and o[2] == r[2]]
+
+    def first(r):
+        return not any(o[0] < r[0] for o in group(r))
+
+    def last(r):
+        return not any(o[0] > r[0] for o in group(r))
+
+    if code == "EACHYEAR.O":
+        kept = asked
+    elif code == "LASTYEAR.O":
+        kept = [r for r in asked if last(r)]
+    elif code == "SPLITRT.O":
+        kept = [r for r in asked if (first(r) if r[2] == types[0] else last(r))]
+    else:
+        kept = [r for r in asked if first(r)]
+    rows = [
+        [code, "00000000" if code == "BADDATE.O" else e.replace("-", ""), str(fy), p, t]
+        for fy, p, t, e in kept
+    ]
+    return ok(rows)
+
+
+def _us_call(tmp_path, method: str, code: str, **kwargs):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_US_PATHS[method]).mock(side_effect=_us_statement_stub)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            return getattr(Fundamental(client), method)(security_code=code, **kwargs)
+
+
+_ONE_YEAR_ONLY = "came back for one fiscal year only"
+_MAYBE = "may hold two ends of the same period type"
+_BOTH_TYPES = ["consolidated", "consolidatedRestated"]
+
+
+@pytest.mark.parametrize(
+    ("method", "code", "kwargs"),
+    [
+        # Two or three years (also with two report types, each kept for a different year).
+        ("income_statement_us", "AAPL.O", {"fiscal_year": [2024, 2025], "period": "annual"}),
+        (
+            "income_statement_us",
+            "AAPL.O",
+            {"fiscal_year": [2024, 2025], "period": "annual", "report_type": _BOTH_TYPES},
+        ),
+        (
+            "cash_flow_us",
+            "SPLITRT.O",
+            {"fiscal_year": [2023, 2024, 2025], "period": "annual", "report_type": _BOTH_TYPES},
+        ),
+        # A long range; a range past 371 days from the one end that came back; a
+        # calendar-quarter company's range across two year-ends.
+        ("balance_sheet_us", "AAPL.O", {"start_date": "2015-01-01", "end_date": "2025-12-31"}),
+        (
+            "income_statement_us",
+            "AAPL.O",
+            {"start_date": "2022-09-24", "end_date": "2023-09-30", "period": "annual"},
+        ),
+        ("income_statement_us", "CAL.N", {"start_date": "2019-01-01", "end_date": "2020-12-31"}),
+        # No year or dates: the whole history.
+        ("cash_flow_us", "AAPL.O", {}),
+        # Open at one side: everything up to the end date, or from the start up to today.
+        ("income_statement_us", "AAPL.O", {"end_date": "2025-12-31", "period": "annual"}),
+        ("balance_sheet_us", "AAPL.O", {"start_date": "2016-01-01", "period": "annual"}),
+    ],
+)
+def test_us_statement_spanning_years_with_one_year_back_warns(tmp_path, method, code, kwargs):
+    with pytest.warns(UserWarning, match=_ONE_YEAR_ONLY) as record:
+        df = _us_call(tmp_path, method, code, **kwargs)
+    assert not any(_MAYBE in str(w.message) for w in record)
+    assert len(df) > 0
+    assert record[0].filename == __file__  # points at the caller, not the SDK
+
+
+@pytest.mark.parametrize(
+    ("code", "kwargs"),
+    [
+        # One end came back and the range reaches 364 days from it but not 371 — two
+        # 52-week year-ends (2023-09-30 is a month-end as well; either end kept), or one
+        # end whose next is 371 days on (one report in the range, yet the dates cannot tell).
+        ("AAPL.O", {"start_date": "2023-09-30", "end_date": "2024-09-28", "period": "annual"}),
+        ("LASTYEAR.O", {"start_date": "2023-09-30", "end_date": "2024-09-28", "period": "annual"}),
+        ("AAPL.O", {"start_date": "2024-09-28", "end_date": "2025-09-27", "period": "annual"}),
+        ("AAPL.O", {"start_date": "2022-09-24", "end_date": "2023-09-23", "period": "annual"}),
+        # Two month-end ends, but both Saturdays: not calendar quarters.
+        (
+            "AAPL.O",
+            {"start_date": "2022-12-31", "end_date": "2023-12-30", "period": ["q1", "annual"]},
+        ),
+        # One end alone does not say which calendar the company keeps.
+        ("CAL.N", {"start_date": "2020-01-01", "end_date": "2020-12-31", "period": "annual"}),
+        # Ends on two weekdays, one of them off a month-end: not calendar quarters either.
+        (
+            "OFFMONTH.N",
+            {"start_date": "2020-01-01", "end_date": "2020-12-31", "period": ["h1", "annual"]},
+        ),
+    ],
+)
+def test_us_statement_range_that_may_hold_two_ends_says_maybe(tmp_path, code, kwargs):
+    with pytest.warns(UserWarning, match=_MAYBE):
+        _us_call(tmp_path, "cash_flow_us", code, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("code", "kwargs"),
+    [
+        # One fiscal year: a single fiscal_year, a calendar-year range (52-week and
+        # calendar-quarter companies alike), dates that override two years, latest alone.
+        ("AAPL.O", {"fiscal_year": 2025}),
+        ("AAPL.O", {"start_date": "2020-01-01", "end_date": "2020-12-31"}),
+        ("CAL.N", {"start_date": "2020-01-01", "end_date": "2020-12-31"}),
+        (
+            "AAPL.O",
+            {"fiscal_year": [2019, 2020], "start_date": "2020-01-01", "end_date": "2020-12-31"},
+        ),
+        ("AAPL.O", {"period": "latest"}),
+        # Every year back, a type covers two: quiet, over years, report types and the
+        # 364-day range.
+        ("EACHYEAR.O", {"fiscal_year": [2024, 2025]}),
+        ("EACHYEAR.O", {"fiscal_year": [2023, 2024], "report_type": _BOTH_TYPES}),
+        ("EACHYEAR.O", {"start_date": "2024-09-28", "end_date": "2025-09-27", "period": "annual"}),
+        # An end date that is not a day is skipped, not raised on: the rows still come back.
+        ("BADDATE.O", {"start_date": "2023-09-30", "end_date": "2024-09-28", "period": "annual"}),
+    ],
+)
+def test_us_statement_within_one_year_or_complete_is_quiet(tmp_path, code, kwargs):
+    df = _us_call(tmp_path, "income_statement_us", code, **kwargs)  # UserWarning is an error
+    assert len(df) > 0
+
+
+def test_us_statement_note_also_on_raw(tmp_path):
+    with pytest.warns(UserWarning, match=_ONE_YEAR_ONLY):
+        out = _us_call(
+            tmp_path, "income_statement_us", "AAPL.O", fiscal_year=[2024, 2025], raw=True
+        )
+    assert "partial" not in out  # a note only: the rows come back as answered
+    assert [row[2] for row in out["list"]] == ["2024", "2024", "2024", "2024"]
+
+
+def test_us_statement_note_skips_a_layout_the_dataframe_path_refuses(tmp_path):
+    broken = {"fieldList": _FIELDS, "list": [["AAPL.O", "20240928", "2024"]]}
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(_US_PATHS["income_statement_us"]).mock(
+            return_value=httpx.Response(
+                200, json={"code": "000000", "status": True, "data": broken}
+            )
+        )
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            assert (
+                Fundamental(client).income_statement_us(security_code="AAPL.O", raw=True) == broken
+            )
+            with pytest.raises(ValidationError):
+                Fundamental(client).income_statement_us(security_code="AAPL.O")
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        (
+            "income_statement",
+            "/application/open-fundamental/financial-report/income-statement/accumulated",
+        ),
+        (
+            "income_statement_hk",
+            "/application/open-fundamental/financial-report/income-statement/hk",
+        ),
+    ],
+)
+def test_one_year_note_stays_off_the_a_share_and_hk_statements(tmp_path, method, path):
+    # They answer every report; one row per period type here is not the US cut.
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post(path).mock(side_effect=_us_statement_stub)
+        with GangtiseClient(_config=_cfg(tmp_path)) as client:
+            df = getattr(Fundamental(client), method)(
+                security_code="600519.SH", fiscal_year=[2024, 2025]
+            )
+    assert len(df) > 0

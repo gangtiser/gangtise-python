@@ -5,6 +5,43 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.8] - 2026-11-22
+
+与 `gangtise-openapi-cli` **v0.52.2** 对齐，无新增接口。
+
+### 变更
+
+以下是服务端口径变化（2026-11-20 起）：SDK 发出的请求不变，0.5.7 及更早版本同样受影响。
+
+- ⚠️ **三大报表（A 股累计与单季、港股、美股）与 `fundamental.top_holders` 不传 `period`、`fiscal_year`、日期时返回
+  全部历史报告期**，不再是最新一期。只要最新一期的代码要加 `period="latest"`。按年份或日期取直接传 `fiscal_year` /
+  `start_date` `end_date`，不必再配 `period`；`period="annual"` 单传返回所有年报。`latest` 不受年份 / 日期约束：单传时
+  返回全部报告里的最新一期；与其他取值同传时，A 股报表与十大股东另加上最新一期，港股、美股报表不加。报表多期结果
+  不按报告期排序，按 `endDate` 排好再用；十大股东按 `reportPeriod` 分组、期内按 `rank` 排，每期行数不固定。
+- ⚠️ **三大报表的 `field` 写了不存在的字段名时整条报 `ApiError`（`100005`）并点名**，不再补 null 列。
+- `insight.report_image_list` 的 `start_time` / `end_time` 现在按图片所属研报的发布时间筛选（`publishTime` 只到日期，
+  起止写同一天即取当天）。
+
+### 新增
+
+- **美股三张表跨多个财年时发 `UserWarning`**：服务端一次只取一个财年——`fiscal_year` 给多个、日期区间覆盖同一报告期
+  的两个期末（52 / 53 周财年的两个年末可能只隔 364 天）、或年份与日期都不给（含 `period="annual"` 单传）时，每种
+  报告期与 `report_type` 的组合只返回其中一年，不一定是最新那年、不报错。结果呈这种形态时 SDK 告警（按日期区间查、
+  只能估算区间里是否有两个期末时措辞为「可能」），返回不变、不标 `partial`。多年数据按 `fiscal_year` 逐年查。
+
+### 文档
+
+- 港股、美股的利润表与现金流量表在 `period` 只给 `"latest"` 时（带不带年份 / 日期都一样）可能回两行：同一 `endDate`，
+  一行是报告期累计，另一行 `period` 为空串、是最近一个季度的单季值（`startDate` 为该季度首日）。要累计数取 `period`
+  非空那行；两行先后不固定，别直接取第一行。
+- 港股非 12 月财年的公司，`fiscal_year` 与返回的 `fiscalYear` 按期末所在的自然年算，`period` 标签按公司财年：3 月财年
+  公司的「2027一季报」「2027半年报告」在 `fiscal_year=2026` 下。按公司财年取数改用日期区间，或按 `period` 标签筛。
+  美股按公司财年计。
+- 单季报表（`income_statement_quarterly` / `cash_flow_quarterly`）返回行的 `period` 是报告名：除一季报外都是该季度
+  单季值，中报、三季报两行与累计表同名，年报行写作「2025年报」（累计表是「2025年年报」），别按标签与累计表合并。
+- 报表示例里写错的字段名（如 `revenue`、`netOperateCashFlow`）已更正为 `totalOpRev`、`netOpCashFlows` 等，此前这几个
+  示例运行到按字段取数时会报错；美股示例改为按单个财年取。
+
 ## [0.5.7] - 2026-11-14
 
 与 `gangtise-openapi-cli` **v0.52.1** 对齐，无新增接口。

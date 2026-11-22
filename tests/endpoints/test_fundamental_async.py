@@ -420,7 +420,9 @@ async def test_async_income_statement_us(tmp_path):
             return_value=_matrix_response(["securityCode", "revenue"], [["TSLA.O", 250.0]])
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = await AsyncFundamental(client).income_statement_us(security_code="TSLA.O")
+            df = await AsyncFundamental(client).income_statement_us(
+                security_code="TSLA.O", fiscal_year=2025
+            )
     assert df.iloc[0]["securityCode"] == "TSLA.O"
 
 
@@ -431,7 +433,9 @@ async def test_async_balance_sheet_us(tmp_path):
             return_value=_matrix_response(["securityCode", "totalAssets"], [["TSLA.O", 12345.0]])
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = await AsyncFundamental(client).balance_sheet_us(security_code="TSLA.O")
+            df = await AsyncFundamental(client).balance_sheet_us(
+                security_code="TSLA.O", fiscal_year=2025
+            )
     assert df.iloc[0]["totalAssets"] == 12345.0
 
 
@@ -442,7 +446,9 @@ async def test_async_cash_flow_us(tmp_path):
             return_value=_matrix_response(["securityCode", "operatingCashFlow"], [["TSLA.O", 77.0]])
         )
         async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
-            df = await AsyncFundamental(client).cash_flow_us(security_code="TSLA.O")
+            df = await AsyncFundamental(client).cash_flow_us(
+                security_code="TSLA.O", fiscal_year=2025
+            )
     assert df.iloc[0]["operatingCashFlow"] == 77.0
 
 
@@ -636,3 +642,41 @@ async def test_async_earning_forecast_costly_range_needs_confirm(tmp_path):
         body = json.loads(route.calls.last.request.read())
     assert body["startDate"] == "2016-01-01"
     assert "confirm" not in body
+
+
+# ─────────────── US statements: one fiscal year per request (TS v0.52.2) ───────────────
+
+
+def _one_annual_report(year: str) -> httpx.Response:
+    return _matrix_response(
+        ["securityCode", "endDate", "fiscalYear", "period", "reportType"],
+        [["AAPL.O", "20240928", year, "年度报告", "合并报表"]],
+    )
+
+
+@pytest.mark.anyio
+async def test_async_us_statement_spanning_years_with_one_year_back_warns(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/cash-flow-statement/us").mock(
+            return_value=_one_annual_report("2024")
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            with pytest.warns(UserWarning, match="came back for one fiscal year only") as record:
+                df = await AsyncFundamental(client).cash_flow_us(
+                    security_code="AAPL.O", fiscal_year=[2024, 2025], period="annual"
+                )
+    assert len(df) == 1
+    assert record[0].filename == __file__
+
+
+@pytest.mark.anyio
+async def test_async_us_statement_single_year_is_quiet(tmp_path):
+    with respx.mock(base_url="https://api.test", assert_all_called=True) as router:
+        router.post("/application/open-fundamental/financial-report/cash-flow-statement/us").mock(
+            return_value=_one_annual_report("2024")
+        )
+        async with AsyncGangtiseClient(_config=_cfg(tmp_path)) as client:
+            out = await AsyncFundamental(client).cash_flow_us(
+                security_code="AAPL.O", fiscal_year=2024, period="annual", raw=True
+            )
+    assert out["list"][0][2] == "2024"

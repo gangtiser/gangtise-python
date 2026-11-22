@@ -14,7 +14,7 @@ from gangtise_openapi import gangtise
 
 
 async def main():
-    # 示例 1 · 最简调用: 仅传必填证券代码
+    # 示例 1 · 最简调用: 仅传必填证券代码, 返回全部历史报告期（不按报告期排序）
     show_result(
         await gangtise.async_.fundamental.income_statement_quarterly(
             security_code="000001.SZ"  # 单个证券代码
@@ -39,7 +39,7 @@ async def main():
         await gangtise.async_.fundamental.income_statement_quarterly(
             security_code="000001.SZ",
             period="latest",  # latest=最新单季
-            field=["revenue", "netProfit"],  # 返回字段, 支持单值或列表; 省略则用服务端默认字段
+            field=["totalOpRev", "netProfit"],  # 返回字段; 省略返回完整报表, 写错字段名报 100005
             raw=True,  # True=返回服务端原始 data, 不转 DataFrame
         ),
         __file__,

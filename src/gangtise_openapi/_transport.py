@@ -19,7 +19,11 @@ from gangtise_openapi._errors import (
     EDE_NO_DATA_HINT,
     NO_REPLAY_SIDE_EFFECT_HINT,
     NO_REPLAY_UNCERTAIN_HINT,
+    PROXY_AUTH_HINT,
+    TUNNEL_DROPPED_ERRORS,
     ApiError,
+    connection_hint,
+    failed_before_tunnel,
 )
 from gangtise_openapi._logging import get_logger
 
@@ -130,13 +134,29 @@ def parse_retry_after_ms(value: str | None, now: float) -> float | None:
     return max(0.0, parsed.timestamp() - now) * 1000.0
 
 
-def build_sync_client(config: Config) -> httpx.Client:
-    timeout = httpx.Timeout(config.timeout_ms / 1000.0)
+def client_limits(config: Config) -> httpx.Limits:
     # Never fewer sockets than the fan-out width, or GANGTISE_PAGE_CONCURRENCY above
     # the pool size would only queue requests inside httpx (TS v0.42.0).
     pool = max(16, config.page_concurrency)
-    limits = httpx.Limits(max_connections=pool, max_keepalive_connections=pool, keepalive_expiry=60)
-    return httpx.Client(base_url=config.base_url, timeout=timeout, limits=limits)
+    return httpx.Limits(max_connections=pool, max_keepalive_connections=pool, keepalive_expiry=60)
+
+
+def log_proxy(config: Config) -> None:
+    if config.proxy:
+        # Host and port only: the URL may carry a password.
+        url = httpx.URL(config.proxy)
+        shown = f"{url.host}:{url.port}" if url.port is not None else url.host
+        logger.debug("[gangtise] requests go through the proxy at %s (GANGTISE_PROXY)", shown)
+
+
+def build_sync_client(config: Config) -> httpx.Client:
+    timeout = httpx.Timeout(config.timeout_ms / 1000.0)
+    log_proxy(config)
+    # The transport is passed in so that httpx reads no proxy from the environment
+    # (HTTPS_PROXY / ALL_PROXY): only GANGTISE_PROXY routes these requests (TS v0.53.0).
+    # The transport still honors SSL_CERT_FILE / SSL_CERT_DIR.
+    transport = httpx.HTTPTransport(limits=client_limits(config), proxy=config.proxy)
+    return httpx.Client(base_url=config.base_url, timeout=timeout, transport=transport)
 
 
 def _success_code(code: Any) -> bool:
@@ -287,7 +307,8 @@ def is_retryable_error(error: BaseException, policy: RetryPolicy = "default") ->
     """Whether the retry loop may resend after ``error`` under ``policy``.
 
     "no-replay" (per-call billed endpoints): only 429 (rejected before
-    processing) and connect-phase failures (request never sent) retry —
+    processing) and connect-phase failures (request never sent, a proxy tunnel that was
+    dropped before it opened included) retry —
     5xx / response timeouts / 999999 fail fast so a request the server may have
     executed is never re-billed. The client-level token self-heal sits outside
     this loop and is unaffected. "no-999999" (EDE): the no-data code 999999 is
@@ -303,6 +324,16 @@ def is_retryable_error(error: BaseException, policy: RetryPolicy = "default") ->
         if error.code in RETRYABLE_API_CODES:
             return policy != "no-999999"
         return error.status_code in RETRYABLE_HTTP_STATUS
+    if isinstance(error, (httpx.ReadTimeout, *TUNNEL_DROPPED_ERRORS)) and failed_before_tunnel(
+        error
+    ):
+        # The proxy did not open the tunnel, so the request never reached the API. Dropped
+        # or answered with something other than HTTP: sent again under any policy, like a
+        # connection never made (TS v0.53.0). Left unanswered for the whole timeout: not
+        # sent again, as that only waits as long again (the CLI caps the tunnel at 10 s;
+        # httpcore gives it the request's own timeout, up to 300 s here). A tunnel the proxy
+        # refused (httpx.ProxyError, a 407) keeps the usual rule: not retried.
+        return not isinstance(error, httpx.ReadTimeout)
     if policy == "no-replay":
         return isinstance(error, _CONNECT_PHASE_EXC)
     return isinstance(error, _RETRYABLE_HTTPX_EXC)
@@ -311,8 +342,27 @@ def is_retryable_error(error: BaseException, policy: RetryPolicy = "default") ->
 def is_transient_error(error: BaseException) -> bool:
     """Errors worth waiting out (anything the default policy would retry):
     transient 5xx / network / timeout / 429 / 999999. Used by async polling to
-    survive a blip without abandoning a multi-minute wait."""
+    survive a blip without abandoning a multi-minute wait. A tunnel the proxy left
+    unanswered counts too: it is not resent within one request, but a poll of a task already
+    paid for keeps waiting through it, as through any other timeout."""
+    if isinstance(error, httpx.ReadTimeout) and failed_before_tunnel(error):
+        return True
     return is_retryable_error(error, "default")
+
+
+def add_connection_hint(error: BaseException, *, proxied: bool) -> None:
+    """Attach :func:`connection_hint` as a note on a network error the SDK raises as it
+    is (Python 3.11+ prints notes with the traceback; 3.10 has no notes). A 407 is the
+    proxy asking for credentials — for an ``http://`` base URL it comes back as a plain
+    response rather than a refused tunnel — so it gets the same hint as ``ApiError.hint``."""
+    if isinstance(error, ApiError):
+        if proxied and error.status_code == 407 and error.hint is None:
+            error.hint = PROXY_AUTH_HINT
+        return
+    hint = connection_hint(error, proxied=proxied)
+    add_note = getattr(error, "add_note", None)
+    if hint is not None and add_note is not None:
+        add_note(hint)
 
 
 def _backoff_delay(attempt: int, base_ms: float = 400.0, max_ms: float = 4000.0) -> float:
@@ -498,6 +548,7 @@ def request_json(
     query: dict[str, str | int] | None = None,
     max_retries: int = 2,
     attempts: list[int] | None = None,
+    proxied: bool = False,
 ) -> Any:
     # ``attempts`` lets a caller that replays one logical request (the client's auth
     # recovery) share ONE transient-retry budget across those sends, as the CLI's
@@ -531,6 +582,7 @@ def request_json(
         except Exception as error:
             if budget[0] >= max_retries or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)
+                add_connection_hint(error, proxied=proxied)
                 raise
             time.sleep(_retry_delay(error, budget[0]))
             budget[0] += 1

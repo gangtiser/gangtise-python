@@ -20,7 +20,8 @@ class Auth:
 
         设了 GANGTISE_TOKEN 时就是它（``source="env-token"``，不联网、``cache`` 为 None）；
         否则有 AK/SK 就**真的登录一次**（``source="login"``，不复用缓存——换了凭证后缓存里
-        可能还是上一个账号），``cache`` 是这次登录本身的结果。
+        可能还是上一个账号），``cache`` 是这次登录本身的结果。同一客户端已有一次登录在进行时
+        与它共用这一次，不另登录；那次登录失败则同样报错。
         """
         return self._client.login()
 
@@ -54,7 +55,8 @@ class AsyncAuth:
 
         设了 GANGTISE_TOKEN 时就是它（``source="env-token"``，不联网、``cache`` 为 None）；
         否则有 AK/SK 就**真的登录一次**（``source="login"``，不复用缓存——换了凭证后缓存里
-        可能还是上一个账号），``cache`` 是这次登录本身的结果。
+        可能还是上一个账号），``cache`` 是这次登录本身的结果。同一客户端已有一次登录在进行时
+        与它共用这一次，不另登录；那次登录失败则同样报错。
         """
         return await self._client.login()
 

@@ -4,8 +4,13 @@
 # each code group do the same.)
 from __future__ import annotations
 
+import os
 import re
+import ssl
+from collections.abc import Iterator
 from typing import Any
+
+import httpx
 
 # Keyed by the code as a string — every envelope code is run through ``str()``
 # first, which matters because the 2026-07-17 overhaul emits the new codes as JSON
@@ -237,6 +242,14 @@ _MESSAGE_HINTS: list[
         '在 indicator_param 里该指标下再补一条 "tradeDate": "YYYY-MM-DD" 即可'
         "（两个日期都必填的指标就是这个形态）。" + _MULTI_NOTE,
     ),
+    # 字段名写错（三大报表等，msg 形如「fieldList 包含不支持的字段 [x]」）：docstring 不列
+    # 字段名，按码给的「对照 docstring」无从查起（TS v0.53.0）。
+    (
+        frozenset({"100005"}),
+        (re.compile(r"fieldList"),),
+        (),
+        "msg 点名的字段名不在该接口的字段集里：去掉 field 参数调用一次，返回的列名就是可用字段。",
+    ),
 ]
 
 
@@ -294,6 +307,151 @@ FOLLOWED_TARGET_HINT = (
     "请勿据此重试整个下载，否则会重新调用（并可能重新计费）已执行的上游；"
     "请先核实结果/扣费，再决定是否手动重试。"
 )
+
+
+# The standard proxy variables. The SDK does not read them (see _config.resolve_proxy_url),
+# so one that is set is the likeliest reason a request did not get out.
+_STANDARD_PROXY_VARIABLES = (
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+)
+_PROXY_UNREACHABLE_HINT = (
+    "连不上 GANGTISE_PROXY 指向的代理：核对代理地址与端口，并确认本机能连到它。"
+)
+PROXY_AUTH_HINT = (
+    "GANGTISE_PROXY 指向的代理要求认证：把账号写进地址，如 "
+    "http://用户名:密码@代理主机:端口（特殊字符按 URL 编码）。"
+)
+# Said whenever the client goes direct: a value set after it was created is not read.
+_SET_PROXY_HINT = (
+    "设置 GANGTISE_PROXY=http://代理主机:端口（SDK 不读 HTTPS_PROXY / HTTP_PROXY，也不读系统代理设置；"
+    "已创建的客户端读不到之后设的值，设好后调 gangtise.reset() 或新建客户端）"
+)
+
+
+def _mapped_from(error: BaseException) -> Iterator[BaseException]:
+    """``error``, then the errors it was mapped from: httpx chains the httpcore error as
+    ``__cause__``; httpcore passes the socket / ssl error it maps as ``args[0]``, and its
+    connection pool re-raises with ``from None``, which drops that ``__cause__``. Never
+    ``__context__``: that can be an unrelated exception the caller was handling. A chain
+    can loop back on itself (respx links a side effect's error and its wrapper both ways):
+    each error is visited once."""
+    visited: set[int] = set()
+    seen: BaseException | None = error
+    while seen is not None and id(seen) not in visited:
+        visited.add(id(seen))
+        yield seen
+        cause = seen.__cause__
+        if cause is None and seen.args and isinstance(seen.args[0], BaseException):
+            cause = seen.args[0]
+        seen = cause
+
+
+def _tls_failure(error: BaseException) -> bool:
+    return any(isinstance(seen, ssl.SSLError) for seen in _mapped_from(error))
+
+
+# How a tunnel request fails when the port takes the connection and then drops it, or
+# answers with something that is not HTTP.
+TUNNEL_DROPPED_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.RemoteProtocolError,
+)
+
+
+def failed_before_tunnel(error: BaseException) -> bool:
+    """Whether a request through the proxy failed while asking it for a tunnel (CONNECT),
+    before the tunnel opened — the request never reached the API. httpx reports these as
+    the errors of any request (``ReadTimeout``, ``ReadError``, ``RemoteProtocolError``), so
+    the tell is httpcore's tunnel connection in the traceback, not yet connected. That
+    reads httpcore internals: should they change, this only ever answers False. Only this
+    request's own chain is read (``_mapped_from``): an earlier tunnel failure the caller is
+    still handling would otherwise mark a request that went nowhere near a proxy."""
+    for seen in _mapped_from(error):
+        tb = seen.__traceback__
+        while tb is not None:
+            frame = tb.tb_frame
+            # Only frames of httpcore's proxy module are looked into. Reading the locals of
+            # any other — the request_json frame still handling this error among them —
+            # would, before Python 3.13, pin a snapshot of them (this error, the request
+            # body) to that frame: a reference cycle that holds both until the next gc.
+            filename = frame.f_code.co_filename
+            if os.path.basename(filename) == "http_proxy.py" and "httpcore" in filename:
+                owner = frame.f_locals.get("self")
+                if type(owner).__name__ in ("TunnelHTTPConnection", "AsyncTunnelHTTPConnection"):
+                    return getattr(owner, "_connected", None) is False
+            tb = tb.tb_next
+    return False
+
+
+def connection_hint(error: BaseException, *, proxied: bool, file_step: bool = False) -> str | None:
+    """What to check when a request could not be delivered at all (TS v0.53.0): the
+    raw error names an address and nothing else. None for every other failure — a
+    TLS failure included (an untrusted certificate is not a network problem).
+
+    ``proxied``: the client that sent it goes through GANGTISE_PROXY (its ``Config``,
+    fixed when it was created — not the environment now). ``file_step``: the request
+    went to the address a download endpoint answered with, so the API has been reached
+    and the base URL is not where it was going. Without a proxy, a standard proxy
+    variable found in the environment is named, never its value, which may hold a
+    password."""
+    target = "文件的下载地址" if file_step else "接口地址"
+    ask_admin = (
+        "请网络管理员确认代理放行该地址"
+        if file_step
+        else "核对 GANGTISE_BASE_URL，或请网络管理员确认代理放行该地址"
+    )
+    if isinstance(error, httpx.ProxyError):
+        # httpcore words a refused tunnel as "<status> <reason>".
+        if str(error).split(" ", 1)[0] == "407":
+            return PROXY_AUTH_HINT
+        return f"GANGTISE_PROXY 指向的代理没有接通到{target}的连接（{error}）：{ask_admin}。"
+    if _tls_failure(error):
+        return None
+    if proxied and failed_before_tunnel(error):
+        if isinstance(error, httpx.ReadTimeout):
+            return (
+                "GANGTISE_PROXY 指向的代理在限时内没有应答隧道请求：可能是代理连不到"
+                f"{target}（请网络管理员确认放行），也可能该端口不是 HTTP 代理。"
+            )
+        if isinstance(error, TUNNEL_DROPPED_ERRORS):
+            return (
+                "GANGTISE_PROXY 指向的地址没有按 HTTP 代理应答（连上后被断开，或回的不是 HTTP）："
+                "核对代理的地址、端口与协议（http:// 还是 https://），确认填的是 HTTP 代理端口"
+                "而不是 SOCKS 端口。"
+            )
+    if not isinstance(error, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return None
+    if proxied:
+        if isinstance(error, httpx.ConnectTimeout):
+            return (
+                "经 GANGTISE_PROXY 指向的代理建立连接超时：核对代理地址与端口；代理本身连得上时，"
+                f"多半是代理到{target}这一段不通，请网络管理员确认放行。"
+            )
+        return _PROXY_UNREACHABLE_HINT
+    if os.environ.get("GANGTISE_PROXY", "").strip():
+        return (
+            f"连不上{target}：这个客户端没有走代理——GANGTISE_PROXY 是在它创建之后才设的，"
+            "调 gangtise.reset() 或新建客户端后再试。"
+        )
+    if file_step:
+        return (
+            "连不上文件的下载地址：下载接口已经应答，这一步是去它给出的地址取文件。检查到该地址的"
+            f"网络；所在网络须经 HTTP 代理出网时，{_SET_PROXY_HINT}。"
+        )
+    standard = next((v for v in _STANDARD_PROXY_VARIABLES if os.environ.get(v, "").strip()), None)
+    if standard:
+        return (
+            f"连不上接口地址：检查网络与 GANGTISE_BASE_URL。环境里设了 {standard}，但 SDK 不读它"
+            "——要让请求也走这个代理，把 GANGTISE_PROXY 设成同一地址（须以 http:// 或 https:// 开头；"
+            "已创建的客户端读不到之后设的值，设好后调 gangtise.reset() 或新建客户端）。"
+        )
+    return f"连不上接口地址：检查网络与 GANGTISE_BASE_URL；所在网络须经 HTTP 代理出网时，{_SET_PROXY_HINT}。"
 
 
 class GangtiseError(Exception):

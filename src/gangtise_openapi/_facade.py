@@ -50,6 +50,7 @@ _CONFIG_FIELDS_FOR_EQUALITY = (
     "title_cache_path",
     "timeout_ms",
     "page_concurrency",
+    "proxy",
 )
 
 

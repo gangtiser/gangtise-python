@@ -190,7 +190,7 @@ export GANGTISE_SECRET_KEY=sk_xxx
 
 | 参数 | 类型 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| - | - | - | - | - | 无参数。返回 `{authorization, cache, source}`：设了 `GANGTISE_TOKEN` 时 `source="env-token"`（不联网、`cache` 为 None）；否则用 AK/SK 真登录一次（`source="login"`，不复用缓存——换了凭证后缓存里可能还是上一个账号）。 |
+| - | - | - | - | - | 无参数。返回 `{authorization, cache, source}`：设了 `GANGTISE_TOKEN` 时 `source="env-token"`（不联网、`cache` 为 None）；否则用 AK/SK 真登录一次（`source="login"`，不复用缓存——换了凭证后缓存里可能还是上一个账号；同一客户端已有登录在进行时与它共用这一次）。 |
 
 ### `auth.status`
 

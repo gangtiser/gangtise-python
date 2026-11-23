@@ -5,6 +5,51 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.9] - 2026-11-23
+
+与 `gangtise-openapi-cli` **v0.53.0** 对齐，无新增接口。
+
+### 变更
+
+- ⚠️ **代理只读新增的环境变量 `GANGTISE_PROXY`**：SDK 不再跟随 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，也不再读
+  macOS / Windows 的系统代理设置（此前经 httpx 默认读取）。这些设置常是为别的流量准备的（例如运行 AI agent 的环境
+  为模型 API 设置的代理），跟随它们会悄悄改变请求的出口地址，登记了出口 IP 的账号会因此报 `999016`。原先靠它们访问
+  接口的，把 `GANGTISE_PROXY` 设成同一地址。`SSL_CERT_FILE` / `SSL_CERT_DIR` 照常生效。
+- **登录失败时，同时在等这次登录的其他请求直接以同一个错误结束**，不再各自重新登录一遍——包括并发调用、`login()`，
+  以及全市场 K 线分片、多证券合批这类 SDK 内部的并发请求。此前网络不通时，N 个同时等待的请求会依次各登录 3 次。
+  失败后会再读一次 token 缓存：另一个进程（含 npm CLI）在此期间已登录成功的，沿用它的 token。
+- 经代理访问时：代理在建立隧道之前断开连接或回的不是 HTTP，请求并未到达接口，超时 / 5xx 不自动重发的接口也会
+  重试；代理一直不应答时只等一次超时、不再重试（此前按默认 30 秒的超时要等约 90 秒），已付费任务（AI 生成、
+  `tool.file_parse`）的结果轮询照常继续等。
+- 三大报表等的 `field` 写了不存在的字段名（`100005`）时，`hint` 改为：去掉 `field` 调用一次，返回的列名就是可用字段。
+
+### 新增
+
+- **环境变量 `GANGTISE_PROXY`**：接口请求与文件下载都经这个 HTTP(S) 代理转发，带账号写成
+  `http://用户名:密码@主机:端口`（特殊字符按 URL 编码）。只收 `http://` / `https://`，写法不对时在发请求前报
+  `ConfigError`，报错不显示取值。客户端在创建时读取它：之后才设的不会生效，要 `gangtise.reset()` 或新建客户端；
+  已配置过的 `gangtise.configure()` 遇到代理变化会报 `ConfigError`，传 `replace=True` 即可。`GANGTISE_VERBOSE=1`
+  时日志写明所用代理的主机与端口（不含账号）。
+- **请求没有送到接口时，异常附一条说明该查什么**。附在 httpx 异常的 `__notes__` 上（Python 3.11+ 未捕获时随
+  traceback 显示，自己捕获时读 `e.__notes__`）；下载失败的写在 `DownloadError` 的消息里；代理要求认证（407）的
+  写在 `ApiError.hint`。
+  - 没走代理：提示检查网络与 `GANGTISE_BASE_URL`；环境里设了 `HTTPS_PROXY` 这类变量时点名它（不显示取值）；
+    `GANGTISE_PROXY` 是在客户端创建之后才设的，说明要 `gangtise.reset()`。
+  - 走了代理：分别说明连不上代理、与代理建立连接超时、代理要求认证、代理没有接通到接口地址、代理没有应答，以及
+    该端口没有按 HTTP 代理应答（如填成了 SOCKS 端口）。
+  - 下载时去文件地址取文件那一步连不上，单独说明。证书校验失败等 TLS 错误不附说明。
+
+### 修复
+
+- 并发使用同一客户端时 token 的几处问题：
+  - 一个请求从 token 缓存文件读到的旧 token 可能覆盖刚登录得到的新 token，之后的请求仍发旧 token；`login()`
+    返回的 `cache` 也可能不是本次登录得到的。
+  - 异步客户端的登录在写 token 缓存时被取消（如 `asyncio.wait_for` 超时）、随后又登录一次时，旧 token 可能后写进
+    缓存文件，新建的客户端接着发出旧 token。
+  - 同步客户端多线程并发查询时偶发 `AssertionError`。
+- `repr(client.config)`（如在 notebook 里显示配置、写进日志）不再显示 `secret_key`、`token` 与 `proxy`（代理地址
+  可能带密码）。
+
 ## [0.5.8] - 2026-11-22
 
 与 `gangtise-openapi-cli` **v0.52.2** 对齐，无新增接口。

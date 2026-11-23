@@ -17,9 +17,12 @@ from gangtise_openapi._transport import (
     _deadline_exceeded,
     _parse_response,
     _retry_delay,
+    add_connection_hint,
     check_expected_shape,
+    client_limits,
     is_envelope,
     is_retryable_error,
+    log_proxy,
     request_deadline_seconds,
     unwrap_envelope,
 )
@@ -29,11 +32,10 @@ logger = get_logger()
 
 def build_async_client(config: Config) -> httpx.AsyncClient:
     timeout = httpx.Timeout(config.timeout_ms / 1000.0)
-    # Never fewer sockets than the fan-out width, or GANGTISE_PAGE_CONCURRENCY above
-    # the pool size would only queue requests inside httpx (TS v0.42.0).
-    pool = max(16, config.page_concurrency)
-    limits = httpx.Limits(max_connections=pool, max_keepalive_connections=pool, keepalive_expiry=60)
-    return httpx.AsyncClient(base_url=config.base_url, timeout=timeout, limits=limits)
+    log_proxy(config)
+    # Only GANGTISE_PROXY, never a proxy from the environment (see build_sync_client).
+    transport = httpx.AsyncHTTPTransport(limits=client_limits(config), proxy=config.proxy)
+    return httpx.AsyncClient(base_url=config.base_url, timeout=timeout, transport=transport)
 
 
 async def _do_request(
@@ -79,6 +81,7 @@ async def request_json_async(
     query: dict[str, str | int] | None = None,
     max_retries: int = 2,
     attempts: list[int] | None = None,
+    proxied: bool = False,
 ) -> Any:
     # ``attempts`` lets a caller that replays one logical request (the client's auth
     # recovery) share ONE transient-retry budget across those sends, as the CLI's
@@ -112,6 +115,7 @@ async def request_json_async(
         except Exception as error:
             if budget[0] >= max_retries or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)
+                add_connection_hint(error, proxied=proxied)
                 raise
             await anyio.sleep(_retry_delay(error, budget[0]))
             budget[0] += 1

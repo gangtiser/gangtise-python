@@ -30,10 +30,12 @@ def test_defaults(monkeypatch):
         "GANGTISE_TIMEOUT_MS",
         "GANGTISE_PAGE_CONCURRENCY",
         "GANGTISE_VERBOSE",
+        "GANGTISE_PROXY",
     ]:
         monkeypatch.delenv(k, raising=False)
     cfg = load_config()
     assert cfg.base_url == DEFAULT_BASE_URL
+    assert cfg.proxy is None
     assert cfg.timeout_ms == DEFAULT_TIMEOUT_MS
     assert cfg.access_key is None
     assert cfg.secret_key is None
@@ -171,3 +173,15 @@ def test_plain_http_base_url_warns_once_for_a_remote_host(monkeypatch):
         "http://[::1]:8080",
     ):
         assert warnings_for(lambda url=url: GangtiseClient(base_url=url)) == [], url
+
+
+def test_config_repr_shows_no_secret():
+    cfg = Config(
+        access_key="ak",
+        secret_key="SECRET-KEY",
+        token="Bearer TOKEN-VALUE",
+        proxy="http://user:PROXY-PW@proxy.test:8080",
+    )
+    shown = repr(cfg)
+    assert "SECRET-KEY" not in shown and "TOKEN-VALUE" not in shown and "PROXY-PW" not in shown
+    assert "access_key='ak'" in shown

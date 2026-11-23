@@ -1,6 +1,6 @@
 # gangtise-openapi
 
-[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 164 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.52.2 功能对齐。
+[Gangtise OpenAPI](https://openapi.gangtise.com) 的 Python SDK。把 164 个投研数据接口封装成带完整类型签名的 Python 方法，表格类结果直接返回 pandas DataFrame。与 npm CLI [`gangtise-openapi-cli`](https://github.com/gangtiser/gangtise-openapi-cli) v0.53.0 功能对齐。
 
 - **覆盖面**：观点（含海外媒体与投资人观点）、研报、公告、纪要与会议、行情 K 线与资金流向、指数成分权重、财务报表与估值、证券级数据指标（EDE）、债券、公募基金、AI 生成内容、专家情报与管理层情绪、个人云盘、股票池与个股笔记、微信群消息与群文件、联网搜索、PDF 解析。
 - **同步与异步**两套接口，方法与参数一一对应。
@@ -12,6 +12,13 @@
 ## 更新日志
 
 最近 5 个版本（完整记录见 [`CHANGELOG.md`](https://github.com/gangtiser/gangtise-python/blob/main/CHANGELOG.md)）：
+
+### 0.5.9 - 2026-11-23
+- 与 CLI **v0.53.0** 对齐，无新增接口。
+- ⚠️ **代理只读新增的环境变量 `GANGTISE_PROXY`**，不再跟随 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY` 与系统代理设置：这些设置常是为别的流量准备的，跟随它们会改变请求的出口地址。原先靠它们访问接口的，把 `GANGTISE_PROXY` 设成同一地址。
+- 请求没有送到接口时（连不上、代理要求认证或不应答等），异常附一条说明该查什么（`e.__notes__`，Python 3.11+）。
+- 登录失败时，同时等这次登录的其他请求不再各自重新登录；另一个进程已登录成功的，沿用它的 token。
+- 修复并发时旧 token 覆盖新 token、同步客户端偶发 `AssertionError`；`repr(client.config)` 不再显示密钥与 token。
 
 ### 0.5.8 - 2026-11-22
 - 与 CLI **v0.52.2** 对齐，无新增接口。
@@ -41,13 +48,6 @@
 - `fund.etf_pcf_components` 补码：A / H 同名而价格定不了的行，改用该行的 `pctChange` 与日 K 的收盘价 + 涨跌幅核对，能定的不再留 null。
 - **修复**（下载）：服务端文件名自带的扩展名原样保留（0.5.4 会把 `config.ini` 存成 `config.ini.txt`）；Python 3.13 上 `filename*` 解不出时改用普通 `filename`（0.5.4 存成 `<前缀>-<id>`）。
 
-### 0.5.4 - 2026-11-02
-- 与 CLI **v0.50.0** 对齐，新增 5 个接口，共 **158 个**。
-- **新增**：个股投资笔记 `vault.stock_note_list` / `stock_note_add` / `stock_note_update` / `stock_note_delete`（全部免费，只操作本人笔记；删除须 `confirm=True`，新增超时不自动重发）；`quote.sector_fund_flow`（板块日资金流向，免费）。
-- `vault.stock_pool_list` / `stock_pool_stocks` 新增 `space_type`（`2` 查所属租户的股票池）；路演 / 调研 / 策略会 / 论坛列表新增 `publish_start_time` / `publish_end_time`（按收录时间筛选）。
-- `indicator.time_series` 不传 `calendar_type` 时不再先查 `indicator.search`、也不再自动发 `TD`，由服务端选日期轴（纯交易日类序列结果不变）；空结果的告警先指向日期轴。⚠️ **服务端口径变化（0.5.3 同样受影响）**：不传 `calendarType` 时服务端按指标定日期轴（行情类交易日、报告期类报告期、混查取并集），报告期类不再返回逐日 null 行，区间里没有报告期末时返回空结果；一致预期类（`frcst_*`）要逐日序列请传 `calendar_type="ND"`。
-- `fund.etf_pcf_components` 补码：同名证券在两个市场都有时，实时价对得上还要另一市场那只的近期收盘价对不上才采用；没补上代码的行里有一行可能在两个市场（含价格同时对得上 A / H 的行）时，不按其余行推断 ETF 的市场，这类行为 null。含 A / H 同名成分的 ETF 每次都会查日 K（免费；此前只在有行与实时价对不上时才查）。
-
 ## 安装
 
 ```bash
@@ -76,10 +76,13 @@ export GANGTISE_SECRET_KEY=sk_xxx
 | `GANGTISE_ACCESS_KEY` / `GANGTISE_SECRET_KEY` | 账号凭证，SDK 用它们登录换取 token |
 | `GANGTISE_TOKEN` | 直接使用已有 token，优先于 AK/SK；失效时若同时配了 AK/SK 会自动重新登录 |
 | `GANGTISE_BASE_URL` | 接口地址，默认 `https://openapi.gangtise.com`。用明文 `http://` 且不是本机地址时告警一次（凭证会明文传输） |
+| `GANGTISE_PROXY` | 所在网络须经 HTTP 代理出网时设置，如 `http://proxy.example.com:8080`，带账号写成 `http://用户名:密码@主机:端口`（特殊字符按 URL 编码）。接口请求与文件下载都经它转发；只收 `http://` / `https://`，写法不对时在发请求前报 `ConfigError`，报错不显示取值 |
 | `GANGTISE_TIMEOUT_MS` | 单次请求的超时（整数毫秒，1000–3600000，默认 30000）。同步 AI 生成类接口与 `ai.stock_summary_list` 另有 120 秒下限，`tool.file_parse` 与 `vault.drive_upload` 两个上传接口为 300 秒 |
 | `GANGTISE_PAGE_CONCURRENCY` | 自动翻页与分片的并发数，默认 5，最大 32 |
 | `GANGTISE_VERBOSE` | 设为 `1` 时输出每个请求的耗时日志 |
 | `GANGTISE_TOKEN_CACHE_PATH` / `GANGTISE_TITLE_CACHE_PATH` | token 缓存与下载文件名缓存的位置，默认在 `~/.config/gangtise/` |
+
+SDK **只读 `GANGTISE_PROXY`，不读 `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，也不读 macOS / Windows 的系统代理设置**：这些设置常是为别的流量设的，跟随它们会改变请求的出口地址（登记了出口 IP 的账号，出口一变就报 `999016`）。与 npm CLI 一致。证书相关的 `SSL_CERT_FILE` / `SSL_CERT_DIR` 照常生效。客户端在创建时读取配置：之后才设的 `GANGTISE_PROXY` 不会生效，要调 `gangtise.reset()`（或 `gangtise.configure(..., replace=True)`、新建客户端）。
 
 环境变量设成空字符串按未设置处理。token 缓存与 npm CLI 共用同一个文件，并记录签发它的凭证：换了 `GANGTISE_ACCESS_KEY` 后不会沿用上一个账号的 token。
 
@@ -219,8 +222,10 @@ try:
 except ApiError as e:
     print(e.code, e.hint, e.trace_id)
 except (GangtiseError, httpx.HTTPError) as e:
-    print(type(e).__name__, e)
+    print(type(e).__name__, e, *getattr(e, "__notes__", ()))
 ```
+
+请求没有送到接口时（连不上、连接超时、代理拒绝或不应答），httpx 异常上附一条中文说明该查什么，放在 `__notes__` 里：Python 3.11+ 未捕获时随 traceback 打印，自己捕获时要读 `e.__notes__`，如上面示例的最后一行（`str(e)` 里没有它；Python 3.10 没有这条说明）。没设代理时提示检查网络与 `GANGTISE_BASE_URL`，环境里设了 `HTTPS_PROXY` 这类变量时点名它；设了 `GANGTISE_PROXY` 时说明是连不上代理、代理要求认证、代理没有接通到接口地址、代理没有应答，还是该端口没有按 HTTP 代理应答。代理要求认证（407）时 `ApiError.hint` 写明怎么带账号；下载失败的这条说明写在 `DownloadError` 的消息里。
 
 ## 示例
 

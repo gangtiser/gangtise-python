@@ -21,9 +21,11 @@ from gangtise_openapi._client import AsyncGangtiseClient, GangtiseClient, _AuthR
 from gangtise_openapi._endpoints import EndpointDef, lookup
 from gangtise_openapi._errors import (
     FOLLOWED_TARGET_HINT,
+    PROXY_AUTH_HINT,
     ApiError,
     DownloadError,
     ValidationError,
+    connection_hint,
 )
 from gangtise_openapi._state_paths import assert_not_state_path
 from gangtise_openapi._transport import (
@@ -32,6 +34,7 @@ from gangtise_openapi._transport import (
     _apply_policy_hint,
     _effective_timeout,
     _retry_delay,
+    add_connection_hint,
     is_envelope,
     is_retryable_error,
     parse_retry_after_ms,
@@ -41,6 +44,22 @@ from gangtise_openapi._transport import (
 
 # Matches request_json's default max_retries (see _transport.py).
 _MAX_RETRIES = 2
+
+
+def _with_hint(
+    message: str, error: BaseException, *, proxied: bool, file_step: bool = False
+) -> str:
+    """A download failure's message, with what to check when the connection was never
+    made (``_errors.connection_hint``)."""
+    hint = connection_hint(error, proxied=proxied, file_step=file_step)
+    return f"{message} — {hint}" if hint else message
+
+
+def _with_status_hint(message: str, status: int, *, proxied: bool) -> str:
+    """A file address answered over plain http goes through the proxy as a forwarded
+    request: a 407 there is the proxy asking for credentials, not the file's host."""
+    return f"{message} — {PROXY_AUTH_HINT}" if proxied and status == 407 else message
+
 
 # Cap on chained presigned-URL hops (a 200+JSON ``{url}`` pointing at another
 # ``{url}``). Bounds a self-referential / cyclic chain so it fails with a
@@ -420,7 +439,7 @@ def download_to_path(
 
     token = client._get_token()
     attempt = 0
-    auth_state = _AuthRecovery()
+    auth_state = _AuthRecovery(seen_logins=client._logins_minted)
     while True:
         try:
             return _download_once(
@@ -456,12 +475,19 @@ def download_to_path(
             # my-conference are no-replay) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)
+                add_connection_hint(error, proxied=client.config.proxy is not None)
                 raise
             time.sleep(_retry_delay(error, attempt))
             attempt += 1
         except httpx.HTTPError as error:
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
-                raise DownloadError(f"download failed: {error}") from error
+                raise DownloadError(
+                    _with_hint(
+                        f"download failed: {error}",
+                        error,
+                        proxied=client.config.proxy is not None,
+                    )
+                ) from error
             time.sleep(_retry_delay(error, attempt))
             attempt += 1
 
@@ -870,8 +896,12 @@ def _download_presigned_url(
                             parse_retry_after_ms(response.headers.get("retry-after"), time.time())
                         )
                     raise DownloadError(
-                        f"presigned URL fetch failed: HTTP {response.status_code} "
-                        f"({_redact_url(url)})"
+                        _with_status_hint(
+                            f"presigned URL fetch failed: HTTP {response.status_code} "
+                            f"({_redact_url(url)})",
+                            response.status_code,
+                            proxied=client.config.proxy is not None,
+                        )
                     )
                 if "application/json" in response.headers.get("content-type", "").lower():
                     response.read()
@@ -908,7 +938,12 @@ def _download_presigned_url(
         except httpx.HTTPError as error:
             if attempt >= _MAX_RETRIES or not is_retryable_error(error):
                 raise DownloadError(
-                    f"presigned URL fetch failed: {error} ({_redact_url(url)})"
+                    _with_hint(
+                        f"presigned URL fetch failed: {error} ({_redact_url(url)})",
+                        error,
+                        proxied=client.config.proxy is not None,
+                        file_step=True,
+                    )
                 ) from error
             time.sleep(_retry_delay(error, attempt))
             attempt += 1
@@ -969,7 +1004,7 @@ async def download_to_path_async(
 
     token = await client._get_token()
     attempt = 0
-    auth_state = _AuthRecovery()
+    auth_state = _AuthRecovery(seen_logins=client._logins_minted)
     while True:
         try:
             return await _download_once_async(
@@ -999,12 +1034,19 @@ async def download_to_path_async(
             # my-conference are no-replay) — honor the endpoint's retry policy here as well.
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
                 _apply_policy_hint(endpoint, error)
+                add_connection_hint(error, proxied=client.config.proxy is not None)
                 raise
             await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1
         except httpx.HTTPError as error:
             if attempt >= _MAX_RETRIES or not is_retryable_error(error, endpoint.retry):
-                raise DownloadError(f"download failed: {error}") from error
+                raise DownloadError(
+                    _with_hint(
+                        f"download failed: {error}",
+                        error,
+                        proxied=client.config.proxy is not None,
+                    )
+                ) from error
             await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1
 
@@ -1278,8 +1320,12 @@ async def _download_presigned_url_async(
                             parse_retry_after_ms(response.headers.get("retry-after"), time.time())
                         )
                     raise DownloadError(
-                        f"presigned URL fetch failed: HTTP {response.status_code} "
-                        f"({_redact_url(url)})"
+                        _with_status_hint(
+                            f"presigned URL fetch failed: HTTP {response.status_code} "
+                            f"({_redact_url(url)})",
+                            response.status_code,
+                            proxied=client.config.proxy is not None,
+                        )
                     )
                 if "application/json" in response.headers.get("content-type", "").lower():
                     await _aread_within(response, deadline)
@@ -1315,7 +1361,12 @@ async def _download_presigned_url_async(
         except httpx.HTTPError as error:
             if attempt >= _MAX_RETRIES or not is_retryable_error(error):
                 raise DownloadError(
-                    f"presigned URL fetch failed: {error} ({_redact_url(url)})"
+                    _with_hint(
+                        f"presigned URL fetch failed: {error} ({_redact_url(url)})",
+                        error,
+                        proxied=client.config.proxy is not None,
+                        file_step=True,
+                    )
                 ) from error
             await anyio.sleep(_retry_delay(error, attempt))
             attempt += 1

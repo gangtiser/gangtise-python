@@ -9,6 +9,8 @@
 ```bash
 export GANGTISE_ACCESS_KEY=ak_xxx
 export GANGTISE_SECRET_KEY=sk_xxx
+# 所在网络须经 HTTP 代理访问外网时（SDK 不读 HTTPS_PROXY / HTTP_PROXY）
+export GANGTISE_PROXY=http://proxy.example.com:8080
 ```
 
 ## 运行

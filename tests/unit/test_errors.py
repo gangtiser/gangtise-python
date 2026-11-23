@@ -342,3 +342,13 @@ def test_both_keys_refused_routes_to_the_escape_hatch_rule():
     assert hint is not None
     assert "fiscalYear" in hint
     assert "{}" in hint
+
+
+def test_unknown_field_name_hint_points_at_the_returned_columns():
+    # docstrings list no field names, so the per-code「对照 docstring」leads nowhere
+    # (TS v0.53.0); the message rule only claims 100005.
+    for message in ["fieldList 枚举值非法: notARealField", "fieldList 包含不支持的字段 [x]"]:
+        hint = ApiError(message, code="100005").hint
+        assert hint is not None and "去掉 field 参数" in hint
+    assert ApiError("参数值非法", code="100005").hint == ERROR_HINTS["100005"]
+    assert "去掉 field" not in (ApiError("fieldList 枚举值非法: x", code="100003").hint or "")

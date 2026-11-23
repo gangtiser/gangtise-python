@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
+
+from gangtise_openapi._errors import ConfigError
+
 DEFAULT_BASE_URL = "https://openapi.gangtise.com"
 DEFAULT_TIMEOUT_MS = 30_000
 DEFAULT_PAGE_CONCURRENCY = 5
@@ -19,13 +23,17 @@ DEFAULT_TITLE_CACHE_PATH = Path.home() / ".config" / "gangtise" / "title-cache.j
 class Config:
     base_url: str = DEFAULT_BASE_URL
     access_key: str | None = None
-    secret_key: str | None = None
-    token: str | None = None
+    # Kept out of repr (a notebook or log showing client.config): a secret, a token, a proxy
+    # URL with a password. Tools that record frame locals still see them as plain values
+    # where the SDK handles them (the login body, for one).
+    secret_key: str | None = field(default=None, repr=False)
+    token: str | None = field(default=None, repr=False)
     token_cache_path: Path = field(default_factory=lambda: DEFAULT_TOKEN_CACHE_PATH)
     title_cache_path: Path = field(default_factory=lambda: DEFAULT_TITLE_CACHE_PATH)
     timeout_ms: int = DEFAULT_TIMEOUT_MS
     page_concurrency: int = DEFAULT_PAGE_CONCURRENCY
     verbose: bool = False
+    proxy: str | None = field(default=None, repr=False)
 
 
 # Fan-out cap for GANGTISE_PAGE_CONCURRENCY: an absurd value would fan out one
@@ -110,6 +118,39 @@ def warn_if_plain_http(base_url: str) -> None:
     )
 
 
+def resolve_proxy_url() -> str | None:
+    """GANGTISE_PROXY: the HTTP(S) proxy every request and download goes through, for
+    networks that reach the internet only through one (TS v0.53.0). Only this variable
+    is read, not HTTPS_PROXY / HTTP_PROXY / ALL_PROXY: those are commonly set for other
+    traffic, and following them would re-route these requests — and change the address
+    the platform sees them come from — without anything saying so. The value can hold a
+    password (``http://user:pass@host:port``), so no message echoes it."""
+    raw = _env("GANGTISE_PROXY")
+    if raw is None:
+        return None
+    try:
+        # Parsed the way the transport will parse it, so that whatever it would refuse
+        # later (an IPv4 octet past 255, a control character) is refused here.
+        url = httpx.Proxy(raw).url
+        valid = (
+            url.scheme in ("http", "https")
+            and bool(url.host)
+            # httpx percent-encodes what a host name cannot hold (a space) instead of
+            # refusing it.
+            and "%" not in url.host
+            and (url.port is None or 0 < url.port < 65536)
+        )
+    except (httpx.InvalidURL, ValueError):
+        valid = False
+    if not valid:
+        raise ConfigError(
+            "GANGTISE_PROXY is not an http(s) proxy URL: expected http://host:port (with "
+            "credentials: http://user:password@host:port). Its value is not shown, as it "
+            "may hold a password."
+        )
+    return raw
+
+
 def _truthy(value: str | None) -> bool:
     return value in {"1", "true", "True", "yes", "YES"}
 
@@ -148,4 +189,5 @@ def load_config() -> Config:
             maximum=MAX_PAGE_CONCURRENCY,
         ),
         verbose=_truthy(_env("GANGTISE_VERBOSE")),
+        proxy=resolve_proxy_url(),
     )
